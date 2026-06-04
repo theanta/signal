@@ -2,12 +2,12 @@
   "name": "@anta/backend",
   "version": "1.0.0",
   "description": "ANTA Lead Radar - Node.js/Express API",
-  "main": "dist/api/server.js",
+  "main": "dist/backend/api/server.js",
   "private": true,
   "scripts": {
     "dev": "DOTENV_CONFIG_PATH=../.env ts-node-dev --respawn --transpile-only api/server.ts",
     "build": "tsc",
-    "start": "DOTENV_CONFIG_PATH=../.env node dist/api/server.js",
+    "start": "node dist/backend/api/server.js",
     "lint": "eslint . --ext .ts"
   },
   "dependencies": {
