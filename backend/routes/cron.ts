@@ -102,7 +102,7 @@ async function runOutreachGeneration(): Promise<void> {
       const existing = await db.getOutreachMessages(lead.id);
       if (existing.length > 0) continue;
 
-      const signalData = signals[0].raw_analysis as Parameters<typeof generateOutreach>[1];
+      const signalData = signals[0].raw_analysis as unknown as Parameters<typeof generateOutreach>[1];
       const outreach = await generateOutreach(lead, signalData, 'email');
 
       await db.createOutreachMessage({
