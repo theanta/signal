@@ -6,6 +6,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 
+// Load .env for local dev; in production env vars are injected by the platform
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 import leadsRouter from '../routes/leads';
