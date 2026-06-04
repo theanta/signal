@@ -1,0 +1,35 @@
+{
+  "name": "@anta/backend",
+  "version": "1.0.0",
+  "description": "ANTA Lead Radar - Node.js/Express API",
+  "main": "dist/api/server.js",
+  "private": true,
+  "scripts": {
+    "dev": "DOTENV_CONFIG_PATH=../.env ts-node-dev --respawn --transpile-only api/server.ts",
+    "build": "tsc",
+    "start": "DOTENV_CONFIG_PATH=../.env node dist/api/server.js",
+    "lint": "eslint . --ext .ts"
+  },
+  "dependencies": {
+    "groq-sdk": "^0.7.0",
+    "@supabase/supabase-js": "^2.45.0",
+    "axios": "^1.7.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "express-rate-limit": "^7.4.1",
+    "helmet": "^8.0.0",
+    "morgan": "^1.10.0",
+    "node-cron": "^3.0.3",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/morgan": "^1.9.9",
+    "@types/node": "^22.7.5",
+    "@types/node-cron": "^3.0.11",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.6.3"
+  }
+}
