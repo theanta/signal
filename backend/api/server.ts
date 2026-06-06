@@ -21,10 +21,12 @@ const PORT = process.env.BACKEND_PORT ?? 3001;
 
 // ---- Security middleware ----
 app.use(helmet());
+const allowedOrigins = process.env.NODE_ENV === 'production'
+  ? (process.env.FRONTEND_URL ?? '').split(',').map(o => o.trim()).filter(Boolean)
+  : ['http://localhost:3000', 'http://localhost:3001'];
+
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production'
-    ? process.env.FRONTEND_URL
-    : ['http://localhost:3000', 'http://localhost:3001'],
+  origin: allowedOrigins.length === 1 ? allowedOrigins[0] : allowedOrigins,
   credentials: true,
 }));
 
