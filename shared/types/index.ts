@@ -181,6 +181,8 @@ export interface LeadContact {
 
 export interface SignalAnalysisResult {
   lead_score: number;
+  disqualified?: boolean;
+  disqualify_reason?: string;
   likely_pain_points: string[];
   recommended_anta_service: string;
   outreach_angle: string;
@@ -294,6 +296,45 @@ export const DEFAULT_PLATFORM_CONFIG: PlatformConfig = {
   target_industries: [],
   active_sources: ['linkedin', 'crunchbase', 'job_board', 'local_business'],
 };
+
+// ---- Auth ----
+
+export type UserRole = 'admin' | 'member';
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  last_login?: string;
+  created_at: string;
+}
+
+export interface JwtPayload {
+  sub: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  iat?: number;
+  exp?: number;
+}
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface RegisterRequest {
+  email: string;
+  password: string;
+  name: string;
+  role?: UserRole;
+}
+
+export interface AuthResponse {
+  user: AuthUser;
+  accessToken: string;
+}
 
 // ---- Filters ----
 

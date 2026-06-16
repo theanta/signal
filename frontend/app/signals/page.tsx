@@ -35,7 +35,7 @@ export default function SignalsPage() {
     refetchInterval: 60_000,
   });
 
-  const { trigger: handleScrape, running: scraping } = useScrapeJob(refetch);
+  const { trigger: handleScrape, running: scraping } = useScrapeJob(refetch, refetch);
 
   const statusIcon = (status: string) => {
     if (status === 'completed') return <CheckCircle className="w-4 h-4 text-success" />;

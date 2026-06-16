@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
-import Sidebar from '@/components/ui/Sidebar';
+import { AuthProvider } from '@/contexts/AuthContext';
+import { AppShell } from '@/components/ui/AppShell';
 import QueryProvider from '@/components/ui/QueryProvider';
 import { ToastProvider } from '@/components/ui/Toast';
 
@@ -14,12 +15,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body className="flex h-screen overflow-hidden bg-canvas">
         <QueryProvider>
-          <ToastProvider>
-            <Sidebar />
-            <main className="flex-1 overflow-y-auto">
-              {children}
-            </main>
-          </ToastProvider>
+          <AuthProvider>
+            <ToastProvider>
+              <AppShell>{children}</AppShell>
+            </ToastProvider>
+          </AuthProvider>
         </QueryProvider>
       </body>
     </html>

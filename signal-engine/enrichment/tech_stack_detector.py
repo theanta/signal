@@ -87,7 +87,14 @@ def infer_gaps(tech_stack: list[str]) -> list[str]:
     """
     Given detected tech, return a list of likely-missing capabilities
     that ANTA can fill.
+
+    Returns empty list when tech_stack is empty: an empty scan means the site
+    was unreachable, behind a CDN we can't fingerprint, or running proprietary
+    enterprise infrastructure — none of these are evidence of SMB tech gaps.
     """
+    if not tech_stack:
+        return []
+
     gaps: list[str] = []
 
     has_crm = any(t in tech_stack for t in ["HubSpot", "Salesforce", "Zendesk", "Intercom"])

@@ -1,6 +1,7 @@
 """ANTA Lead Radar - Signal Engine (FastAPI)"""
 
 import asyncio
+import re
 import uuid
 from datetime import datetime
 from typing import Optional
@@ -23,6 +24,61 @@ from classifiers.industry_classifier import IndustryClassifier
 from enrichment.website_verifier import verify_website
 from enrichment.tech_stack_detector import detect_tech_stack, infer_gaps
 from enrichment.contact_finder import find_contact
+
+# ============================================================
+# ENTERPRISE DISQUALIFICATION
+# Companies too large for ANTA's SMB target market.
+# Matched after stripping common legal suffixes (Inc, LLC, Corp…).
+# ============================================================
+
+_CORP_SUFFIX_RE = re.compile(
+    r'\s*(inc\.?|llc\.?|corp\.?|co\.?|ltd\.?|plc\.?|group|company|corporation|incorporated|limited)\s*$',
+    re.IGNORECASE,
+)
+
+ENTERPRISE_BRANDS: frozenset[str] = frozenset([
+    # Big tech
+    "oracle", "microsoft", "google", "alphabet", "amazon", "apple", "meta", "facebook",
+    "ibm", "intel", "cisco", "dell", "hp", "hewlett packard", "nvidia",
+    "qualcomm", "broadcom", "amd", "texas instruments",
+    "salesforce", "sap", "servicenow", "workday", "snowflake", "palantir",
+    # Michigan auto
+    "general motors", "ford", "stellantis", "chrysler", "fiat chrysler",
+    "toyota", "honda", "hyundai", "kia", "bmw", "mercedes", "volkswagen",
+    # Defense / industrial
+    "boeing", "lockheed", "lockheed martin", "raytheon", "northrop grumman",
+    "general electric", "l3harris", "bae systems",
+    # Consulting / Big 4
+    "deloitte", "accenture", "mckinsey", "pwc", "pricewaterhousecoopers",
+    "kpmg", "ernst & young", "bain", "boston consulting group", "booz allen",
+    # Finance
+    "jpmorgan", "bank of america", "wells fargo", "citibank", "citigroup",
+    "goldman sachs", "morgan stanley", "blackrock", "vanguard",
+    "american express", "capital one",
+    # Retail
+    "walmart", "target", "home depot", "costco", "kroger", "meijer", "cvs", "walgreens",
+    # Healthcare / pharma
+    "pfizer", "johnson & johnson", "merck", "abbvie", "abbott",
+    "unitedhealth", "united healthcare", "humana", "aetna", "cigna",
+    "blue cross blue shield", "blue cross", "bcbs",
+    # Telecom
+    "at&t", "verizon", "comcast", "t-mobile", "charter",
+    # Logistics
+    "ups", "fedex", "dhl",
+    # Enterprise SaaS (they are the vendors, not the buyers)
+    "zendesk", "hubspot", "shopify", "stripe", "twilio", "atlassian",
+])
+
+
+def _is_enterprise_company(company_name: str, company_size: str | None) -> tuple[bool, str]:
+    """Return (True, reason) when a lead should be disqualified as enterprise."""
+    if (company_size or "").lower() == "1000+":
+        return True, "company size is 1,000+ employees — outside ANTA's SMB target market"
+    normalized = _CORP_SUFFIX_RE.sub("", company_name.lower()).strip()
+    if normalized in ENTERPRISE_BRANDS:
+        return True, f"{company_name} is a known enterprise company — outside ANTA's SMB target market"
+    return False, ""
+
 
 app = FastAPI(
     title="ANTA Lead Radar Signal Engine",
@@ -99,6 +155,34 @@ def health():
 async def analyze_lead(request: AnalysisRequest):
     """Analyze a raw lead and return signals, score, pain points, tech stack, and contact."""
     lead = request.lead
+
+    # ---- Enterprise disqualification (runs before any expensive enrichment) ----
+    is_enterprise, disqualify_reason = _is_enterprise_company(lead.company_name, lead.company_size)
+    if is_enterprise:
+        return {
+            "lead_score": 0,
+            "disqualified": True,
+            "disqualify_reason": disqualify_reason,
+            "likely_pain_points": [],
+            "recommended_anta_service": "N/A — Enterprise",
+            "outreach_angle": "",
+            "operational_maturity": "N/A — Enterprise company, not ANTA's target market",
+            "growth_indicators": [],
+            "digital_maturity_score": 10,
+            "signal_type": "disqualified",
+            "confidence_score": 1.0,
+            "scoring_breakdown": {
+                "company_size_score": 0,
+                "hiring_urgency_score": 0,
+                "complexity_score": 0,
+                "digital_score": 0,
+            },
+            "scoring_rationale": f"Disqualified: {disqualify_reason}.",
+            "tech_stack": [],
+            "tech_gaps": [],
+            "verified_website": lead.website,
+            "contact": None,
+        }
 
     target_locations = request.config.target_locations if request.config else None
 

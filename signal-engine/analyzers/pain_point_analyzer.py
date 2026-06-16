@@ -154,19 +154,10 @@ class PainPointAnalyzer:
                 service_key = override["service"]
                 break
 
-        # Prepend tech-stack-derived gaps as the most specific, concrete pain points
-        # These are more credible than inferred pains because they're observed, not guessed
-        for gap in reversed(tech_gaps[:2]):
-            if gap not in pain_points:
-                pain_points.insert(0, gap)
-
-        # Refine the outreach angle when we have concrete tech evidence
-        if tech_stack or tech_gaps:
-            tech_context = ""
-            if tech_stack:
-                tech_context = f" We can see you're running {', '.join(tech_stack[:3])}."
-            if tech_gaps:
-                tech_context += f" {tech_gaps[0]}."
+        # Refine the outreach angle when we have concrete detected tech (not inferred gaps —
+        # gap text is speculative and breaks the sentence if appended raw)
+        if tech_stack:
+            tech_context = f" We can see you're running {', '.join(tech_stack[:3])}."
             angle = angle.rstrip(".") + tech_context
 
         service_name = ANTA_SERVICES.get(service_key, "Custom Software Development")

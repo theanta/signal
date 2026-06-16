@@ -158,6 +158,23 @@ export default function LeadDetailPage() {
         {activeTab === 'overview' && (
           <div className="space-y-4">
             {latestSignal ? (
+              latestSignal.signal_type === 'disqualified' ? (
+                /* Disqualified enterprise lead */
+                <div className="card p-6 border-l-4 border-l-muted">
+                  <div className="flex items-start gap-3">
+                    <Target className="w-5 h-5 text-muted mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium text-ink">Lead Disqualified</p>
+                      <p className="text-sm text-body mt-1">
+                        {(latestSignal.raw_analysis?.disqualify_reason as string) ?? latestSignal.operational_maturity}
+                      </p>
+                      <p className="text-xs text-muted mt-2">
+                        This company falls outside ANTA&apos;s SMB target market. No outreach will be generated.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Pain Points */}
                 <div className="card p-5">
@@ -189,6 +206,7 @@ export default function LeadDetailPage() {
                   </div>
                 </div>
               </div>
+              )
             ) : (
               <div className="card p-8 text-center">
                 <Brain className="w-10 h-10 text-surface-strong mx-auto mb-3" />

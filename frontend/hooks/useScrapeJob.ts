@@ -7,7 +7,7 @@ import { useToast } from '@/components/ui/Toast';
 const POLL_INTERVAL_MS = 5_000;
 const JOB_TIMEOUT_MS = 5 * 60_000;
 
-export function useScrapeJob(onComplete?: () => void) {
+export function useScrapeJob(onComplete?: () => void, onProgress?: () => void) {
   const [running, setRunning] = useState(false);
   const { addToast, updateToast } = useToast();
 
@@ -41,6 +41,7 @@ export function useScrapeJob(onComplete?: () => void) {
     try {
       const result = await triggerScrape();
       jobId = result.job_id;
+      onProgress?.();
     } catch {
       updateToast(toastId, {
         type: 'error',
@@ -62,6 +63,7 @@ export function useScrapeJob(onComplete?: () => void) {
     intervalRef.current = setInterval(async () => {
       try {
         const status = await getScrapeStatus(jobId);
+        onProgress?.();
         if (status.status === 'completed') {
           const n = status.results ?? 0;
           finish('success', `Scrape complete — ${n} lead${n !== 1 ? 's' : ''} found`);

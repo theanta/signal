@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
   Users,
@@ -9,8 +9,10 @@ import {
   Zap,
   Settings,
   Radar,
+  LogOut,
 } from 'lucide-react';
 import { clsx } from 'clsx';
+import { useAuth } from '@/contexts/AuthContext';
 
 const NAV_ITEMS = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -22,6 +24,13 @@ const NAV_ITEMS = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { user, logout } = useAuth();
+
+  const handleLogout = async () => {
+    await logout();
+    router.push('/login');
+  };
 
   return (
     <aside className="w-56 flex-shrink-0 flex flex-col bg-canvas border-r border-hairline h-screen">
@@ -60,9 +69,21 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* Footer */}
-      <div className="px-5 py-4 border-t border-hairline">
-        <div className="text-xs text-muted">Detroit, MI · ANTA Software</div>
+      {/* User + Logout */}
+      <div className="px-3 py-4 border-t border-hairline space-y-1">
+        {user && (
+          <div className="px-3 py-2">
+            <div className="text-xs font-medium text-ink truncate">{user.name}</div>
+            <div className="text-[11px] text-muted truncate">{user.email}</div>
+          </div>
+        )}
+        <button
+          onClick={handleLogout}
+          className="flex items-center gap-3 w-full px-3 py-2.5 rounded-md text-sm font-medium text-body hover:bg-surface-soft hover:text-ink transition-colors duration-100"
+        >
+          <LogOut className="w-4 h-4 flex-shrink-0" />
+          <span>Sign out</span>
+        </button>
       </div>
     </aside>
   );
