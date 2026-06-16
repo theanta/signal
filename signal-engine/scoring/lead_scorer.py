@@ -55,9 +55,13 @@ class LeadScorer:
         description: str,
         location: str,
         industry: str,
+        tech_stack: list[str] | None = None,
+        tech_gaps: list[str] | None = None,
     ) -> dict:
         text = f"{hiring_signal} {job_title} {description}".lower()
         location_lower = location.lower()
+        tech_stack = tech_stack or []
+        tech_gaps = tech_gaps or []
 
         # ---- Component 1: Company size (0-25) ----
         size_key = company_size.lower().strip()
@@ -80,6 +84,11 @@ class LeadScorer:
         for pattern in GROWTH_SIGNALS:
             if re.search(pattern, text, re.IGNORECASE):
                 digital_score = min(digital_score + 4, 20)
+
+        # Tech gap bonus: each confirmed missing tool adds concrete evidence of need
+        # Cap the bonus at +5 so a single signal doesn't dominate
+        tech_gap_bonus = min(len(tech_gaps) * 2, 5)
+        digital_score = min(digital_score + tech_gap_bonus, 25)
 
         # Digital maturity score (inverse — lower maturity = higher opportunity)
         digital_maturity_raw = 10
@@ -124,6 +133,8 @@ class LeadScorer:
             rationale_parts.append("strong indicators of manual/legacy operational processes")
         if location_bonus:
             rationale_parts.append("target location match")
+        if tech_gap_bonus:
+            rationale_parts.append(f"{len(tech_gaps)} confirmed tech gap(s) from website scan")
 
         rationale = (
             "Strong lead: " + ", ".join(rationale_parts) + "."

@@ -4,14 +4,15 @@ import { Search, X } from 'lucide-react';
 import type { LeadFilters, LeadStatus } from '../../../shared/types';
 
 const STATUSES: LeadStatus[] = ['new', 'analyzed', 'contacted', 'replied', 'meeting', 'proposal', 'client'];
-const SOURCES = ['wellfound', 'product_hunt', 'job_board', 'detroit_business', 'linkedin', 'manual'];
+const SOURCES = ['linkedin', 'job_board', 'crunchbase', 'local_business', 'manual'];
 
 interface LeadsFiltersProps {
   filters: LeadFilters;
   onChange: (f: Partial<LeadFilters>) => void;
+  hideSource?: boolean;
 }
 
-export default function LeadsFilters({ filters, onChange }: LeadsFiltersProps) {
+export default function LeadsFilters({ filters, onChange, hideSource = false }: LeadsFiltersProps) {
   const hasFilters = filters.status || filters.source || filters.search || filters.min_score;
 
   return (
@@ -40,17 +41,19 @@ export default function LeadsFilters({ filters, onChange }: LeadsFiltersProps) {
         ))}
       </select>
 
-      {/* Source filter */}
-      <select
-        value={filters.source ?? ''}
-        onChange={e => onChange({ source: e.target.value as Parameters<typeof onChange>[0]['source'] || undefined, page: 1 })}
-        className="input"
-      >
-        <option value="">All sources</option>
-        {SOURCES.map(s => (
-          <option key={s} value={s}>{s.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>
-        ))}
-      </select>
+      {/* Source filter — hidden when a tab already constrains the source */}
+      {!hideSource && (
+        <select
+          value={filters.source ?? ''}
+          onChange={e => onChange({ source: e.target.value as Parameters<typeof onChange>[0]['source'] || undefined, page: 1 })}
+          className="input"
+        >
+          <option value="">All sources</option>
+          {SOURCES.map(s => (
+            <option key={s} value={s}>{s.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>
+          ))}
+        </select>
+      )}
 
       {/* Min score filter */}
       <select

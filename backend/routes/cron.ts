@@ -1,11 +1,23 @@
 import { Router, Request, Response } from 'express';
 import cron from 'node-cron';
 import { triggerScrape } from '../services/signalEngineService';
-import { getLeads, updateLead, createScrapingLog, updateScrapingLog } from '../services/supabaseService';
+import { getLeads, updateLead } from '../services/supabaseService';
 import { analyzeLeadSignals } from '../services/signalEngineService';
 import { generateOutreach } from '../services/claudeService';
 import * as db from '../services/supabaseService';
-import type { LeadSource } from '../../shared/types';
+import type { LeadSource, SignalAnalysisResult } from '../../shared/types';
+
+function isSignalAnalysisResult(v: unknown): v is SignalAnalysisResult {
+  if (!v || typeof v !== 'object') return false;
+  const r = v as Record<string, unknown>;
+  return (
+    typeof r.lead_score === 'number' &&
+    Array.isArray(r.likely_pain_points) &&
+    typeof r.recommended_anta_service === 'string' &&
+    typeof r.outreach_angle === 'string' &&
+    typeof r.signal_type === 'string'
+  );
+}
 
 const router = Router();
 
@@ -14,24 +26,27 @@ let jobs: Record<string, cron.ScheduledTask> = {};
 
 async function runDailyScrape(): Promise<void> {
   console.log('[CRON] Starting daily scrape...');
-  const log = await createScrapingLog({ source: 'wellfound', status: 'running', started_at: new Date().toISOString() });
-  const start = Date.now();
   try {
-    await triggerScrape(['wellfound', 'product_hunt', 'job_board', 'detroit_business']);
-    await updateScrapingLog(log.id, {
-      status: 'completed',
-      completed_at: new Date().toISOString(),
-      duration_ms: Date.now() - start,
-    });
+    await triggerScrape(['linkedin', 'job_board']);
     console.log('[CRON] Daily scrape triggered successfully');
   } catch (err) {
-    await updateScrapingLog(log.id, {
-      status: 'failed',
-      error_message: (err as Error).message,
-      completed_at: new Date().toISOString(),
-      duration_ms: Date.now() - start,
-    });
     console.error('[CRON] Scrape failed:', (err as Error).message);
+  }
+}
+
+async function pingSignalEngine(): Promise<void> {
+  const { healthCheck } = await import('../services/signalEngineService');
+  const ok = await healthCheck();
+  console.log(`[CRON] Signal engine ping: ${ok ? 'alive' : 'did not respond'}`);
+}
+
+async function runBiweeklyScrape(): Promise<void> {
+  console.log('[CRON] Starting bi-weekly scrape (crunchbase + local_business)...');
+  try {
+    await triggerScrape(['crunchbase', 'local_business']);
+    console.log('[CRON] Bi-weekly scrape triggered successfully');
+  } catch (err) {
+    console.error('[CRON] Bi-weekly scrape failed:', (err as Error).message);
   }
 }
 
@@ -102,8 +117,12 @@ async function runOutreachGeneration(): Promise<void> {
       const existing = await db.getOutreachMessages(lead.id);
       if (existing.length > 0) continue;
 
-      const signalData = signals[0].raw_analysis as unknown as Parameters<typeof generateOutreach>[1];
-      const outreach = await generateOutreach(lead, signalData, 'email');
+      const raw = signals[0].raw_analysis;
+      if (!isSignalAnalysisResult(raw)) {
+        console.error(`[CRON] raw_analysis for signal ${signals[0].id} has unexpected shape, skipping`);
+        continue;
+      }
+      const outreach = await generateOutreach(lead, raw, 'email');
 
       await db.createOutreachMessage({
         lead_id: lead.id,
@@ -125,10 +144,13 @@ export function initCronJobs(): void {
   const scrapeSchedule = process.env.CRON_DAILY_SCRAPE ?? '0 6 * * *';
   const analyzeSchedule = process.env.CRON_ANALYZE_LEADS ?? '0 7 * * *';
   const outreachSchedule = process.env.CRON_GENERATE_OUTREACH ?? '0 8 * * *';
+  const biweeklySchedule = process.env.CRON_BIWEEKLY_SCRAPE ?? '0 6 1,15 * *';
 
   jobs['daily_scrape'] = cron.schedule(scrapeSchedule, runDailyScrape, { timezone: 'America/Detroit' });
   jobs['analyze_leads'] = cron.schedule(analyzeSchedule, runLeadAnalysis, { timezone: 'America/Detroit' });
   jobs['generate_outreach'] = cron.schedule(outreachSchedule, runOutreachGeneration, { timezone: 'America/Detroit' });
+  jobs['biweekly_scrape'] = cron.schedule(biweeklySchedule, runBiweeklyScrape, { timezone: 'America/Detroit' });
+  jobs['signal_engine_ping'] = cron.schedule('*/14 * * * *', pingSignalEngine);
 
   console.log('[CRON] Jobs initialized:', Object.keys(jobs).join(', '));
 }
@@ -147,6 +169,11 @@ router.post('/run/analyze', async (_req: Request, res: Response) => {
 router.post('/run/outreach', async (_req: Request, res: Response) => {
   runOutreachGeneration().catch(console.error);
   res.json({ success: true, message: 'Outreach generation triggered' });
+});
+
+router.post('/run/biweekly', async (_req: Request, res: Response) => {
+  runBiweeklyScrape().catch(console.error);
+  res.json({ success: true, message: 'Bi-weekly scrape triggered' });
 });
 
 router.get('/status', (_req: Request, res: Response) => {

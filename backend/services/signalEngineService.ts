@@ -28,7 +28,7 @@ export async function getScrapeStatus(jobId: string): Promise<{ job_id: string; 
 
 export async function healthCheck(): Promise<boolean> {
   try {
-    const { data } = await axios.get(`${SIGNAL_ENGINE_URL}/health`, { timeout: 5_000 });
+    const { data } = await axios.get(`${SIGNAL_ENGINE_URL}/health`, { timeout: 30_000 });
     return data?.status === 'ok';
   } catch {
     return false;

@@ -8,6 +8,7 @@ import type { LeadFilters, LeadSource, OutreachChannel } from '../../shared/type
 const LeadFilterSchema = z.object({
   status: z.string().optional(),
   source: z.string().optional(),
+  sources: z.string().optional().transform(v => v ? v.split(',') as LeadSource[] : undefined),
   min_score: z.coerce.number().optional(),
   industry: z.string().optional(),
   location: z.string().optional(),
@@ -89,6 +90,19 @@ export async function analyzeLead(req: Request, res: Response): Promise<void> {
       company_size: lead.company_size,
     });
 
+    // Build the lead update — include enrichment data when present
+    const leadUpdate: Record<string, unknown> = {
+      lead_score: signals.lead_score,
+      status: 'analyzed',
+      analyzed_at: new Date().toISOString(),
+    };
+    if (signals.verified_website) leadUpdate.website = signals.verified_website;
+    if (signals.contact?.name)             leadUpdate.contact_name             = signals.contact.name;
+    if (signals.contact?.email)            leadUpdate.contact_email            = signals.contact.email;
+    if (signals.contact?.title)            leadUpdate.contact_title            = signals.contact.title;
+    if (signals.contact?.linkedin_url)     leadUpdate.contact_linkedin_url     = signals.contact.linkedin_url;
+    if (signals.contact?.email_confidence) leadUpdate.contact_email_confidence = signals.contact.email_confidence;
+
     await Promise.all([
       db.createLeadSignal({
         lead_id: lead.id,
@@ -100,6 +114,8 @@ export async function analyzeLead(req: Request, res: Response): Promise<void> {
         operational_maturity: signals.operational_maturity,
         growth_indicators: signals.growth_indicators,
         digital_maturity_score: signals.digital_maturity_score,
+        tech_stack: signals.tech_stack ?? [],
+        tech_gaps: signals.tech_gaps ?? [],
         raw_analysis: signals as unknown as Record<string, unknown>,
       }),
       db.createLeadScore({
@@ -111,11 +127,7 @@ export async function analyzeLead(req: Request, res: Response): Promise<void> {
         digital_score: signals.scoring_breakdown.digital_score,
         scoring_rationale: signals.scoring_rationale,
       }),
-      db.updateLead(lead.id, {
-        lead_score: signals.lead_score,
-        status: 'analyzed',
-        analyzed_at: new Date().toISOString(),
-      }),
+      db.updateLead(lead.id, leadUpdate),
     ]);
 
     res.json({ success: true, data: signals });

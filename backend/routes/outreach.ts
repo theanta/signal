@@ -4,9 +4,9 @@ import { generateFollowUp } from '../services/claudeService';
 
 const router = Router();
 
-router.get('/queue', async (req: Request, res: Response) => {
+router.get('/queue', async (_req: Request, res: Response) => {
   try {
-    const { data, error } = await (await import('../services/supabaseService')).supabase
+    const { data, error } = await db.supabase
       .from('leads')
       .select(`
         id, company_name, location, industry, lead_score, status, website, linkedin_url,
@@ -60,7 +60,7 @@ router.post('/:leadId/followup', async (req: Request, res: Response) => {
 
 router.post('/history', async (req: Request, res: Response) => {
   try {
-    const { data, error } = await (await import('../services/supabaseService')).supabase
+    const { data, error } = await db.supabase
       .from('outreach_history')
       .insert(req.body)
       .select()

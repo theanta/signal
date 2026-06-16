@@ -10,7 +10,7 @@ import {
 import ScoreBadge from '@/components/ui/ScoreBadge';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { updateLeadStatus, generateOutreach } from '@/services/leads';
-import type { Lead, LeadStatus } from '../../../shared/types';
+import type { Lead, LeadStatus, LeadTab } from '../../../shared/types';
 import { clsx } from 'clsx';
 
 const STATUS_PIPELINE: LeadStatus[] = ['new', 'analyzed', 'contacted', 'replied', 'meeting', 'proposal', 'client'];
@@ -20,6 +20,7 @@ interface LeadsTableProps {
   total: number;
   page: number;
   totalPages: number;
+  tab?: LeadTab;
   onPageChange: (p: number) => void;
   onSortChange: (col: string, dir: 'asc' | 'desc') => void;
   sortBy: string;
@@ -27,9 +28,15 @@ interface LeadsTableProps {
 }
 
 export default function LeadsTable({
-  leads, total, page, totalPages,
+  leads, total, page, totalPages, tab = 'all',
   onPageChange, onSortChange, sortBy, sortOrder,
 }: LeadsTableProps) {
+  const midCol = tab === 'hiring'
+    ? { col: null, label: 'Role' }
+    : tab === 'discovery'
+    ? { col: null, label: 'Size' }
+    : { col: 'industry', label: 'Industry' };
+
   const qc = useQueryClient();
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [generatingId, setGeneratingId] = useState<string | null>(null);
@@ -77,7 +84,7 @@ export default function LeadsTable({
               {[
                 { col: 'company_name', label: 'Company' },
                 { col: 'location', label: 'Location' },
-                { col: 'industry', label: 'Industry' },
+                midCol,
                 { col: null, label: 'Signal' },
                 { col: 'lead_score', label: 'Score' },
                 { col: null, label: 'Analysis' },
@@ -125,9 +132,13 @@ export default function LeadsTable({
                     {lead.location ?? '—'}
                   </td>
 
-                  {/* Industry */}
+                  {/* Industry / Role / Size — varies by tab */}
                   <td className="px-4 py-3 text-body text-xs max-w-[120px] truncate">
-                    {lead.industry ?? '—'}
+                    {tab === 'hiring'
+                      ? (lead.job_title ?? '—')
+                      : tab === 'discovery'
+                      ? (lead.company_size ?? '—')
+                      : (lead.industry ?? '—')}
                   </td>
 
                   {/* Signal */}

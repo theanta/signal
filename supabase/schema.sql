@@ -21,11 +21,10 @@ CREATE TYPE lead_status AS ENUM (
 );
 
 CREATE TYPE lead_source AS ENUM (
-  'wellfound',
-  'product_hunt',
-  'job_board',
-  'detroit_business',
   'linkedin',
+  'job_board',
+  'crunchbase',
+  'local_business',
   'manual',
   'other'
 );
@@ -64,9 +63,11 @@ CREATE TABLE leads (
   lead_score      INTEGER CHECK (lead_score >= 0 AND lead_score <= 100),
   hiring_signal   TEXT,
   job_title       TEXT,
-  contact_name    TEXT,
-  contact_email   TEXT,
-  contact_title   TEXT,
+  contact_name              TEXT,
+  contact_email             TEXT,
+  contact_title             TEXT,
+  contact_linkedin_url      TEXT,
+  contact_email_confidence  TEXT,
   notes           TEXT,
   scraped_at      TIMESTAMPTZ,
   analyzed_at     TIMESTAMPTZ,
@@ -97,6 +98,8 @@ CREATE TABLE lead_signals (
   operational_maturity      TEXT,
   growth_indicators         TEXT[],
   digital_maturity_score    INTEGER CHECK (digital_maturity_score >= 0 AND digital_maturity_score <= 10),
+  tech_stack                TEXT[],
+  tech_gaps                 TEXT[],
   raw_analysis              JSONB,
   detected_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   created_at                TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -258,6 +261,44 @@ GROUP BY l.id, ls.overall_score, ls.scoring_rationale
 ORDER BY l.lead_score DESC;
 
 -- ============================================================
+-- TABLE: platform_config
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS platform_config (
+  id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  config     JSONB NOT NULL DEFAULT '{}',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO platform_config (config) VALUES ('{
+  "agency_name": "ANTA",
+  "agency_location": "Detroit, Michigan",
+  "agency_website": "",
+  "agency_tagline": "Software consultancy specializing in operational modernization",
+  "services": [
+    "SaaS development and React/Next.js systems",
+    "AI automation systems and intelligent workflows",
+    "Operational dashboards and internal tools",
+    "CRM systems and AI-powered operational software",
+    "Startup MVP development",
+    "Workflow automation and process optimization"
+  ],
+  "outreach_tone": "intelligent, consultative, NOT salesy, operationally focused",
+  "cta_style": "15-min call",
+  "sign_off": "ANTA Team",
+  "target_locations": ["Detroit", "Michigan", "MI", "Dearborn", "Warren", "Troy", "Ann Arbor", "Livonia", "Sterling Heights"],
+  "target_company_sizes": ["11-50", "51-200", "201-500"],
+  "target_industries": [],
+  "active_sources": ["linkedin", "crunchbase", "job_board", "local_business"]
+}')
+ON CONFLICT DO NOTHING;
+
+CREATE TRIGGER platform_config_updated_at
+  BEFORE UPDATE ON platform_config
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- ============================================================
 -- ROW LEVEL SECURITY (RLS) - enable for production
 -- ============================================================
 
@@ -267,6 +308,7 @@ ALTER TABLE lead_scores ENABLE ROW LEVEL SECURITY;
 ALTER TABLE outreach_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE outreach_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE scraping_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE platform_config ENABLE ROW LEVEL SECURITY;
 
 -- Policy: service role has full access (used by backend)
 CREATE POLICY "service_role_all" ON leads
@@ -285,6 +327,9 @@ CREATE POLICY "service_role_all" ON outreach_history
   FOR ALL USING (auth.role() = 'service_role');
 
 CREATE POLICY "service_role_all" ON scraping_logs
+  FOR ALL USING (auth.role() = 'service_role');
+
+CREATE POLICY "service_role_all" ON platform_config
   FOR ALL USING (auth.role() = 'service_role');
 
 -- ============================================================

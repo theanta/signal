@@ -12,13 +12,17 @@ export type LeadStatus =
   | 'client';
 
 export type LeadSource =
-  | 'wellfound'
-  | 'product_hunt'
   | 'job_board'
-  | 'detroit_business'
+  | 'local_business'
   | 'linkedin'
+  | 'crunchbase'
   | 'manual'
   | 'other';
+
+export type LeadTab = 'all' | 'hiring' | 'discovery';
+
+export const HIRING_SOURCES: LeadSource[] = ['linkedin', 'job_board'];
+export const DISCOVERY_SOURCES: LeadSource[] = ['crunchbase', 'local_business'];
 
 export type OutreachChannel = 'email' | 'linkedin' | 'phone' | 'other';
 export type OutreachStatus = 'draft' | 'sent' | 'opened' | 'replied' | 'bounced';
@@ -43,6 +47,8 @@ export interface Lead {
   contact_name?: string;
   contact_email?: string;
   contact_title?: string;
+  contact_linkedin_url?: string;
+  contact_email_confidence?: EmailConfidence;
   notes?: string;
   scraped_at?: string;
   analyzed_at?: string;
@@ -71,6 +77,8 @@ export interface LeadSignal {
   operational_maturity?: string;
   growth_indicators?: string[];
   digital_maturity_score?: number;
+  tech_stack?: string[];
+  tech_gaps?: string[];
   raw_analysis?: Record<string, unknown>;
   detected_at: string;
   created_at: string;
@@ -161,6 +169,16 @@ export interface SignalAnalysisRequest {
   lead: ScrapedLeadRaw;
 }
 
+export type EmailConfidence = 'verified' | 'pattern_inferred' | 'catch_all' | 'unknown';
+
+export interface LeadContact {
+  name: string;
+  title: string;
+  email: string;
+  linkedin_url: string;
+  email_confidence: EmailConfidence;
+}
+
 export interface SignalAnalysisResult {
   lead_score: number;
   likely_pain_points: string[];
@@ -178,6 +196,11 @@ export interface SignalAnalysisResult {
     digital_score: number;
   };
   scoring_rationale: string;
+  // Enrichment
+  tech_stack?: string[];
+  tech_gaps?: string[];
+  verified_website?: string;
+  contact?: LeadContact | null;
 }
 
 // ---- Claude Outreach API ----
@@ -269,7 +292,7 @@ export const DEFAULT_PLATFORM_CONFIG: PlatformConfig = {
   target_locations: ['Detroit', 'Michigan', 'MI', 'Dearborn', 'Warren', 'Troy', 'Ann Arbor', 'Livonia', 'Sterling Heights'],
   target_company_sizes: ['11-50', '51-200', '201-500'],
   target_industries: [],
-  active_sources: ['wellfound', 'product_hunt', 'job_board', 'detroit_business'],
+  active_sources: ['linkedin', 'crunchbase', 'job_board', 'local_business'],
 };
 
 // ---- Filters ----
@@ -277,6 +300,7 @@ export const DEFAULT_PLATFORM_CONFIG: PlatformConfig = {
 export interface LeadFilters {
   status?: LeadStatus;
   source?: LeadSource;
+  sources?: LeadSource[];
   min_score?: number;
   industry?: string;
   location?: string;

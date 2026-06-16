@@ -50,11 +50,10 @@ export function getStatusColor(status: LeadStatus): string {
 
 export function getSourceLabel(source: LeadSource): string {
   const labels: Record<LeadSource, string> = {
-    wellfound: 'Wellfound',
-    product_hunt: 'Product Hunt',
     job_board: 'Job Board',
-    detroit_business: 'Detroit Business',
+    local_business: 'Local Business',
     linkedin: 'LinkedIn',
+    crunchbase: 'Crunchbase',
     manual: 'Manual',
     other: 'Other',
   };

@@ -7,7 +7,8 @@ import PageHeader from '@/components/ui/PageHeader';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import { RefreshCw, Zap, CheckCircle, XCircle, Clock, Activity } from 'lucide-react';
 import { clsx } from 'clsx';
-import type { ScrapingLog } from '../../../shared/types';
+import type { ScrapingLog, LeadSource } from '../../../shared/types';
+import { getSourceLabel } from '../../../shared/utils';
 
 async function fetchLogs(): Promise<ScrapingLog[]> {
   const { data } = await api.get('/signals/logs?limit=30');
@@ -19,13 +20,7 @@ async function fetchSignalHealth(): Promise<{ signal_engine_online: boolean }> {
   return data.data;
 }
 
-const SOURCE_LABELS: Record<string, string> = {
-  wellfound: 'Wellfound',
-  product_hunt: 'Product Hunt',
-  job_board: 'Job Boards',
-  detroit_business: 'Detroit Business',
-  linkedin: 'LinkedIn',
-};
+const ACTIVE_SOURCES: LeadSource[] = ['linkedin', 'job_board', 'crunchbase', 'local_business'];
 
 export default function SignalsPage() {
   const { data: logs = [], isLoading, refetch } = useQuery({
@@ -34,7 +29,7 @@ export default function SignalsPage() {
     refetchInterval: 30_000,
   });
 
-  const { data: health } = useQuery({
+  const { data: health, isLoading: healthLoading } = useQuery({
     queryKey: ['signal-health'],
     queryFn: fetchSignalHealth,
     refetchInterval: 60_000,
@@ -58,12 +53,16 @@ export default function SignalsPage() {
           <div className="flex items-center gap-3">
             <div className={clsx(
               'flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border',
-              health?.signal_engine_online
-                ? 'text-success border-[#b3dcbe] bg-[#e8f5ec]'
-                : 'text-sig-coral border-[#f5c9b8] bg-[#fcede8]'
+              healthLoading
+                ? 'text-muted border-hairline bg-surface-soft'
+                : health?.signal_engine_online
+                  ? 'text-success border-[#b3dcbe] bg-[#e8f5ec]'
+                  : 'text-sig-coral border-[#f5c9b8] bg-[#fcede8]'
             )}>
-              <Activity className="w-3.5 h-3.5" />
-              Signal Engine {health?.signal_engine_online ? 'Online' : 'Offline'}
+              {healthLoading
+                ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                : <Activity className="w-3.5 h-3.5" />}
+              Signal Engine {healthLoading ? 'Warming up…' : health?.signal_engine_online ? 'Online' : 'Offline'}
             </div>
             <button
               onClick={handleScrape}
@@ -80,13 +79,13 @@ export default function SignalsPage() {
       <div className="p-8 space-y-5">
         {/* Source stats */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          {Object.entries(SOURCE_LABELS).map(([key, label]) => {
+          {ACTIVE_SOURCES.map((key) => {
             const sourceLogs = logs.filter((l: ScrapingLog) => l.source === key);
             const lastLog = sourceLogs[0];
             return (
               <div key={key} className="card p-4">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-medium text-ink">{label}</span>
+                  <span className="text-xs font-medium text-ink">{getSourceLabel(key)}</span>
                   <Zap className="w-3.5 h-3.5 text-sig-mustard" />
                 </div>
                 <p className="text-xl font-medium text-ink">
@@ -146,7 +145,7 @@ export default function SignalsPage() {
                         </div>
                       </td>
                       <td className="px-4 py-2.5 text-body text-xs">
-                        {SOURCE_LABELS[log.source] ?? log.source}
+                        {getSourceLabel(log.source as LeadSource)}
                       </td>
                       <td className="px-4 py-2.5 text-body font-mono text-xs">{log.leads_found ?? 0}</td>
                       <td className="px-4 py-2.5 text-success font-mono text-xs">{log.leads_new ?? 0}</td>

@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { fetchDashboardMetrics } from '@/services/metrics';
+import { fetchAllDashboard } from '@/services/metrics';
 import { useScrapeJob } from '@/hooks/useScrapeJob';
 import MetricCard from '@/components/dashboard/MetricCard';
 import PipelineBar from '@/components/dashboard/PipelineBar';
@@ -14,13 +14,14 @@ import {
 } from 'lucide-react';
 
 export default function DashboardPage() {
-  const { data: metrics, isLoading, refetch } = useQuery({
-    queryKey: ['dashboard-metrics'],
-    queryFn: fetchDashboardMetrics,
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ['dashboard-all'],
+    queryFn: fetchAllDashboard,
     refetchInterval: 60_000,
   });
 
   const { trigger: handleScrape, running: scraping } = useScrapeJob(refetch);
+  const metrics = data?.metrics;
 
   return (
     <div className="min-h-screen">
@@ -105,8 +106,8 @@ export default function DashboardPage() {
 
             {/* Pipeline + Hot Leads */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <PipelineBar />
-              <HotLeadsWidget />
+              <PipelineBar pipeline={data?.pipeline} />
+              <HotLeadsWidget leads={data?.hotLeads} />
             </div>
 
             {/* Quick Actions */}

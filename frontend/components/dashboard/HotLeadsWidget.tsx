@@ -7,11 +7,18 @@ import ScoreBadge from '@/components/ui/ScoreBadge';
 import { ExternalLink, Flame } from 'lucide-react';
 import type { Lead } from '../../../shared/types';
 
-export default function HotLeadsWidget() {
-  const { data: leads = [] } = useQuery({
+interface Props {
+  leads?: Lead[];
+}
+
+export default function HotLeadsWidget({ leads: leadsProp }: Props) {
+  const { data: fetched = [] } = useQuery({
     queryKey: ['hot-leads'],
     queryFn: fetchHotLeads,
+    enabled: leadsProp === undefined,
   });
+
+  const leads = (leadsProp ?? fetched) as Lead[];
 
   return (
     <div className="card p-5">
@@ -21,11 +28,11 @@ export default function HotLeadsWidget() {
         <span className="ml-auto text-xs text-muted">Score ≥ 70</span>
       </div>
 
-      {(leads as Lead[]).length === 0 ? (
+      {leads.length === 0 ? (
         <p className="text-sm text-muted text-center py-6">No hot leads yet. Run a scrape to find prospects.</p>
       ) : (
         <div className="space-y-1">
-          {(leads as Lead[]).slice(0, 8).map((lead) => (
+          {leads.slice(0, 8).map((lead) => (
             <div key={lead.id} className="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-surface-soft transition-colors">
               <div className="flex-1 min-w-0">
                 <Link href={`/leads/${lead.id}`} className="text-sm font-medium text-ink hover:text-link truncate block transition-colors">

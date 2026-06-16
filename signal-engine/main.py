@@ -12,14 +12,17 @@ from pydantic import BaseModel
 
 load_dotenv()
 
-from scrapers.wellfound import WellfoundScraper
-from scrapers.product_hunt import ProductHuntScraper
+from scrapers.linkedin import LinkedInJobsScraper
+from scrapers.crunchbase import CrunchbaseScraper
 from scrapers.job_boards import JobBoardScraper
-from scrapers.detroit_business import DetroitBusinessScraper
+from scrapers.local_business import LocalBusinessScraper
 from analyzers.signal_detector import SignalDetector
 from scoring.lead_scorer import LeadScorer
 from analyzers.pain_point_analyzer import PainPointAnalyzer
 from classifiers.industry_classifier import IndustryClassifier
+from enrichment.website_verifier import verify_website
+from enrichment.tech_stack_detector import detect_tech_stack, infer_gaps
+from enrichment.contact_finder import find_contact
 
 app = FastAPI(
     title="ANTA Lead Radar Signal Engine",
@@ -66,7 +69,7 @@ class PlatformConfig(BaseModel):
     target_locations: list[str] = ["Detroit", "Michigan", "MI", "Dearborn", "Warren", "Troy", "Ann Arbor", "Livonia", "Sterling Heights"]
     target_company_sizes: list[str] = ["11-50", "51-200", "201-500"]
     target_industries: list[str] = []
-    active_sources: list[str] = ["wellfound", "product_hunt", "job_board", "detroit_business"]
+    active_sources: list[str] = ["linkedin", "crunchbase", "job_board", "local_business"]
 
 
 class AnalysisRequest(BaseModel):
@@ -75,7 +78,7 @@ class AnalysisRequest(BaseModel):
 
 
 class ScrapeRequest(BaseModel):
-    sources: list[str] = ["wellfound", "product_hunt", "job_board", "detroit_business"]
+    sources: list[str] = ["linkedin", "crunchbase", "job_board", "local_business"]
     config: Optional[PlatformConfig] = None
 
 
@@ -94,7 +97,7 @@ def health():
 
 @app.post("/analyze")
 async def analyze_lead(request: AnalysisRequest):
-    """Analyze a raw lead and return signals, score, and pain points."""
+    """Analyze a raw lead and return signals, score, pain points, tech stack, and contact."""
     lead = request.lead
 
     target_locations = request.config.target_locations if request.config else None
@@ -104,26 +107,48 @@ async def analyze_lead(request: AnalysisRequest):
     pain_analyzer = PainPointAnalyzer()
     classifier = IndustryClassifier()
 
-    # Detect signals
+    # ---- Step 1: Enrichment (run in thread pool — all are blocking HTTP calls) ----
+    verified_website_res, raw_tech_stack, contact_res = await asyncio.gather(
+        asyncio.to_thread(verify_website, lead.website, lead.company_name, lead.location or ""),
+        asyncio.to_thread(detect_tech_stack, lead.website or ""),
+        asyncio.to_thread(find_contact, lead.company_name, lead.website, lead.location),
+        return_exceptions=True,
+    )
+
+    if isinstance(verified_website_res, Exception):
+        print(f"[enrichment] verify_website failed: {verified_website_res}")
+    if isinstance(raw_tech_stack, Exception):
+        print(f"[enrichment] detect_tech_stack failed: {raw_tech_stack}")
+    if isinstance(contact_res, Exception):
+        print(f"[enrichment] find_contact failed: {contact_res}")
+
+    verified_website = verified_website_res if isinstance(verified_website_res, str) else lead.website
+    tech_stack: list[str] = raw_tech_stack if isinstance(raw_tech_stack, list) else []
+    tech_gaps: list[str] = infer_gaps(tech_stack)
+    contact: dict | None = contact_res if isinstance(contact_res, dict) else None
+
+    # ---- Step 2: Signal detection ----
     signal_type, confidence = detector.detect(lead.model_dump())
 
-    # Classify industry if missing
+    # ---- Step 3: Industry classification ----
     industry = lead.industry or classifier.classify(
         company_name=lead.company_name,
         description=lead.description or "",
         job_title=lead.job_title or "",
     )
 
-    # Analyze pain points
+    # ---- Step 4: Pain point analysis (now tech-aware) ----
     pain_points, recommended_service, outreach_angle = pain_analyzer.analyze(
         industry=industry,
         hiring_signal=lead.hiring_signal or "",
         job_title=lead.job_title or "",
         description=lead.description or "",
         location=lead.location or "",
+        tech_stack=tech_stack,
+        tech_gaps=tech_gaps,
     )
 
-    # Score the lead
+    # ---- Step 5: Lead scoring (now tech-aware) ----
     score_result = scorer.score(
         company_size=lead.company_size or "unknown",
         hiring_signal=lead.hiring_signal or "",
@@ -131,6 +156,8 @@ async def analyze_lead(request: AnalysisRequest):
         description=lead.description or "",
         location=lead.location or "",
         industry=industry,
+        tech_stack=tech_stack,
+        tech_gaps=tech_gaps,
     )
 
     return {
@@ -150,6 +177,11 @@ async def analyze_lead(request: AnalysisRequest):
             "digital_score": score_result["digital_score"],
         },
         "scoring_rationale": score_result["rationale"],
+        # Enrichment results
+        "tech_stack": tech_stack,
+        "tech_gaps": tech_gaps,
+        "verified_website": verified_website,
+        "contact": contact,
     }
 
 
@@ -192,12 +224,16 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
     )
 
     target_locations = cfg.target_locations if cfg else None
+    target_industries = cfg.target_industries if cfg else None
 
     scrapers = {
-        "wellfound": WellfoundScraper(target_locations=target_locations),
-        "product_hunt": ProductHuntScraper(),
+        "linkedin": LinkedInJobsScraper(target_locations=target_locations),
+        "crunchbase": CrunchbaseScraper(),
         "job_board": JobBoardScraper(target_locations=target_locations),
-        "detroit_business": DetroitBusinessScraper(),
+        "local_business": LocalBusinessScraper(
+            target_locations=target_locations,
+            target_industries=target_industries,
+        ),
     }
 
     total_new = 0

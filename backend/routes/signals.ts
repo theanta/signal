@@ -11,7 +11,7 @@ router.get('/health', async (_req: Request, res: Response) => {
 
 router.post('/scrape', async (req: Request, res: Response) => {
   try {
-    const { sources = ['wellfound', 'product_hunt', 'job_board', 'detroit_business'] } = req.body;
+    const { sources = ['linkedin', 'crunchbase', 'job_board', 'local_business'] } = req.body;
     const result = await triggerScrape(sources);
     res.json({ success: true, data: result });
   } catch (err) {

@@ -7,14 +7,20 @@ import StatusBadge from '@/components/ui/StatusBadge';
 
 const STATUS_ORDER = ['new', 'analyzed', 'contacted', 'replied', 'meeting', 'proposal', 'client'] as const;
 
-export default function PipelineBar() {
-  const { data: pipeline = [] } = useQuery({
+interface Props {
+  pipeline?: PipelineSummary[];
+}
+
+export default function PipelineBar({ pipeline: pipelineProp }: Props) {
+  const { data: fetched = [] } = useQuery({
     queryKey: ['pipeline'],
     queryFn: fetchPipeline,
+    enabled: pipelineProp === undefined,
   });
 
-  const pipelineMap = Object.fromEntries((pipeline as PipelineSummary[]).map(p => [p.status, p]));
-  const total = (pipeline as PipelineSummary[]).reduce((sum, p) => sum + p.count, 0);
+  const pipeline = (pipelineProp ?? fetched) as PipelineSummary[];
+  const pipelineMap = Object.fromEntries(pipeline.map(p => [p.status, p]));
+  const total = pipeline.reduce((sum, p) => sum + p.count, 0);
 
   return (
     <div className="card p-5">

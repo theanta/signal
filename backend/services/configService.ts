@@ -37,14 +37,16 @@ export async function saveConfig(updates: Partial<PlatformConfig>): Promise<Plat
     .single();
 
   if (existing?.id) {
-    await supabase
+    const { error } = await supabase
       .from('platform_config')
       .update({ config: merged })
       .eq('id', existing.id);
+    if (error) throw new Error(`Config update failed: ${error.message}`);
   } else {
-    await supabase
+    const { error } = await supabase
       .from('platform_config')
       .insert({ config: merged });
+    if (error) throw new Error(`Config insert failed: ${error.message}`);
   }
 
   return merged;

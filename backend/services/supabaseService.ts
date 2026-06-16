@@ -21,7 +21,7 @@ export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseKey, {
 
 export async function getLeads(filters: LeadFilters = {}): Promise<PaginatedResponse<Lead>> {
   const {
-    status, source, min_score, industry, location, search,
+    status, source, sources, min_score, industry, location, search,
     page = 1, per_page = 25,
     sort_by = 'created_at', sort_order = 'desc',
   } = filters;
@@ -29,7 +29,11 @@ export async function getLeads(filters: LeadFilters = {}): Promise<PaginatedResp
   let query = supabase.from('leads').select('*', { count: 'exact' });
 
   if (status) query = query.eq('status', status);
-  if (source) query = query.eq('source', source);
+  if (sources && sources.length > 0) {
+    query = query.in('source', sources);
+  } else if (source) {
+    query = query.eq('source', source);
+  }
   if (min_score !== undefined) query = query.gte('lead_score', min_score);
   if (industry) query = query.ilike('industry', `%${industry}%`);
   if (location) query = query.ilike('location', `%${location}%`);

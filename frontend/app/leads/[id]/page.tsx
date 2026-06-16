@@ -9,7 +9,7 @@ import ScoreBadge from '@/components/ui/ScoreBadge';
 import StatusBadge from '@/components/ui/StatusBadge';
 import {
   Brain, Copy, CheckCircle, ExternalLink, Link2,
-  Zap, Target, MessageSquare, RefreshCw,
+  Zap, Target, MessageSquare, RefreshCw, Monitor, User,
 } from 'lucide-react';
 import { useState } from 'react';
 import type { LeadStatus, OutreachMessage } from '../../../../shared/types';
@@ -205,6 +205,82 @@ export default function LeadDetailPage() {
                   )}
                   {analyzeMutation.isPending ? 'Analyzing...' : 'Analyze with AI'}
                 </button>
+              </div>
+            )}
+
+            {/* Tech Stack */}
+            {latestSignal && (latestSignal.tech_stack?.length || latestSignal.tech_gaps?.length) ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {latestSignal.tech_stack && latestSignal.tech_stack.length > 0 && (
+                  <div className="card p-5">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Monitor className="w-4 h-4 text-info" />
+                      <h3 className="text-sm font-medium text-ink">Detected Tech Stack</h3>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {latestSignal.tech_stack.map((tech, i) => (
+                        <span key={i} className="badge bg-[#eaf0fb] text-info border border-[#c5d7f5] text-xs">
+                          {tech}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {latestSignal.tech_gaps && latestSignal.tech_gaps.length > 0 && (
+                  <div className="card p-5">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Zap className="w-4 h-4 text-sig-coral" />
+                      <h3 className="text-sm font-medium text-ink">Tech Gaps (Opportunity)</h3>
+                    </div>
+                    <ul className="space-y-2">
+                      {latestSignal.tech_gaps.map((gap, i) => (
+                        <li key={i} className="text-sm text-body flex items-start gap-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-sig-coral mt-1.5 flex-shrink-0" />
+                          {gap}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            ) : null}
+
+            {/* Point of Contact */}
+            {(lead.contact_name || lead.contact_email) && (
+              <div className="card p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <User className="w-4 h-4 text-success" />
+                  <h3 className="text-sm font-medium text-ink">Point of Contact</h3>
+                </div>
+                <div className="flex items-center justify-between gap-4 flex-wrap">
+                  <div>
+                    {lead.contact_name && (
+                      <p className="text-sm font-medium text-ink">{lead.contact_name}</p>
+                    )}
+                    {lead.contact_title && (
+                      <p className="text-xs text-muted mt-0.5">{lead.contact_title}</p>
+                    )}
+                    {lead.contact_email && (
+                      <a
+                        href={`mailto:${lead.contact_email}`}
+                        className="text-xs text-link hover:text-link-active mt-1 block"
+                      >
+                        {lead.contact_email}
+                      </a>
+                    )}
+                  </div>
+                  {lead.contact_email && (
+                    <button
+                      onClick={() => copyToClipboard(lead.contact_email!, 'contact_email')}
+                      className="p-1.5 rounded-md hover:bg-surface-soft text-muted hover:text-ink transition-colors"
+                      title="Copy email"
+                    >
+                      {copied === 'contact_email'
+                        ? <CheckCircle className="w-4 h-4 text-success" />
+                        : <Copy className="w-4 h-4" />}
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 

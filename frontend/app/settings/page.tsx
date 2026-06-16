@@ -25,10 +25,10 @@ type TabId = typeof TABS[number]['id'];
 
 const COMPANY_SIZES = ['1-10', '11-50', '51-200', '201-500', '501-1000', '1000+'];
 const ALL_SOURCES = [
-  { id: 'wellfound',        label: 'Wellfound',        desc: 'Startups hiring on AngelList Talent' },
-  { id: 'product_hunt',     label: 'Product Hunt',     desc: 'Newly launched products' },
-  { id: 'job_board',        label: 'Job Boards',       desc: 'Indeed / operational & tech roles' },
-  { id: 'detroit_business', label: 'Detroit Business', desc: 'DBusiness.com growth directories' },
+  { id: 'linkedin',       label: 'LinkedIn Jobs',    desc: 'Job postings filtered to your target locations — last 24 h' },
+  { id: 'job_board',      label: 'Job Boards',       desc: 'Indeed — operational & tech hiring signals' },
+  { id: 'crunchbase',     label: 'Crunchbase',       desc: 'Recently funded startups matching your target locations' },
+  { id: 'local_business', label: 'Local Business',   desc: 'Google Maps — companies in your target locations & industries' },
 ];
 
 // ---- small reusable input ----
@@ -462,7 +462,8 @@ export default function SettingsPage() {
               </div>
               <div className="card p-5 space-y-2">
                 {[
-                  { job: 'scrape',   label: 'Run Daily Scrape',       desc: 'Scrape all active sources now' },
+                  { job: 'scrape',    label: 'Run Daily Scrape',       desc: 'Scrape LinkedIn and job boards now' },
+                  { job: 'biweekly', label: 'Run Bi-weekly Scrape',   desc: 'Scrape Crunchbase and local business sources now' },
                   { job: 'analyze',  label: 'Analyze New Leads',      desc: 'Run signal detection on unanalyzed leads (batch of 20)' },
                   { job: 'outreach', label: 'Generate Outreach',      desc: 'Generate cold emails for top-scored analyzed leads' },
                 ].map(({ job, label, desc }) => (
@@ -535,7 +536,7 @@ export default function SettingsPage() {
                   <span className="text-sm font-medium text-ink">About</span>
                 </div>
                 <p><span className="text-ink font-medium">Platform:</span> Lead Radar v1.0.0</p>
-                <p><span className="text-ink font-medium">AI Model:</span> claude-sonnet-4-6</p>
+                <p><span className="text-ink font-medium">AI Model:</span> Groq / llama-3.3-70b-versatile</p>
                 <p><span className="text-ink font-medium">Agency:</span> {draft.agency_name} · {draft.agency_location}</p>
                 <p><span className="text-ink font-medium">Stack:</span> Next.js 14 · Node.js · Python FastAPI · Supabase</p>
               </div>

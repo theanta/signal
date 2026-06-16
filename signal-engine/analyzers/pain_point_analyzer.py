@@ -123,12 +123,16 @@ class PainPointAnalyzer:
         job_title: str,
         description: str,
         location: str,
+        tech_stack: list[str] | None = None,
+        tech_gaps: list[str] | None = None,
     ) -> Tuple[list[str], str, str]:
         """
         Returns (pain_points, recommended_service_name, outreach_angle).
         """
         text = f"{hiring_signal} {job_title} {description}".lower()
         industry_lower = industry.lower()
+        tech_stack = tech_stack or []
+        tech_gaps = tech_gaps or []
 
         # Match industry
         industry_data = INDUSTRY_PAIN_MAP["default"]
@@ -149,6 +153,21 @@ class PainPointAnalyzer:
                     pain_points.insert(0, specific_pain)
                 service_key = override["service"]
                 break
+
+        # Prepend tech-stack-derived gaps as the most specific, concrete pain points
+        # These are more credible than inferred pains because they're observed, not guessed
+        for gap in reversed(tech_gaps[:2]):
+            if gap not in pain_points:
+                pain_points.insert(0, gap)
+
+        # Refine the outreach angle when we have concrete tech evidence
+        if tech_stack or tech_gaps:
+            tech_context = ""
+            if tech_stack:
+                tech_context = f" We can see you're running {', '.join(tech_stack[:3])}."
+            if tech_gaps:
+                tech_context += f" {tech_gaps[0]}."
+            angle = angle.rstrip(".") + tech_context
 
         service_name = ANTA_SERVICES.get(service_key, "Custom Software Development")
 

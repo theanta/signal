@@ -38,7 +38,7 @@ ON CONFLICT DO NOTHING;
 ALTER TABLE platform_config ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "service_role_all" ON platform_config
-  FOR ALL USING (auth.role() = ''service_role'');
+  FOR ALL USING (auth.role() = 'service_role');
 
 -- Trigger to keep updated_at fresh
 CREATE TRIGGER platform_config_updated_at

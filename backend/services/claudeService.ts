@@ -58,6 +58,19 @@ export async function generateColdEmail(
 ): Promise<{ subject: string; body: string }> {
   const { ctx, config } = await loadConfig();
 
+  const contactLine = signals.contact?.name
+    ? `- Contact: ${signals.contact.name}${signals.contact.title ? `, ${signals.contact.title}` : ''}`
+    : '';
+  const techLine = signals.tech_stack?.length
+    ? `- Detected tech stack: ${signals.tech_stack.slice(0, 6).join(', ')}`
+    : '';
+  const gapsLine = signals.tech_gaps?.length
+    ? `- Confirmed tech gaps: ${signals.tech_gaps.join(' | ')}`
+    : '';
+  const greeting = signals.contact?.name
+    ? `Hi ${signals.contact.name.split(' ')[0]},`
+    : 'Hi,';
+
   const prompt = `${ctx}
 
 You are writing a cold outreach email on behalf of ${config.agency_name} to a prospect.
@@ -66,10 +79,13 @@ COMPANY DETAILS:
 - Company: ${lead.company_name}
 - Location: ${lead.location ?? 'Unknown'}
 - Industry: ${lead.industry ?? 'Unknown'}
-- Website: ${lead.website ?? 'N/A'}
+- Website: ${signals.verified_website ?? lead.website ?? 'N/A'}
 - Hiring signal: ${lead.hiring_signal ?? 'N/A'}
 - Job being hired for: ${lead.job_title ?? 'N/A'}
 - Description: ${lead.description ?? 'N/A'}
+${contactLine}
+${techLine}
+${gapsLine}
 
 SIGNAL ANALYSIS:
 - Lead score: ${signals.lead_score}/100
@@ -79,13 +95,15 @@ SIGNAL ANALYSIS:
 - Operational maturity: ${signals.operational_maturity}
 
 INSTRUCTIONS:
-Write a short, personalized cold email. Requirements:
-1. Subject line: specific, curiosity-driven, not clickbait (max 8 words)
-2. Body: 3-4 short paragraphs, max 150 words total
-3. Tone: ${config.outreach_tone}
-4. Reference their specific situation (hiring signal, pain point)
-5. One clear, low-friction CTA (${config.cta_style}, not a demo)
-6. Sign off as "${config.sign_off}" from ${config.agency_location}
+Write a short, highly personalized cold email. Requirements:
+1. Start the body with: "${greeting}"
+2. Subject line: specific, curiosity-driven, not clickbait (max 8 words)
+3. Body: 3-4 short paragraphs, max 150 words total
+4. Tone: ${config.outreach_tone}
+5. If tech gaps are listed, reference at least one by name — this is observed fact, not assumption
+6. Reference their specific situation (hiring signal, pain point)
+7. One clear, low-friction CTA (${config.cta_style}, not a demo)
+8. Sign off as "${config.sign_off}" from ${config.agency_location}
 
 Respond ONLY with valid JSON in this exact format:
 {
@@ -107,19 +125,25 @@ export async function generateLinkedInMessage(
 ): Promise<{ body: string }> {
   const { ctx, config } = await loadConfig();
 
+  const contactName = signals.contact?.name?.split(' ')[0];
+  const techGap = signals.tech_gaps?.[0] ?? '';
+
   const prompt = `${ctx}
 
 Write a LinkedIn connection request + message for a prospect.
 
 COMPANY: ${lead.company_name} (${lead.location ?? ''}, ${lead.industry ?? ''})
+${contactName ? `CONTACT NAME: ${contactName}` : ''}
 HIRING SIGNAL: ${lead.hiring_signal ?? 'N/A'}
 PAIN POINT: ${signals.likely_pain_points[0] ?? 'operational inefficiency'}
+${techGap ? `CONFIRMED TECH GAP: ${techGap}` : ''}
 RECOMMENDED SERVICE: ${signals.recommended_anta_service}
 ANGLE: ${signals.outreach_angle}
 
 REQUIREMENTS:
 - Max 300 characters for the connection note
-- Reference their specific situation
+- ${contactName ? `Address them by first name: ${contactName}` : 'Use a natural greeting'}
+- ${techGap ? 'Reference the confirmed tech gap — it shows you did your homework' : 'Reference their specific situation'}
 - No generic templates, no buzzwords
 - Tone: ${config.outreach_tone}
 

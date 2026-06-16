@@ -2,7 +2,10 @@ import { api } from '@/lib/api';
 import type { Lead, LeadFilters, PaginatedResponse, LeadWithSignals } from '../../shared/types';
 
 export async function fetchLeads(filters: LeadFilters = {}): Promise<PaginatedResponse<Lead>> {
-  const { data } = await api.get('/leads', { params: filters });
+  const { sources, ...rest } = filters;
+  const params: Record<string, unknown> = { ...rest };
+  if (sources && sources.length > 0) params.sources = sources.join(',');
+  const { data } = await api.get('/leads', { params });
   return { data: data.data, total: data.total, page: data.page, per_page: data.per_page, total_pages: data.total_pages };
 }
 

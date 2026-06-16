@@ -13,7 +13,7 @@ import leadsRouter from '../routes/leads';
 import outreachRouter from '../routes/outreach';
 import signalsRouter from '../routes/signals';
 import metricsRouter from '../routes/metrics';
-import cronRouter from '../routes/cron';
+import cronRouter, { initCronJobs } from '../routes/cron';
 import configRouter from '../routes/config';
 
 const app = express();
@@ -70,6 +70,7 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 
 app.listen(PORT, () => {
   console.log(`ANTA Lead Radar API running on http://localhost:${PORT}`);
+  initCronJobs();
 });
 
 export default app;
