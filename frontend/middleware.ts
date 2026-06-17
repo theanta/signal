@@ -19,6 +19,7 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  // Run on all app pages, skip Next.js internals and static assets
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.png|.*\\.svg).*)'],
+  // Run on app pages only — skip Next.js internals, static assets, and /api/*
+  // (API routes are proxied to the backend and must not be redirected)
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.png|.*\\.svg|api/).*)'],
 };
