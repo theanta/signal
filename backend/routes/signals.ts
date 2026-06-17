@@ -5,6 +5,7 @@ import { getScrapingLogs } from '../services/supabaseService';
 const router = Router();
 
 router.get('/health', async (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
   const healthy = await healthCheck();
   res.json({ success: true, data: { signal_engine_online: healthy } });
 });
