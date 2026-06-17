@@ -31,17 +31,29 @@ function generateRefreshToken(): { raw: string; hash: string } {
   return { raw, hash };
 }
 
+const isProd = process.env.NODE_ENV === 'production';
+
+// SameSite=None;Secure is required for cross-origin fetch with credentials:include.
+// In production the frontend and backend are on different Render domains, so Lax
+// blocks the cookie entirely (Lax only allows cookies on top-level navigations,
+// not fetch/XHR). In dev both run on localhost so Lax works fine, and None
+// requires Secure which isn't available on plain http.
+const COOKIE_OPTS = {
+  httpOnly: true,
+  secure: isProd,
+  sameSite: (isProd ? 'none' : 'lax') as 'none' | 'lax',
+  path: '/',
+} as const;
+
 function setRefreshCookie(res: Response, token: string): void {
   res.cookie(REFRESH_COOKIE, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    ...COOKIE_OPTS,
     maxAge: REFRESH_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
-    // path '/' so the Next.js middleware can read the cookie for page-level redirects.
-    // A narrower path like '/api/auth' scopes it to the backend URL only and
-    // makes it invisible to frontend page requests.
-    path: '/',
   });
+}
+
+function clearRefreshCookie(res: Response): void {
+  res.clearCookie(REFRESH_COOKIE, COOKIE_OPTS);
 }
 
 export async function login(req: Request, res: Response): Promise<void> {
@@ -116,7 +128,7 @@ export async function logout(req: Request, res: Response): Promise<void> {
     await supabase.from('refresh_tokens').delete().eq('token_hash', hash);
   }
 
-  res.clearCookie(REFRESH_COOKIE, { path: '/' });
+  clearRefreshCookie(res);
   res.json({ success: true, message: 'Logged out' });
 }
 
@@ -136,13 +148,13 @@ export async function refresh(req: Request, res: Response): Promise<void> {
     .single();
 
   if (error || !tokenRow || new Date(tokenRow.expires_at) < new Date()) {
-    res.clearCookie(REFRESH_COOKIE, { path: '/' });
+    clearRefreshCookie(res);
     res.status(401).json({ success: false, error: 'Invalid or expired refresh token' });
     return;
   }
 
   if (!tokenRow.users?.is_active) {
-    res.clearCookie(REFRESH_COOKIE, { path: '/' });
+    clearRefreshCookie(res);
     res.status(401).json({ success: false, error: 'Account deactivated' });
     return;
   }
