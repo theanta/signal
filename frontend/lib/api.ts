@@ -1,7 +1,5 @@
 import axios, { type AxiosRequestConfig } from 'axios';
 
-const BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
-
 // Module-level token store — written by AuthContext, read by interceptors.
 // Keeps axios decoupled from React context without a circular import.
 let _token: string | null = null;
@@ -25,7 +23,7 @@ export const tokenStore = {
 };
 
 export const api = axios.create({
-  baseURL: `${BASE_URL}/api`,
+  baseURL: '/api',
   timeout: 30_000,
   headers: { 'Content-Type': 'application/json' },
 });

@@ -4,7 +4,6 @@ import { createContext, useContext, useState, useEffect, useRef, useCallback } f
 import { tokenStore } from '@/lib/api';
 import type { AuthUser } from '../../shared/types';
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:3001';
 // Refresh 1 minute before the 15m access token expires
 const REFRESH_INTERVAL_MS = 14 * 60 * 1000;
 
@@ -26,7 +25,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshAccessToken = useCallback(async (): Promise<string | null> => {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/auth/refresh`, {
+      const res = await fetch('/api/auth/refresh', {
         method: 'POST',
         credentials: 'include', // sends httpOnly refresh token cookie
       });
@@ -57,7 +56,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [refreshAccessToken]);
 
   const login = async (email: string, password: string): Promise<void> => {
-    const res = await fetch(`${BACKEND_URL}/api/auth/login`, {
+    const res = await fetch('/api/auth/login', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -73,7 +72,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = async (): Promise<void> => {
-    await fetch(`${BACKEND_URL}/api/auth/logout`, {
+    await fetch('/api/auth/logout', {
       method: 'POST',
       credentials: 'include',
     }).catch(() => {}); // best-effort
