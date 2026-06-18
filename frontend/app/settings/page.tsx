@@ -8,8 +8,9 @@ import PageHeader from '@/components/ui/PageHeader';
 import {
   RefreshCw, CheckCircle, Settings, Zap, Brain,
   Building2, MessageSquare, MapPin, Users, ToggleLeft, ToggleRight, Save, X, Plus,
+  XCircle, Activity,
 } from 'lucide-react';
-import type { PlatformConfig } from '../../../shared/types';
+import type { PlatformConfig, CronJobLog } from '../../../shared/types';
 import { clsx } from 'clsx';
 
 const TABS = [
@@ -137,6 +138,15 @@ export default function SettingsPage() {
     queryFn: fetchConfig,
   });
 
+  const { data: cronLogs = [], refetch: refetchCronLogs } = useQuery<CronJobLog[]>({
+    queryKey: ['cron-logs'],
+    queryFn: async () => {
+      const { data } = await api.get('/cron/logs');
+      return data.data;
+    },
+    refetchInterval: activeTab === 'system' ? 30_000 : false,
+  });
+
   // Initialise draft once config loads
   useEffect(() => {
     if (config && !draft) setDraft({ ...config });
@@ -182,6 +192,7 @@ export default function SettingsPage() {
       await api.post(`/cron/run/${job}`);
       setJobDone(job);
       setTimeout(() => setJobDone(null), 3000);
+      setTimeout(() => refetchCronLogs(), 1500);
     } finally {
       setRunningJob(null);
     }
@@ -507,6 +518,81 @@ export default function SettingsPage() {
                     </div>
                   ))}
                 </div>
+              </div>
+
+              {/* Job run history */}
+              <div className="flex items-center justify-between mt-2">
+                <div>
+                  <h2 className="text-sm font-medium text-ink mb-0.5">Job Run History</h2>
+                  <p className="text-xs text-muted">Last 40 scheduled and manual runs.</p>
+                </div>
+                <button onClick={() => refetchCronLogs()} className="btn-secondary gap-1.5 text-xs py-1.5">
+                  <RefreshCw className="w-3.5 h-3.5" /> Refresh
+                </button>
+              </div>
+              <div className="card overflow-hidden">
+                {cronLogs.length === 0 ? (
+                  <div className="py-10 text-center text-muted text-sm">
+                    No job runs recorded yet. Runs will appear here once jobs execute.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-hairline bg-surface-soft">
+                          {['Status', 'Job', 'Trigger', 'Leads', 'Duration', 'Started'].map(h => (
+                            <th key={h} className="text-left px-4 py-2.5 text-xs font-medium text-muted uppercase tracking-wider">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {cronLogs.map((log: CronJobLog) => (
+                          <tr key={log.id} className="border-b border-hairline last:border-0 hover:bg-surface-soft transition-colors">
+                            <td className="px-4 py-2.5">
+                              <div className="flex items-center gap-1.5">
+                                {log.status === 'success'  && <CheckCircle className="w-3.5 h-3.5 text-success" />}
+                                {log.status === 'failed'   && <XCircle    className="w-3.5 h-3.5 text-sig-coral" />}
+                                {log.status === 'running'  && <Activity   className="w-3.5 h-3.5 text-info animate-pulse" />}
+                                <span className={clsx('text-xs capitalize', {
+                                  'text-success':   log.status === 'success',
+                                  'text-sig-coral': log.status === 'failed',
+                                  'text-info':      log.status === 'running',
+                                })}>
+                                  {log.status}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-2.5 text-xs text-ink font-medium whitespace-nowrap">
+                              {({
+                                daily_scrape:      'Daily Scrape',
+                                biweekly_scrape:   'Bi-weekly Scrape',
+                                analyze_leads:     'Lead Analysis',
+                                generate_outreach: 'Outreach Generation',
+                              } as Record<string, string>)[log.job_name] ?? log.job_name}
+                            </td>
+                            <td className="px-4 py-2.5">
+                              <span className={clsx('text-[10px] px-2 py-0.5 rounded-full border font-medium', {
+                                'bg-surface-soft text-muted border-hairline': log.trigger_type === 'scheduled',
+                                'bg-[#e8f5ec] text-success border-[#b3dcbe]': log.trigger_type === 'manual',
+                              })}>
+                                {log.trigger_type}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2.5 font-mono text-xs text-body">
+                              {log.leads_processed != null ? log.leads_processed : '—'}
+                            </td>
+                            <td className="px-4 py-2.5 text-xs text-muted font-mono">
+                              {log.duration_ms != null ? `${(log.duration_ms / 1000).toFixed(1)}s` : '—'}
+                            </td>
+                            <td className="px-4 py-2.5 text-xs text-muted whitespace-nowrap">
+                              {new Date(log.started_at).toLocaleString()}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
 
               {/* Integration status */}

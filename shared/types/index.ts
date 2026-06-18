@@ -336,6 +336,21 @@ export interface AuthResponse {
   accessToken: string;
 }
 
+// ---- Cron Job Logs ----
+
+export interface CronJobLog {
+  id: string;
+  job_name: string;
+  trigger_type: 'scheduled' | 'manual';
+  status: 'running' | 'success' | 'failed';
+  leads_processed?: number;
+  error_message?: string;
+  started_at: string;
+  completed_at?: string;
+  duration_ms?: number;
+  created_at: string;
+}
+
 // ---- Filters ----
 
 export interface LeadFilters {

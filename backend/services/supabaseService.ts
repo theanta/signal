@@ -1,7 +1,7 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import type {
   Lead, LeadFilters, LeadSignal, LeadScore,
-  OutreachMessage, ScrapingLog, PaginatedResponse, DashboardMetrics
+  OutreachMessage, ScrapingLog, PaginatedResponse, DashboardMetrics, CronJobLog
 } from '../../shared/types';
 
 const supabaseUrl = process.env.SUPABASE_URL!;
@@ -156,6 +156,30 @@ export async function getScrapingLogs(limit = 20): Promise<ScrapingLog[]> {
     .from('scraping_logs').select('*').order('started_at', { ascending: false }).limit(limit);
   if (error) throw new Error(`getScrapingLogs: ${error.message}`);
   return (data ?? []) as ScrapingLog[];
+}
+
+// ============================================================
+// CRON JOB LOGS
+// ============================================================
+
+export async function createCronJobLog(log: Omit<CronJobLog, 'id' | 'created_at'>): Promise<CronJobLog> {
+  const { data, error } = await supabase.from('cron_job_logs').insert(log).select().single();
+  if (error) throw new Error(`createCronJobLog: ${error.message}`);
+  return data as CronJobLog;
+}
+
+export async function updateCronJobLog(id: string, updates: Partial<CronJobLog>): Promise<void> {
+  await supabase.from('cron_job_logs').update(updates).eq('id', id);
+}
+
+export async function getCronJobLogs(limit = 40): Promise<CronJobLog[]> {
+  const { data, error } = await supabase
+    .from('cron_job_logs')
+    .select('*')
+    .order('started_at', { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(`getCronJobLogs: ${error.message}`);
+  return (data ?? []) as CronJobLog[];
 }
 
 // ============================================================
