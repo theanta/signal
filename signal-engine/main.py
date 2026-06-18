@@ -142,7 +142,7 @@ class ScrapeRequest(BaseModel):
 # HEALTH
 # ============================================================
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health():
     return {"status": "ok", "service": "anta-signal-engine", "timestamp": datetime.utcnow().isoformat()}
 

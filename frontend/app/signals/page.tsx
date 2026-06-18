@@ -32,7 +32,7 @@ export default function SignalsPage() {
   const { data: health, isLoading: healthLoading } = useQuery({
     queryKey: ['signal-health'],
     queryFn: fetchSignalHealth,
-    refetchInterval: 60_000,
+    refetchInterval: 90_000,
   });
 
   const { trigger: handleScrape, running: scraping } = useScrapeJob(refetch, refetch);
