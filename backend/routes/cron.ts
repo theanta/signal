@@ -40,8 +40,8 @@ async function withAudit(
       started_at: new Date(startedAt).toISOString(),
     });
     logId = log.id;
-  } catch {
-    // audit failure must not block the job
+  } catch (auditErr) {
+    console.error(`[CRON AUDIT] Failed to create log for ${jobName}:`, (auditErr as Error).message);
   }
 
   let leadsProcessed: number | undefined;

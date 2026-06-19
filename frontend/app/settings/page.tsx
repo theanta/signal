@@ -138,13 +138,14 @@ export default function SettingsPage() {
     queryFn: fetchConfig,
   });
 
-  const { data: cronLogs = [], refetch: refetchCronLogs } = useQuery<CronJobLog[]>({
+  const { data: cronLogs = [], isError: cronLogsError, refetch: refetchCronLogs } = useQuery<CronJobLog[]>({
     queryKey: ['cron-logs'],
     queryFn: async () => {
       const { data } = await api.get('/cron/logs');
       return data.data;
     },
     refetchInterval: activeTab === 'system' ? 30_000 : false,
+    retry: 1,
   });
 
   // Initialise draft once config loads
@@ -466,6 +467,29 @@ export default function SettingsPage() {
           {/* ── SYSTEM ── */}
           {activeTab === 'system' && (
             <section className="space-y-5">
+              {/* Automation schedule */}
+              <div>
+                <h2 className="text-sm font-medium text-ink mb-0.5 mt-2">Automation Schedule</h2>
+                <p className="text-xs text-muted">Configured via environment variables.</p>
+              </div>
+              <div className="card p-5">
+                <div className="space-y-0">
+                  {[
+                    { label: 'Daily Scrape',        schedule: '6:00 AM EST', env: 'CRON_DAILY_SCRAPE' },
+                    { label: 'Lead Analysis',       schedule: '7:00 AM EST', env: 'CRON_ANALYZE_LEADS' },
+                    { label: 'Outreach Generation', schedule: '8:00 AM EST', env: 'CRON_GENERATE_OUTREACH' },
+                  ].map(({ label, schedule, env }) => (
+                    <div key={label} className="flex items-center justify-between py-2.5 border-b border-hairline last:border-0">
+                      <div>
+                        <p className="text-sm text-ink">{label}</p>
+                        <p className="text-xs text-muted font-mono">{env}</p>
+                      </div>
+                      <span className="text-sm text-info font-mono">{schedule}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              
               {/* Manual triggers */}
               <div>
                 <h2 className="text-sm font-medium text-ink mb-0.5">Manual Job Triggers</h2>
@@ -497,29 +521,6 @@ export default function SettingsPage() {
                 ))}
               </div>
 
-              {/* Automation schedule */}
-              <div>
-                <h2 className="text-sm font-medium text-ink mb-0.5 mt-2">Automation Schedule</h2>
-                <p className="text-xs text-muted">Configured via environment variables.</p>
-              </div>
-              <div className="card p-5">
-                <div className="space-y-0">
-                  {[
-                    { label: 'Daily Scrape',        schedule: '6:00 AM EST', env: 'CRON_DAILY_SCRAPE' },
-                    { label: 'Lead Analysis',       schedule: '7:00 AM EST', env: 'CRON_ANALYZE_LEADS' },
-                    { label: 'Outreach Generation', schedule: '8:00 AM EST', env: 'CRON_GENERATE_OUTREACH' },
-                  ].map(({ label, schedule, env }) => (
-                    <div key={label} className="flex items-center justify-between py-2.5 border-b border-hairline last:border-0">
-                      <div>
-                        <p className="text-sm text-ink">{label}</p>
-                        <p className="text-xs text-muted font-mono">{env}</p>
-                      </div>
-                      <span className="text-sm text-info font-mono">{schedule}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
               {/* Job run history */}
               <div className="flex items-center justify-between mt-2">
                 <div>
@@ -531,7 +532,13 @@ export default function SettingsPage() {
                 </button>
               </div>
               <div className="card overflow-hidden">
-                {cronLogs.length === 0 ? (
+                {cronLogsError ? (
+                  <div className="py-10 text-center text-sm">
+                    <XCircle className="w-5 h-5 text-sig-coral mx-auto mb-2" />
+                    <p className="text-sig-coral font-medium">Failed to load job history</p>
+                    <p className="text-muted mt-1 text-xs">The <code className="font-mono">cron_job_logs</code> table may not exist yet — run the migration in your Supabase SQL editor.</p>
+                  </div>
+                ) : cronLogs.length === 0 ? (
                   <div className="py-10 text-center text-muted text-sm">
                     No job runs recorded yet. Runs will appear here once jobs execute.
                   </div>
