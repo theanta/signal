@@ -3,12 +3,72 @@
 import { useQuery } from '@tanstack/react-query';
 import { fetchPipeline } from '@/services/metrics';
 import type { PipelineSummary } from '../../../shared/types';
-import StatusBadge from '@/components/ui/StatusBadge';
+import {
+  ResponsiveContainer, BarChart, Bar,
+  XAxis, YAxis, Tooltip,
+} from 'recharts';
+import Link from 'next/link';
+import { ArrowRight } from 'lucide-react';
 
 const STATUS_ORDER = ['new', 'analyzed', 'contacted', 'replied', 'meeting', 'proposal', 'client'] as const;
 
+const STAGE_CONFIG: Record<string, { label: string; color: string }> = {
+  new:       { label: 'New',       color: '#94a3b8' },
+  analyzed:  { label: 'Analyzed',  color: '#60a5fa' },
+  contacted: { label: 'Contacted', color: '#818cf8' },
+  replied:   { label: 'Replied',   color: '#a78bfa' },
+  meeting:   { label: 'Meeting',   color: '#fbbf24' },
+  proposal:  { label: 'Proposal',  color: '#fb923c' },
+  client:    { label: 'Client',    color: '#34d399' },
+};
+
 interface Props {
   pipeline?: PipelineSummary[];
+}
+
+interface TooltipProps {
+  active?: boolean;
+  payload?: Array<{ value: number; payload: { label: string; avgScore: number } }>;
+}
+
+function CustomTooltip({ active, payload }: TooltipProps) {
+  if (!active || !payload?.length) return null;
+  const { label, avgScore } = payload[0].payload;
+  return (
+    <div className="bg-white border border-neutral-200 rounded-lg shadow-card-md px-3 py-2 text-[12px]">
+      <p className="font-semibold text-ink">{label}</p>
+      <p className="text-neutral-500 mt-0.5">
+        {payload[0].value} lead{payload[0].value !== 1 ? 's' : ''}
+      </p>
+      {avgScore > 0 && (
+        <p className="text-neutral-400">Avg score: {avgScore.toFixed(0)}</p>
+      )}
+    </div>
+  );
+}
+
+interface BarShapeProps {
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  color?: string;
+}
+
+function ColoredBar({ x = 0, y = 0, width = 0, height = 0, color = '#94a3b8' }: BarShapeProps) {
+  if (width <= 0 || height <= 0) return <g />;
+  return (
+    <rect
+      x={x}
+      y={y}
+      width={width}
+      height={height}
+      fill={color}
+      fillOpacity={0.88}
+      rx={5}
+      ry={5}
+    />
+  );
 }
 
 export default function PipelineBar({ pipeline: pipelineProp }: Props) {
@@ -20,32 +80,62 @@ export default function PipelineBar({ pipeline: pipelineProp }: Props) {
 
   const pipeline = (pipelineProp ?? fetched) as PipelineSummary[];
   const pipelineMap = Object.fromEntries(pipeline.map(p => [p.status, p]));
-  const total = pipeline.reduce((sum, p) => sum + p.count, 0);
+
+  const chartData = STATUS_ORDER.map(status => ({
+    label:    STAGE_CONFIG[status].label,
+    color:    STAGE_CONFIG[status].color,
+    count:    pipelineMap[status]?.count     ?? 0,
+    avgScore: pipelineMap[status]?.avg_score ?? 0,
+  }));
+
+  const total = chartData.reduce((sum, d) => sum + d.count, 0);
 
   return (
-    <div className="card p-5">
-      <h3 className="text-sm font-medium text-ink mb-4">Lead Pipeline</h3>
-      <div className="space-y-3">
-        {STATUS_ORDER.map(status => {
-          const item = pipelineMap[status];
-          const count = item?.count ?? 0;
-          const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+    <div className="card p-5 flex flex-col">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="text-[13.5px] font-semibold text-ink">Lead Pipeline</h3>
+          <p className="text-[12px] text-neutral-400 mt-0.5">{total} total leads</p>
+        </div>
+        <Link
+          href="/leads"
+          className="flex items-center gap-1 text-[12px] text-brand-600 hover:text-brand-700 font-medium transition-colors"
+        >
+          View all <ArrowRight className="w-3 h-3" />
+        </Link>
+      </div>
 
-          return (
-            <div key={status} className="flex items-center gap-3">
-              <div className="w-20 flex-shrink-0">
-                <StatusBadge status={status} />
-              </div>
-              <div className="flex-1 h-1 bg-surface-strong rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-ink rounded-full transition-all duration-500"
-                  style={{ width: `${pct}%` }}
-                />
-              </div>
-              <span className="text-sm font-medium text-body w-8 text-right">{count}</span>
-            </div>
-          );
-        })}
+      <div className="flex-1 min-h-[210px]">
+        <ResponsiveContainer width="100%" height={210}>
+          <BarChart
+            data={chartData}
+            layout="vertical"
+            margin={{ top: 0, right: 16, left: 0, bottom: 0 }}
+            barCategoryGap="28%"
+          >
+            <XAxis
+              type="number"
+              axisLine={false}
+              tickLine={false}
+              tick={{ fontSize: 11, fill: '#9ca3af' }}
+              allowDecimals={false}
+            />
+            <YAxis
+              type="category"
+              dataKey="label"
+              axisLine={false}
+              tickLine={false}
+              tick={{ fontSize: 12, fill: '#6b7280', fontWeight: 500 }}
+              width={68}
+            />
+            <Tooltip
+              content={<CustomTooltip />}
+              cursor={{ fill: '#f8fafc', radius: 4 } as React.SVGProps<SVGRectElement>}
+            />
+            {/* shape receives all data entry fields (color) as props — no Cell needed */}
+            <Bar dataKey="count" minPointSize={3} shape={<ColoredBar />} />
+          </BarChart>
+        </ResponsiveContainer>
       </div>
     </div>
   );

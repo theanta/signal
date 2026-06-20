@@ -71,6 +71,7 @@ export default function OutreachQueuePage() {
       <PageHeader
         title="Outreach Queue"
         subtitle={`${leads.length} leads ready for outreach`}
+        icon={Send}
       />
 
       <div className="p-8">

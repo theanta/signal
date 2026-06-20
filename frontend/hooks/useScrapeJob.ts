@@ -2,25 +2,23 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { triggerScrape, getScrapeStatus } from '@/services/outreach';
-import { useToast } from '@/components/ui/Toast';
+import { toast } from '@/lib/toast';
 
 const POLL_INTERVAL_MS = 5_000;
-const JOB_TIMEOUT_MS = 5 * 60_000;
+const JOB_TIMEOUT_MS  = 5 * 60_000;
 
 export function useScrapeJob(onComplete?: () => void, onProgress?: () => void) {
   const [running, setRunning] = useState(false);
-  const { addToast, updateToast } = useToast();
 
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const intervalRef   = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timeoutRef    = useRef<ReturnType<typeof setTimeout>  | null>(null);
   const onCompleteRef = useRef(onComplete);
   useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
 
-  // Clear timers on unmount
   useEffect(() => {
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      if (timeoutRef.current)  clearTimeout(timeoutRef.current);
     };
   }, []);
 
@@ -28,14 +26,10 @@ export function useScrapeJob(onComplete?: () => void, onProgress?: () => void) {
     if (running) return;
 
     if (intervalRef.current) clearInterval(intervalRef.current);
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    if (timeoutRef.current)  clearTimeout(timeoutRef.current);
 
     setRunning(true);
-    const toastId = addToast({
-      type: 'info',
-      message: 'Scrape started — monitoring job…',
-      persistent: true,
-    });
+    const toastId = toast.loading('Scrape started — monitoring job…');
 
     let jobId: string;
     try {
@@ -43,20 +37,16 @@ export function useScrapeJob(onComplete?: () => void, onProgress?: () => void) {
       jobId = result.job_id;
       onProgress?.();
     } catch {
-      updateToast(toastId, {
-        type: 'error',
-        message: 'Failed to start scrape — is the signal engine online?',
-        persistent: false,
-      });
+      toast.resolve(toastId, 'error', 'Failed to start scrape', 'Is the signal engine online?');
       setRunning(false);
       return;
     }
 
     function finish(type: 'success' | 'error', message: string) {
-      if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
-      if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
+      if (intervalRef.current) { clearInterval(intervalRef.current);  intervalRef.current = null; }
+      if (timeoutRef.current)  { clearTimeout(timeoutRef.current);    timeoutRef.current  = null; }
       setRunning(false);
-      updateToast(toastId, { type, message, persistent: false });
+      toast.resolve(toastId, type, message);
       if (type === 'success') onCompleteRef.current?.();
     }
 
@@ -70,7 +60,6 @@ export function useScrapeJob(onComplete?: () => void, onProgress?: () => void) {
         } else if (status.status === 'failed') {
           finish('error', 'Scrape job failed');
         }
-        // 'running' / unknown → keep polling
       } catch {
         // ignore transient network errors during polling
       }
@@ -79,7 +68,7 @@ export function useScrapeJob(onComplete?: () => void, onProgress?: () => void) {
     timeoutRef.current = setTimeout(() => {
       finish('error', 'Scrape timed out after 5 minutes');
     }, JOB_TIMEOUT_MS);
-  }, [running, addToast, updateToast]);
+  }, [running, onProgress]);
 
   return { trigger, running };
 }

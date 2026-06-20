@@ -4,6 +4,7 @@ import { AuthProvider } from '@/contexts/AuthContext';
 import { AppShell } from '@/components/ui/AppShell';
 import QueryProvider from '@/components/ui/QueryProvider';
 import { ToastProvider } from '@/components/ui/Toast';
+import { Toaster } from 'sonner';
 
 export const metadata: Metadata = {
   title: 'ANTA Lead Radar',
@@ -13,7 +14,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="flex h-screen overflow-hidden bg-canvas">
+      <body className="flex h-screen overflow-hidden">
         <QueryProvider>
           <AuthProvider>
             <ToastProvider>
@@ -21,6 +22,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </ToastProvider>
           </AuthProvider>
         </QueryProvider>
+        <Toaster
+          position="bottom-right"
+          richColors
+          toastOptions={{
+            style: { fontFamily: 'Inter, sans-serif', fontSize: '13.5px' },
+          }}
+        />
       </body>
     </html>
   );

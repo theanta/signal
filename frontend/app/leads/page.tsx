@@ -6,42 +6,43 @@ import { fetchLeads } from '@/services/leads';
 import LeadsTable from '@/components/leads/LeadsTable';
 import LeadsFilters from '@/components/leads/LeadsFilters';
 import PageHeader from '@/components/ui/PageHeader';
-import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import type { LeadFilters, LeadTab } from '../../../shared/types';
 import { HIRING_SOURCES, DISCOVERY_SOURCES } from '../../../shared/types';
-import { Plus } from 'lucide-react';
-import { clsx } from 'clsx';
+import { Plus, Users } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import Link from 'next/link';
 
 const TABS: { id: LeadTab; label: string; description: string }[] = [
-  { id: 'all', label: 'All Leads', description: 'Every lead across all sources' },
-  { id: 'hiring', label: 'Hiring Signals', description: 'LinkedIn & Indeed — companies actively hiring' },
-  { id: 'discovery', label: 'Company Discovery', description: 'Crunchbase & Google Maps — local and funded companies' },
+  { id: 'all',       label: 'All Leads',          description: 'Every lead across all sources' },
+  { id: 'hiring',    label: 'Hiring Signals',      description: 'LinkedIn & Indeed — companies actively hiring' },
+  { id: 'discovery', label: 'Company Discovery',   description: 'Crunchbase & Google Maps — local and funded companies' },
 ];
 
 function tabToSources(tab: LeadTab): LeadFilters['sources'] {
-  if (tab === 'hiring') return HIRING_SOURCES;
+  if (tab === 'hiring')    return HIRING_SOURCES;
   if (tab === 'discovery') return DISCOVERY_SOURCES;
   return undefined;
 }
 
 export default function LeadsPage() {
-  const [activeTab, setActiveTab] = useState<LeadTab>('all');
-  const [filters, setFilters] = useState<LeadFilters>({
-    page: 1,
-    per_page: 25,
-    sort_by: 'lead_score',
+  const [activeTab, setActiveTab]   = useState<LeadTab>('all');
+  const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set());
+  const [filters, setFilters]       = useState<LeadFilters>({
+    page:       1,
+    per_page:   25,
+    sort_by:    'lead_score',
     sort_order: 'desc',
   });
 
   const effectiveFilters: LeadFilters = {
     ...filters,
     sources: tabToSources(activeTab),
-    source: undefined,
+    source:  undefined,
   };
 
   const { data, isLoading } = useQuery({
     queryKey: ['leads', effectiveFilters],
-    queryFn: () => fetchLeads(effectiveFilters),
+    queryFn:  () => fetchLeads(effectiveFilters),
     placeholderData: prev => prev,
   });
 
@@ -54,58 +55,76 @@ export default function LeadsPage() {
     setFilters(f => ({ ...f, page: 1, source: undefined }));
   }
 
+  function toggleCol(col: string) {
+    setHiddenCols(prev => {
+      const next = new Set(prev);
+      next.has(col) ? next.delete(col) : next.add(col);
+      return next;
+    });
+  }
+
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen animate-fade-in">
       <PageHeader
         title="Leads"
         subtitle={data ? `${data.total} total leads` : 'Manage and qualify your prospects'}
+        icon={Users}
         actions={
-          <a href="/leads/new" className="btn-primary flex items-center gap-2">
+          <Link href="/leads/new" className="btn-primary">
             <Plus className="w-4 h-4" />
             Add Lead
-          </a>
+          </Link>
         }
       />
 
-      <div className="px-8 pt-6 pb-0">
-        {/* Tabs */}
-        <div className="flex items-end gap-1 border-b border-hairline">
+      <div className="px-8 pt-5 pb-0">
+        {/* ── Pill tabs ── */}
+        <div className="flex items-center gap-1 p-1 bg-neutral-100 rounded-full w-fit">
           {TABS.map(tab => (
             <button
               key={tab.id}
               onClick={() => switchTab(tab.id)}
               title={tab.description}
-              className={clsx(
-                'px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px',
+              className={cn(
+                'flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[13px] font-medium transition-all duration-150',
                 activeTab === tab.id
-                  ? 'border-ink text-ink'
-                  : 'border-transparent text-muted hover:text-body'
+                  ? 'bg-white text-ink shadow-sm'
+                  : 'text-neutral-500 hover:text-neutral-700',
               )}
             >
               {tab.label}
+              {activeTab === tab.id && data?.total != null && (
+                <span className="text-[11px] bg-brand-50 text-brand-600 px-1.5 py-0.5 rounded-full font-semibold leading-none">
+                  {data.total}
+                </span>
+              )}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="p-8 space-y-4">
-        <LeadsFilters filters={filters} onChange={updateFilters} hideSource={activeTab !== 'all'} />
+      <div className="px-8 pt-4 pb-8 space-y-3">
+        <LeadsFilters
+          filters={filters}
+          onChange={updateFilters}
+          hideSource={activeTab !== 'all'}
+          hiddenCols={hiddenCols}
+          onToggleCol={toggleCol}
+        />
 
-        {isLoading ? (
-          <LoadingSpinner />
-        ) : (
-          <LeadsTable
-            leads={data?.data ?? []}
-            total={data?.total ?? 0}
-            page={filters.page ?? 1}
-            totalPages={data?.total_pages ?? 1}
-            tab={activeTab}
-            onPageChange={p => updateFilters({ page: p })}
-            onSortChange={(col, dir) => updateFilters({ sort_by: col as LeadFilters['sort_by'], sort_order: dir })}
-            sortBy={filters.sort_by ?? 'lead_score'}
-            sortOrder={filters.sort_order ?? 'desc'}
-          />
-        )}
+        <LeadsTable
+          leads={data?.data ?? []}
+          total={data?.total ?? 0}
+          page={filters.page ?? 1}
+          totalPages={data?.total_pages ?? 1}
+          tab={activeTab}
+          isLoading={isLoading}
+          onPageChange={p => updateFilters({ page: p })}
+          onSortChange={(col, dir) => updateFilters({ sort_by: col as LeadFilters['sort_by'], sort_order: dir })}
+          sortBy={filters.sort_by ?? 'lead_score'}
+          sortOrder={filters.sort_order ?? 'desc'}
+          hiddenCols={hiddenCols}
+        />
       </div>
     </div>
   );

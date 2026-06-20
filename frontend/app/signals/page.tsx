@@ -49,6 +49,7 @@ export default function SignalsPage() {
       <PageHeader
         title="Signals"
         subtitle="Scraping activity and signal detection logs"
+        icon={Activity}
         actions={
           <div className="flex items-center gap-3">
             <div className={clsx(

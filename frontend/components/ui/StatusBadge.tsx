@@ -1,17 +1,34 @@
-import { clsx } from 'clsx';
+import { cn } from '@/lib/utils';
 import type { LeadStatus } from '../../../shared/types';
 
-const STATUS_CONFIG: Record<LeadStatus, { label: string; className: string }> = {
-  new:       { label: 'New',       className: 'bg-surface-strong text-body' },
-  analyzed:  { label: 'Analyzed',  className: 'bg-[#eaf0fb] text-info border border-[#c5d7f5]' },
-  contacted: { label: 'Contacted', className: 'bg-[#f0ebfb] text-[#6b3fbf] border border-[#d4c3f5]' },
-  replied:   { label: 'Replied',   className: 'bg-[#fdf3df] text-[#9a6b00] border border-[#f0d990]' },
-  meeting:   { label: 'Meeting',   className: 'bg-[#e8f5ec] text-success border border-[#b3dcbe]' },
-  proposal:  { label: 'Proposal',  className: 'bg-[#fff0e8] text-[#b84f00] border border-[#f5c9a8]' },
-  client:    { label: 'Client',    className: 'bg-[#e6f2e6] text-success border border-[#a3cfaa]' },
+const STATUS_CONFIG: Record<LeadStatus, { label: string; styles: string }> = {
+  new:       { label: 'New',       styles: 'bg-slate-100  text-slate-600  border-slate-200' },
+  analyzed:  { label: 'Analyzed',  styles: 'bg-blue-50    text-blue-700   border-blue-200' },
+  contacted: { label: 'Contacted', styles: 'bg-indigo-50  text-indigo-700 border-indigo-200' },
+  replied:   { label: 'Replied',   styles: 'bg-violet-50  text-violet-700 border-violet-200' },
+  meeting:   { label: 'Meeting',   styles: 'bg-amber-50   text-amber-700  border-amber-200' },
+  proposal:  { label: 'Proposal',  styles: 'bg-orange-50  text-orange-700 border-orange-200' },
+  client:    { label: 'Client',    styles: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
 };
 
-export default function StatusBadge({ status }: { status: LeadStatus }) {
-  const config = STATUS_CONFIG[status] ?? { label: status, className: 'bg-surface-strong text-body' };
-  return <span className={clsx('badge text-xs', config.className)}>{config.label}</span>;
+interface StatusBadgeProps {
+  status: LeadStatus;
+  size?: 'sm' | 'md';
+}
+
+export default function StatusBadge({ status, size = 'md' }: StatusBadgeProps) {
+  const config = STATUS_CONFIG[status] ?? {
+    label: status,
+    styles: 'bg-slate-100 text-slate-500 border-slate-200',
+  };
+
+  return (
+    <span className={cn(
+      'inline-flex items-center rounded-full border font-medium',
+      config.styles,
+      size === 'sm' ? 'text-[10px] px-2 py-0.5' : 'text-xs px-2.5 py-0.5',
+    )}>
+      {config.label}
+    </span>
+  );
 }

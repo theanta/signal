@@ -1,39 +1,67 @@
 'use client';
 
-import { Search, X } from 'lucide-react';
+import { Search, X, Columns3 } from 'lucide-react';
+import * as Popover from '@radix-ui/react-popover';
+import { cn } from '@/lib/utils';
 import type { LeadFilters, LeadStatus } from '../../../shared/types';
 
 const STATUSES: LeadStatus[] = ['new', 'analyzed', 'contacted', 'replied', 'meeting', 'proposal', 'client'];
 const SOURCES = ['linkedin', 'job_board', 'crunchbase', 'local_business', 'manual'];
 
+export const TOGGLEABLE_COLS = [
+  { id: 'location',   label: 'Location' },
+  { id: 'industry',   label: 'Industry / Role' },
+  { id: 'signal',     label: 'Signal' },
+  { id: 'discovered', label: 'Discovered' },
+] as const;
+
+const selectCn = cn(
+  'h-9 px-3 text-[13px] text-ink bg-white',
+  'border border-neutral-200 rounded-lg',
+  'focus:outline-none focus:border-brand focus:ring-2 focus:ring-brand/10',
+  'cursor-pointer appearance-none pr-8',
+  'bg-[url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' fill=\'none\' stroke=\'%236b7280\' stroke-width=\'1.5\' viewBox=\'0 0 24 24\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")] bg-no-repeat bg-[right_8px_center]',
+);
+
 interface LeadsFiltersProps {
   filters: LeadFilters;
   onChange: (f: Partial<LeadFilters>) => void;
   hideSource?: boolean;
+  hiddenCols?: Set<string>;
+  onToggleCol?: (col: string) => void;
 }
 
-export default function LeadsFilters({ filters, onChange, hideSource = false }: LeadsFiltersProps) {
-  const hasFilters = filters.status || filters.source || filters.search || filters.min_score;
+export default function LeadsFilters({
+  filters, onChange, hideSource = false, hiddenCols = new Set(), onToggleCol,
+}: LeadsFiltersProps) {
+  const hasFilters = !!(filters.status || filters.source || filters.search || filters.min_score);
+  const hiddenCount = hiddenCols.size;
 
   return (
     <div className="flex items-center gap-2 flex-wrap">
-      {/* Search */}
+
+      {/* ── Search ── */}
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400 pointer-events-none" />
         <input
           type="text"
-          placeholder="Search companies..."
+          placeholder="Search companies…"
           value={filters.search ?? ''}
           onChange={e => onChange({ search: e.target.value || undefined, page: 1 })}
-          className="input pl-9 w-52"
+          className={cn(
+            'h-9 pl-9 pr-3 w-60 text-[13px] text-ink bg-white',
+            'border border-neutral-200 rounded-lg',
+            'focus:outline-none focus:border-brand focus:ring-2 focus:ring-brand/10',
+            'placeholder:text-neutral-400',
+          )}
         />
       </div>
 
-      {/* Status filter */}
+      {/* ── Status ── */}
       <select
         value={filters.status ?? ''}
         onChange={e => onChange({ status: (e.target.value as LeadStatus) || undefined, page: 1 })}
-        className="input"
+        className={selectCn}
       >
         <option value="">All statuses</option>
         {STATUSES.map(s => (
@@ -41,41 +69,106 @@ export default function LeadsFilters({ filters, onChange, hideSource = false }: 
         ))}
       </select>
 
-      {/* Source filter — hidden when a tab already constrains the source */}
+      {/* ── Source ── */}
       {!hideSource && (
         <select
           value={filters.source ?? ''}
-          onChange={e => onChange({ source: e.target.value as Parameters<typeof onChange>[0]['source'] || undefined, page: 1 })}
-          className="input"
+          onChange={e => onChange({ source: e.target.value as LeadFilters['source'] || undefined, page: 1 })}
+          className={selectCn}
         >
           <option value="">All sources</option>
           {SOURCES.map(s => (
-            <option key={s} value={s}>{s.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>
+            <option key={s} value={s}>
+              {s.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}
+            </option>
           ))}
         </select>
       )}
 
-      {/* Min score filter */}
+      {/* ── Score ── */}
       <select
         value={filters.min_score ?? ''}
         onChange={e => onChange({ min_score: e.target.value ? Number(e.target.value) : undefined, page: 1 })}
-        className="input"
+        className={selectCn}
       >
         <option value="">Any score</option>
-        <option value="70">Hot (≥70)</option>
-        <option value="55">Warm (≥55)</option>
-        <option value="35">Cool (≥35)</option>
+        <option value="70">Hot (≥ 70)</option>
+        <option value="55">Warm (≥ 55)</option>
+        <option value="35">Cool (≥ 35)</option>
       </select>
 
-      {/* Clear filters */}
+      {/* ── Spacer ── */}
+      <div className="flex-1" />
+
+      {/* ── Clear ── */}
       {hasFilters && (
         <button
           onClick={() => onChange({ status: undefined, source: undefined, search: undefined, min_score: undefined, page: 1 })}
-          className="flex items-center gap-1 text-xs text-muted hover:text-ink transition-colors"
+          className="flex items-center gap-1.5 text-[12.5px] text-neutral-400 hover:text-neutral-700 transition-colors"
         >
           <X className="w-3.5 h-3.5" />
-          Clear
+          Clear filters
         </button>
+      )}
+
+      {/* ── Columns ── */}
+      {onToggleCol && (
+        <Popover.Root>
+          <Popover.Trigger asChild>
+            <button className={cn(
+              'relative flex items-center gap-1.5 h-9 px-3 text-[13px] font-medium',
+              'bg-white border border-neutral-200 rounded-lg',
+              'hover:bg-neutral-50 hover:border-neutral-300 transition-colors',
+              'text-neutral-500',
+            )}>
+              <Columns3 className="w-3.5 h-3.5" />
+              <span>Columns</span>
+              {hiddenCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-brand text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none">
+                  {hiddenCount}
+                </span>
+              )}
+            </button>
+          </Popover.Trigger>
+          <Popover.Portal>
+            <Popover.Content
+              align="end"
+              sideOffset={6}
+              className={cn(
+                'w-48 bg-white border border-neutral-200 rounded-xl shadow-card-lg p-2',
+                'animate-scale-in z-50',
+              )}
+            >
+              <p className="text-[10.5px] font-semibold text-neutral-400 uppercase tracking-wider px-2 pb-1.5">
+                Toggle columns
+              </p>
+              {TOGGLEABLE_COLS.map(col => {
+                const visible = !hiddenCols.has(col.id);
+                return (
+                  <button
+                    key={col.id}
+                    onClick={() => onToggleCol(col.id)}
+                    className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-neutral-50 transition-colors"
+                  >
+                    <span className={cn(
+                      'w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors',
+                      visible
+                        ? 'bg-brand border-brand'
+                        : 'border-neutral-300 bg-white',
+                    )}>
+                      {visible && (
+                        <svg width="8" height="6" viewBox="0 0 8 6" fill="none">
+                          <path d="M1 3l2 2 4-4" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      )}
+                    </span>
+                    <span className="text-[13px] text-neutral-700">{col.label}</span>
+                  </button>
+                );
+              })}
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
       )}
     </div>
   );

@@ -4,12 +4,13 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { fetchConfig, saveConfig } from '@/services/config';
-import PageHeader from '@/components/ui/PageHeader';
+import { toast } from '@/lib/toast';
 import {
   RefreshCw, CheckCircle, Settings, Zap, Brain,
   Building2, MessageSquare, MapPin, Users, ToggleLeft, ToggleRight, Save, X, Plus,
   XCircle, Activity,
 } from 'lucide-react';
+import PageHeader from '@/components/ui/PageHeader';
 import type { PlatformConfig, CronJobLog } from '../../../shared/types';
 import { clsx } from 'clsx';
 
@@ -130,7 +131,6 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<TabId>('agency');
   const [runningJob, setRunningJob] = useState<string | null>(null);
   const [jobDone, setJobDone] = useState<string | null>(null);
-  const [saveToast, setSaveToast] = useState<'saved' | 'error' | null>(null);
   const [draft, setDraft] = useState<PlatformConfig | null>(null);
 
   const { data: config, isLoading } = useQuery({
@@ -157,12 +157,10 @@ export default function SettingsPage() {
     mutationFn: saveConfig,
     onSuccess: (saved) => {
       queryClient.setQueryData(['platform-config'], saved);
-      setSaveToast('saved');
-      setTimeout(() => setSaveToast(null), 3000);
+      toast.success('Settings saved');
     },
     onError: () => {
-      setSaveToast('error');
-      setTimeout(() => setSaveToast(null), 3000);
+      toast.error('Failed to save — check the backend is running.');
     },
   });
 
@@ -204,7 +202,6 @@ export default function SettingsPage() {
   if (isLoading || !draft) {
     return (
       <div className="min-h-screen">
-        <PageHeader title="Settings" subtitle="Configure your platform" />
         <div className="p-8 flex items-center justify-center h-64">
           <RefreshCw className="w-5 h-5 animate-spin text-muted" />
         </div>
@@ -214,32 +211,7 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-screen">
-      <PageHeader
-        title="Settings"
-        subtitle="Customize your agency identity, targeting, and automation"
-        actions={
-          isDirty ? (
-            <button
-              onClick={() => mutation.mutate(draft)}
-              disabled={mutation.isPending}
-              className="btn-primary gap-2"
-            >
-              {mutation.isPending ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              {mutation.isPending ? 'Saving...' : 'Save Changes'}
-            </button>
-          ) : saveToast === 'saved' ? (
-            <div className="flex items-center gap-2 text-success text-sm">
-              <CheckCircle className="w-4 h-4" /> Saved
-            </div>
-          ) : null
-        }
-      />
-
-      {saveToast === 'error' && (
-        <div className="mx-8 mb-0 mt-[-8px] p-3 bg-[#fcede8] border border-[#f5c9b8] rounded-md text-sm text-sig-coral">
-          Failed to save — check the backend is running.
-        </div>
-      )}
+      <PageHeader title="Settings" icon={Settings} />
 
       <div className="flex min-h-[calc(100vh-120px)]">
         {/* Tab rail */}
