@@ -91,6 +91,7 @@ class LocalBusinessScraper(ApifyBaseScraper):
             "company_name": company_name,
             "website": website,
             "location": location,
+            "job_title": category,
             "source_url": source_url,
             "source": "local_business",
             "description": description,

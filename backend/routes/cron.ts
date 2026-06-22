@@ -7,18 +7,6 @@ import { generateOutreach } from '../services/claudeService';
 import * as db from '../services/supabaseService';
 import type { LeadSource, SignalAnalysisResult } from '../../shared/types';
 
-function isSignalAnalysisResult(v: unknown): v is SignalAnalysisResult {
-  if (!v || typeof v !== 'object') return false;
-  const r = v as Record<string, unknown>;
-  return (
-    typeof r.lead_score === 'number' &&
-    Array.isArray(r.likely_pain_points) &&
-    typeof r.recommended_anta_service === 'string' &&
-    typeof r.outreach_angle === 'string' &&
-    typeof r.signal_type === 'string'
-  );
-}
-
 const router = Router();
 
 // ---- Job state ----
@@ -110,6 +98,19 @@ async function runLeadAnalysis(trigger: 'scheduled' | 'manual' = 'scheduled'): P
           company_size: lead.company_size,
         });
 
+        const leadUpdate: Record<string, unknown> = {
+          lead_score: signals.lead_score,
+          status: 'analyzed',
+          analyzed_at: new Date().toISOString(),
+        };
+        if (signals.industry)                  leadUpdate.industry                 = signals.industry;
+        if (signals.verified_website)          leadUpdate.website                  = signals.verified_website;
+        if (signals.contact?.name)             leadUpdate.contact_name             = signals.contact.name;
+        if (signals.contact?.email)            leadUpdate.contact_email            = signals.contact.email;
+        if (signals.contact?.title)            leadUpdate.contact_title            = signals.contact.title;
+        if (signals.contact?.linkedin_url)     leadUpdate.contact_linkedin_url     = signals.contact.linkedin_url;
+        if (signals.contact?.email_confidence) leadUpdate.contact_email_confidence = signals.contact.email_confidence;
+
         await Promise.all([
           db.createLeadSignal({
             lead_id: lead.id,
@@ -121,9 +122,10 @@ async function runLeadAnalysis(trigger: 'scheduled' | 'manual' = 'scheduled'): P
             operational_maturity: signals.operational_maturity,
             growth_indicators: signals.growth_indicators,
             digital_maturity_score: signals.digital_maturity_score,
-            raw_analysis: signals as unknown as Record<string, unknown>,
+            tech_stack: signals.tech_stack ?? [],
+            tech_gaps: signals.tech_gaps ?? [],
           }),
-          db.createLeadScore({
+          db.upsertLeadScore({
             lead_id: lead.id,
             overall_score: signals.lead_score,
             company_size_score: signals.scoring_breakdown.company_size_score,
@@ -132,11 +134,7 @@ async function runLeadAnalysis(trigger: 'scheduled' | 'manual' = 'scheduled'): P
             digital_score: signals.scoring_breakdown.digital_score,
             scoring_rationale: signals.scoring_rationale,
           }),
-          updateLead(lead.id, {
-            lead_score: signals.lead_score,
-            status: 'analyzed',
-            analyzed_at: new Date().toISOString(),
-          }),
+          updateLead(lead.id, leadUpdate),
         ]);
       } catch (err) {
         console.error(`[CRON] Failed to analyze lead ${lead.id}:`, (err as Error).message);
@@ -160,12 +158,32 @@ async function runOutreachGeneration(trigger: 'scheduled' | 'manual' = 'schedule
         const existing = await db.getOutreachMessages(lead.id);
         if (existing.length > 0) continue;
 
-        const raw = signals[0].raw_analysis;
-        if (!isSignalAnalysisResult(raw)) {
-          console.error(`[CRON] raw_analysis for signal ${signals[0].id} has unexpected shape, skipping`);
-          continue;
-        }
-        const outreach = await generateOutreach(lead, raw, 'email');
+        const sig = signals[0];
+        const signalData: SignalAnalysisResult = {
+          lead_score: lead.lead_score ?? 0,
+          industry: lead.industry,
+          likely_pain_points: sig.likely_pain_points ?? [],
+          recommended_anta_service: sig.recommended_anta_service ?? '',
+          outreach_angle: sig.outreach_angle ?? '',
+          operational_maturity: sig.operational_maturity ?? '',
+          growth_indicators: sig.growth_indicators ?? [],
+          digital_maturity_score: sig.digital_maturity_score ?? 0,
+          signal_type: sig.signal_type,
+          confidence_score: sig.confidence_score ?? 0,
+          scoring_breakdown: { company_size_score: 0, hiring_urgency_score: 0, complexity_score: 0, digital_score: 0 },
+          scoring_rationale: '',
+          tech_stack: sig.tech_stack ?? [],
+          tech_gaps: sig.tech_gaps ?? [],
+          verified_website: lead.website,
+          contact: lead.contact_email ? {
+            name: lead.contact_name ?? '',
+            title: lead.contact_title ?? '',
+            email: lead.contact_email,
+            linkedin_url: lead.contact_linkedin_url ?? '',
+            email_confidence: lead.contact_email_confidence ?? 'unknown',
+          } : null,
+        };
+        const outreach = await generateOutreach(lead, signalData, 'email');
 
         await db.createOutreachMessage({
           lead_id: lead.id,

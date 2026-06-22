@@ -9,8 +9,8 @@ from apify_client import ApifyClient
 
 logger = logging.getLogger(__name__)
 
-# Generous timeout — actor runs include browser startup + scraping time
-DEFAULT_TIMEOUT_SECS = 180
+# LinkedIn scraper needs time for browser startup + multi-keyword scraping
+DEFAULT_TIMEOUT_SECS = 300
 
 
 class ApifyBaseScraper(ABC):

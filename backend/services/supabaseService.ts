@@ -98,8 +98,14 @@ export async function createLeadSignal(signal: Partial<LeadSignal>): Promise<Lea
   return data as LeadSignal;
 }
 
+export async function updateLeadSignal(id: string, updates: Partial<LeadSignal>): Promise<LeadSignal> {
+  const { data, error } = await supabase.from('lead_signals').update(updates).eq('id', id).select().single();
+  if (error) throw new Error(`updateLeadSignal: ${error.message}`);
+  return data as LeadSignal;
+}
+
 export async function getLeadSignals(leadId: string): Promise<LeadSignal[]> {
-  const { data, error } = await supabase.from('lead_signals').select('*').eq('lead_id', leadId);
+  const { data, error } = await supabase.from('lead_signals').select('*').eq('lead_id', leadId).order('detected_at', { ascending: false });
   if (error) throw new Error(`getLeadSignals: ${error.message}`);
   return (data ?? []) as LeadSignal[];
 }
@@ -112,6 +118,16 @@ export async function createLeadScore(score: Partial<LeadScore>): Promise<LeadSc
   const { data, error } = await supabase.from('lead_scores').insert(score).select().single();
   if (error) throw new Error(`createLeadScore: ${error.message}`);
   return data as LeadScore;
+}
+
+export async function upsertLeadScore(score: Partial<LeadScore> & { lead_id: string }): Promise<LeadScore> {
+  const existing = await getLeadScore(score.lead_id);
+  if (existing) {
+    const { data, error } = await supabase.from('lead_scores').update(score).eq('id', existing.id).select().single();
+    if (error) throw new Error(`upsertLeadScore: ${error.message}`);
+    return data as LeadScore;
+  }
+  return createLeadScore(score);
 }
 
 export async function getLeadScore(leadId: string): Promise<LeadScore | null> {

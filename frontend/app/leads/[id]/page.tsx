@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils';
 import {
   Brain, Copy, CheckCircle, ExternalLink, Link2,
   Zap, Target, MessageSquare, RefreshCw, Monitor, User,
-  Building2, MapPin, ChevronRight,
+  Building2, MapPin, ChevronRight, TrendingUp, ShieldCheck, ShieldAlert, ShieldQuestion,
 } from 'lucide-react';
 import { useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
@@ -299,6 +299,24 @@ export default function LeadDetailPage() {
                 <CheckCircle className="w-3.5 h-3.5" />
                 Mark Contacted
               </button>
+              <button
+                onClick={() => analyzeMutation.mutate()}
+                disabled={analyzeMutation.isPending}
+                className={cn(
+                  'inline-flex items-center gap-1.5 h-8 px-3 text-[13px] font-medium border rounded-lg transition-colors disabled:opacity-40 ml-auto',
+                  latestSignal
+                    ? 'border-neutral-200 hover:bg-neutral-50 text-neutral-400 hover:text-ink'
+                    : 'border-brand/30 bg-brand/5 text-brand hover:bg-brand/10',
+                )}
+                title={latestSignal ? 'Re-run AI analysis to refresh tech stack and enrichment data' : 'Run AI analysis on this lead'}
+              >
+                {analyzeMutation.isPending
+                  ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  : latestSignal
+                    ? <RefreshCw className="w-3.5 h-3.5" />
+                    : <Brain className="w-3.5 h-3.5" />}
+                {analyzeMutation.isPending ? 'Analyzing…' : latestSignal ? 'Re-analyze' : 'Analyze'}
+              </button>
             </div>
           </div>
 
@@ -329,7 +347,7 @@ export default function LeadDetailPage() {
                 <div>
                   <p className="text-[13px] font-medium text-ink">Lead Disqualified</p>
                   <p className="text-[13px] text-neutral-500 mt-1 leading-relaxed">
-                    {(latestSignal.raw_analysis?.disqualify_reason as string) ?? latestSignal.operational_maturity}
+                    {latestSignal.operational_maturity}
                   </p>
                   <p className="text-[12px] text-neutral-400 mt-2">
                     Falls outside ANTA&apos;s SMB target market. No outreach will be generated.
@@ -403,6 +421,18 @@ export default function LeadDetailPage() {
                   )}
                 </div>
               ) : null}
+
+              {latestSignal.growth_indicators && latestSignal.growth_indicators.length > 0 && (
+                <SectionCard title="Growth Signals" icon={TrendingUp}>
+                  <div className="flex flex-wrap gap-1.5">
+                    {latestSignal.growth_indicators.map((indicator, i) => (
+                      <span key={i} className="inline-flex items-center px-2 py-0.5 text-[11.5px] font-medium rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200">
+                        {indicator}
+                      </span>
+                    ))}
+                  </div>
+                </SectionCard>
+              )}
             </div>
           )}
 
@@ -422,10 +452,30 @@ export default function LeadDetailPage() {
                       <p className="text-[12px] text-neutral-400">{lead.contact_title}</p>
                     )}
                     {lead.contact_email && (
-                      <a href={`mailto:${lead.contact_email}`}
-                        className="text-[12px] text-brand hover:text-brand/80 mt-0.5 block">
-                        {lead.contact_email}
-                      </a>
+                      <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                        <a href={`mailto:${lead.contact_email}`}
+                          className="text-[12px] text-brand hover:text-brand/80">
+                          {lead.contact_email}
+                        </a>
+                        {lead.contact_email_confidence === 'verified' && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0 text-[10px] font-medium rounded-full bg-emerald-50 text-emerald-600 border border-emerald-200">
+                            <ShieldCheck className="w-2.5 h-2.5" />
+                            verified
+                          </span>
+                        )}
+                        {lead.contact_email_confidence === 'catch_all' && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0 text-[10px] font-medium rounded-full bg-amber-50 text-amber-600 border border-amber-200">
+                            <ShieldAlert className="w-2.5 h-2.5" />
+                            catch-all
+                          </span>
+                        )}
+                        {(lead.contact_email_confidence === 'pattern_inferred' || lead.contact_email_confidence === 'unknown') && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0 text-[10px] font-medium rounded-full bg-neutral-50 text-neutral-400 border border-neutral-200">
+                            <ShieldQuestion className="w-2.5 h-2.5" />
+                            unverified
+                          </span>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>

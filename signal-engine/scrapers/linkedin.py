@@ -1,11 +1,12 @@
-"""LinkedIn Jobs scraper - replaces Wellfound, uses Apify to handle JS rendering."""
+"""LinkedIn Jobs scraper - uses Apify worldunboxer actor (free tier)."""
 
 import logging
 from .apify_base import ApifyBaseScraper
 
 logger = logging.getLogger(__name__)
 
-LINKEDIN_ACTOR = "bebity/linkedin-jobs-scraper"
+# bebity/linkedin-jobs-scraper required a $15/month rental; worldunboxer is free
+LINKEDIN_ACTOR = "worldunboxer/rapid-linkedin-scraper"
 
 # Roles that signal either operational pain or active tech build
 TARGET_ROLES = [
@@ -22,30 +23,26 @@ TARGET_ROLES = [
 class LinkedInJobsScraper(ApifyBaseScraper):
     """
     Pulls LinkedIn job postings via Apify.
-    Replaces the broken Wellfound HTML scraper.
     Location-filtered to Michigan and date-filtered to last 24 hours.
     """
 
     def __init__(self, target_locations: list[str] | None = None, **kwargs):
         super().__init__(**kwargs)
         locs = target_locations or ["Michigan, United States"]
-        # LinkedIn location strings need to be "City, State, Country" format
         self.location = locs[0]
 
     def scrape(self) -> list[dict]:
-        queries = [
-            {"keyword": role, "location": self.location, "dateSincePosted": "past 24 hours"}
-            for role in TARGET_ROLES[:5]
-        ]
-
         items = []
         try:
             items = self._run_actor(LINKEDIN_ACTOR, {
-                "searchQueries": queries,
-                "maxResults": 25,
+                "keywords": TARGET_ROLES,
+                "location": self.location,
+                # r86400 = LinkedIn's native filter code for "past 24 hours"
+                "datePosted": "r86400",
+                "limit": 50,
             })
         except Exception as e:
-            logger.warning(f"[LinkedIn] Actor run failed: {e}")
+            logger.error(f"[LinkedIn] Actor run failed: {e}")
 
         leads = []
         for item in items:
@@ -57,14 +54,21 @@ class LinkedInJobsScraper(ApifyBaseScraper):
         return self._deduplicate(leads)
 
     def _map_item(self, item: dict) -> dict | None:
-        company = item.get("companyName") or item.get("company") or ""
+        # Guard against different field naming conventions across actor versions
+        company = (
+            item.get("company_name") or item.get("companyName") or
+            item.get("company") or item.get("Company") or ""
+        )
         if not company:
             return None
 
-        job_title = item.get("title") or item.get("positionName") or ""
+        job_title = (
+            item.get("job_title") or item.get("jobTitle") or
+            item.get("title") or item.get("positionName") or ""
+        )
         location = item.get("location") or item.get("jobLocation") or ""
-        source_url = item.get("url") or item.get("jobUrl") or ""
-        description = (item.get("description") or "")[:500]
+        source_url = item.get("job_url") or item.get("jobUrl") or item.get("url") or ""
+        description = (item.get("job_description") or item.get("description") or "")[:500]
 
         is_operational = any(
             kw in job_title.lower()
@@ -78,7 +82,7 @@ class LinkedInJobsScraper(ApifyBaseScraper):
 
         return {
             "company_name": company,
-            "website": item.get("companyUrl") or None,
+            "website": item.get("company_url") or item.get("companyUrl") or None,
             "location": location,
             "job_title": job_title,
             "hiring_signal": signal,

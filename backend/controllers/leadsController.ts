@@ -61,7 +61,11 @@ export async function createLead(req: Request, res: Response): Promise<void> {
 
 export async function updateLead(req: Request, res: Response): Promise<void> {
   try {
-    const lead = await db.updateLead(req.params.id, req.body);
+    const updates = { ...req.body };
+    if (updates.status === 'contacted' && !updates.contacted_at) {
+      updates.contacted_at = new Date().toISOString();
+    }
+    const lead = await db.updateLead(req.params.id, updates);
     res.json({ success: true, data: lead });
   } catch (err) {
     res.status(500).json({ success: false, error: (err as Error).message });
@@ -96,29 +100,36 @@ export async function analyzeLead(req: Request, res: Response): Promise<void> {
       status: 'analyzed',
       analyzed_at: new Date().toISOString(),
     };
-    if (signals.verified_website) leadUpdate.website = signals.verified_website;
+    if (signals.industry)                  leadUpdate.industry                 = signals.industry;
+    if (signals.verified_website)          leadUpdate.website                  = signals.verified_website;
     if (signals.contact?.name)             leadUpdate.contact_name             = signals.contact.name;
     if (signals.contact?.email)            leadUpdate.contact_email            = signals.contact.email;
     if (signals.contact?.title)            leadUpdate.contact_title            = signals.contact.title;
     if (signals.contact?.linkedin_url)     leadUpdate.contact_linkedin_url     = signals.contact.linkedin_url;
     if (signals.contact?.email_confidence) leadUpdate.contact_email_confidence = signals.contact.email_confidence;
 
+    // Deduplicate signals: if same signal_type, update in place rather than append
+    const existingSignals = await db.getLeadSignals(lead.id);
+    const latestSignal = existingSignals[0];
+    const signalPayload = {
+      lead_id: lead.id,
+      signal_type: signals.signal_type,
+      confidence_score: signals.confidence_score,
+      likely_pain_points: signals.likely_pain_points,
+      recommended_anta_service: signals.recommended_anta_service,
+      outreach_angle: signals.outreach_angle,
+      operational_maturity: signals.operational_maturity,
+      growth_indicators: signals.growth_indicators,
+      digital_maturity_score: signals.digital_maturity_score,
+      tech_stack: signals.tech_stack ?? [],
+      tech_gaps: signals.tech_gaps ?? [],
+    };
+
     await Promise.all([
-      db.createLeadSignal({
-        lead_id: lead.id,
-        signal_type: signals.signal_type,
-        confidence_score: signals.confidence_score,
-        likely_pain_points: signals.likely_pain_points,
-        recommended_anta_service: signals.recommended_anta_service,
-        outreach_angle: signals.outreach_angle,
-        operational_maturity: signals.operational_maturity,
-        growth_indicators: signals.growth_indicators,
-        digital_maturity_score: signals.digital_maturity_score,
-        tech_stack: signals.tech_stack ?? [],
-        tech_gaps: signals.tech_gaps ?? [],
-        raw_analysis: signals as unknown as Record<string, unknown>,
-      }),
-      db.createLeadScore({
+      latestSignal?.signal_type === signals.signal_type
+        ? db.updateLeadSignal(latestSignal.id, { ...signalPayload, detected_at: new Date().toISOString() })
+        : db.createLeadSignal(signalPayload),
+      db.upsertLeadScore({
         lead_id: lead.id,
         overall_score: signals.lead_score,
         company_size_score: signals.scoring_breakdown.company_size_score,
@@ -149,7 +160,31 @@ export async function generateLeadOutreach(req: Request, res: Response): Promise
 
     let signalData;
     if (signals.length > 0) {
-      signalData = signals[0].raw_analysis as unknown;
+      const sig = signals[0];
+      signalData = {
+        lead_score: lead.lead_score ?? 0,
+        industry: lead.industry,
+        likely_pain_points: sig.likely_pain_points ?? [],
+        recommended_anta_service: sig.recommended_anta_service ?? '',
+        outreach_angle: sig.outreach_angle ?? '',
+        operational_maturity: sig.operational_maturity ?? '',
+        growth_indicators: sig.growth_indicators ?? [],
+        digital_maturity_score: sig.digital_maturity_score ?? 0,
+        signal_type: sig.signal_type,
+        confidence_score: sig.confidence_score ?? 0,
+        scoring_breakdown: { company_size_score: 0, hiring_urgency_score: 0, complexity_score: 0, digital_score: 0 },
+        scoring_rationale: '',
+        tech_stack: sig.tech_stack ?? [],
+        tech_gaps: sig.tech_gaps ?? [],
+        verified_website: lead.website,
+        contact: lead.contact_email ? {
+          name: lead.contact_name ?? '',
+          title: lead.contact_title ?? '',
+          email: lead.contact_email,
+          linkedin_url: lead.contact_linkedin_url ?? '',
+          email_confidence: lead.contact_email_confidence ?? 'unknown',
+        } : null,
+      };
     } else {
       signalData = await analyzeLeadSignals({
         company_name: lead.company_name,

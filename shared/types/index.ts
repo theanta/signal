@@ -49,7 +49,6 @@ export interface Lead {
   contact_title?: string;
   contact_linkedin_url?: string;
   contact_email_confidence?: EmailConfidence;
-  notes?: string;
   scraped_at?: string;
   analyzed_at?: string;
   contacted_at?: string;
@@ -79,7 +78,6 @@ export interface LeadSignal {
   digital_maturity_score?: number;
   tech_stack?: string[];
   tech_gaps?: string[];
-  raw_analysis?: Record<string, unknown>;
   detected_at: string;
   created_at: string;
 }
@@ -181,6 +179,7 @@ export interface LeadContact {
 
 export interface SignalAnalysisResult {
   lead_score: number;
+  industry?: string;
   disqualified?: boolean;
   disqualify_reason?: string;
   likely_pain_points: string[];

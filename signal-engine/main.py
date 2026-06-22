@@ -1,6 +1,7 @@
 """ANTA Lead Radar - Signal Engine (FastAPI)"""
 
 import asyncio
+import logging
 import re
 import uuid
 from datetime import datetime
@@ -12,6 +13,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 load_dotenv()
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 from scrapers.linkedin import LinkedInJobsScraper
 from scrapers.crunchbase import CrunchbaseScraper
@@ -200,11 +204,11 @@ async def analyze_lead(request: AnalysisRequest):
     )
 
     if isinstance(verified_website_res, Exception):
-        print(f"[enrichment] verify_website failed: {verified_website_res}")
+        logger.warning(f"[enrichment] verify_website failed: {verified_website_res}")
     if isinstance(raw_tech_stack, Exception):
-        print(f"[enrichment] detect_tech_stack failed: {raw_tech_stack}")
+        logger.warning(f"[enrichment] detect_tech_stack failed: {raw_tech_stack}")
     if isinstance(contact_res, Exception):
-        print(f"[enrichment] find_contact failed: {contact_res}")
+        logger.warning(f"[enrichment] find_contact failed: {contact_res}")
 
     verified_website = verified_website_res if isinstance(verified_website_res, str) else lead.website
     tech_stack: list[str] = raw_tech_stack if isinstance(raw_tech_stack, list) else []
@@ -246,6 +250,7 @@ async def analyze_lead(request: AnalysisRequest):
 
     return {
         "lead_score": score_result["overall_score"],
+        "industry": industry,
         "likely_pain_points": pain_points,
         "recommended_anta_service": recommended_service,
         "outreach_angle": outreach_angle,
@@ -339,6 +344,7 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
                 leads = await asyncio.to_thread(scraper.scrape)
                 leads_found = len(leads)
 
+                failed_inserts = 0
                 for lead_data in leads:
                     try:
                         existing = supabase.table("leads").select("id").eq(
@@ -356,14 +362,20 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
                         leads_new += 1
                         total_new += 1
                     except Exception as e:
-                        print(f"[Scraper] Failed to save lead: {e}")
+                        failed_inserts += 1
+                        logger.error(f"[Scraper] Failed to save lead '{lead_data.get('company_name', '?')}' ({source}): {e}")
 
-                log_status = "completed"
+                if failed_inserts:
+                    error_msg = f"{failed_inserts} of {leads_found} leads failed to insert"
+                    logger.error(f"[Scraper] {source}: {error_msg}")
+                    log_status = "partial" if leads_new > 0 else "failed"
+                else:
+                    log_status = "completed"
                 any_success = True
 
             except Exception as e:
                 error_msg = str(e)
-                print(f"[Scraper] {source} failed: {e}")
+                logger.error(f"[Scraper] {source} failed: {e}")
 
             # Write one scraping_logs row per source
             duration_ms = int((datetime.utcnow() - source_started).total_seconds() * 1000)
@@ -381,7 +393,7 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
                     "created_at": datetime.utcnow().isoformat(),
                 }).execute()
             except Exception as e:
-                print(f"[Scraper] Failed to write log for {source}: {e}")
+                logger.error(f"[Scraper] Failed to write log for {source}: {e}")
 
         overall_status = "completed" if any_success else "failed"
         scrape_jobs[job_id].update({
