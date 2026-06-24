@@ -111,7 +111,10 @@ async function runLeadAnalysis(trigger: 'scheduled' | 'manual' = 'scheduled'): P
         if (signals.contact?.linkedin_url)     leadUpdate.contact_linkedin_url     = signals.contact.linkedin_url;
         if (signals.contact?.email_confidence) leadUpdate.contact_email_confidence = signals.contact.email_confidence;
 
-        await Promise.all([
+        // Signal/score writes are best-effort — failures must not block the status update.
+        // A plain INSERT in createLeadSignal would throw on duplicate if a prior run
+        // partially succeeded, permanently locking the lead as 'new'.
+        const writeResults = await Promise.allSettled([
           db.createLeadSignal({
             lead_id: lead.id,
             signal_type: signals.signal_type,
@@ -134,8 +137,13 @@ async function runLeadAnalysis(trigger: 'scheduled' | 'manual' = 'scheduled'): P
             digital_score: signals.scoring_breakdown.digital_score,
             scoring_rationale: signals.scoring_rationale,
           }),
-          updateLead(lead.id, leadUpdate),
         ]);
+        for (const r of writeResults) {
+          if (r.status === 'rejected') {
+            console.error(`[CRON] Secondary write failed for lead ${lead.id}:`, r.reason);
+          }
+        }
+        await updateLead(lead.id, leadUpdate);
       } catch (err) {
         console.error(`[CRON] Failed to analyze lead ${lead.id}:`, (err as Error).message);
       }
@@ -148,7 +156,7 @@ async function runLeadAnalysis(trigger: 'scheduled' | 'manual' = 'scheduled'): P
 async function runOutreachGeneration(trigger: 'scheduled' | 'manual' = 'scheduled'): Promise<void> {
   console.log('[CRON] Generating outreach for top leads...');
   await withAudit('generate_outreach', trigger, async () => {
-    const { data: leads } = await getLeads({ status: 'analyzed', min_score: 65, per_page: 10 });
+    const { data: leads } = await getLeads({ status: 'analyzed', min_score: 65, per_page: 50 });
 
     for (const lead of leads) {
       try {

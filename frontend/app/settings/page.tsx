@@ -8,7 +8,7 @@ import { toast } from '@/lib/toast';
 import {
   RefreshCw, CheckCircle, Settings, Zap, Brain,
   Building2, MessageSquare, MapPin, Users, ToggleLeft, ToggleRight, Save, X, Plus,
-  XCircle, Activity,
+  XCircle, Activity, Wifi, WifiOff,
 } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
 import type { PlatformConfig, CronJobLog } from '../../../shared/types';
@@ -136,6 +136,17 @@ export default function SettingsPage() {
   const { data: config, isLoading } = useQuery({
     queryKey: ['platform-config'],
     queryFn: fetchConfig,
+  });
+
+  const { data: healthData, isLoading: healthLoading } = useQuery<Record<string, 'ok' | 'error'>>({
+    queryKey: ['integration-health'],
+    queryFn: async () => {
+      const { data } = await api.get('/health');
+      return data;
+    },
+    enabled: activeTab === 'system',
+    refetchInterval: activeTab === 'system' ? 30_000 : false,
+    retry: 1,
   });
 
   const { data: cronLogs = [], isError: cronLogsError, refetch: refetchCronLogs } = useQuery<CronJobLog[]>({
@@ -430,7 +441,7 @@ export default function SettingsPage() {
                 })}
               </div>
               <p className="text-xs text-muted px-1">
-                {draft.active_sources.length} of {ALL_SOURCES.length} sources active.
+                {ALL_SOURCES.filter(s => draft.active_sources.includes(s.id)).length} of {ALL_SOURCES.length} sources active.
                 Changes take effect on the next scrape run.
               </p>
             </section>
@@ -575,23 +586,39 @@ export default function SettingsPage() {
               </div>
 
               {/* Integration status */}
-              <div>
-                <h2 className="text-sm font-medium text-ink mb-0.5 mt-2">Integration Status</h2>
+              <div className="flex items-center justify-between mt-2">
+                <h2 className="text-sm font-medium text-ink mb-0.5">Integration Status</h2>
+                {healthLoading && (
+                  <RefreshCw className="w-3.5 h-3.5 text-muted animate-spin" />
+                )}
               </div>
               <div className="card p-5 space-y-0">
-                {[
-                  { label: 'Supabase Database',    key: 'SUPABASE_URL' },
-                  { label: 'AI Model (Groq)',       key: 'GROQ_API_KEY' },
-                  { label: 'Signal Engine',         key: 'SIGNAL_ENGINE_URL' },
-                ].map(({ label, key }) => (
-                  <div key={key} className="flex items-center justify-between py-2.5 border-b border-hairline last:border-0">
-                    <div>
-                      <p className="text-sm text-ink">{label}</p>
-                      <p className="text-xs text-muted font-mono">{key}</p>
+                {([
+                  { label: 'Supabase Database', env: 'SUPABASE_URL',      key: 'supabase' },
+                  { label: 'AI Model (Groq)',    env: 'GROQ_API_KEY',      key: 'groq' },
+                  { label: 'Signal Engine',      env: 'SIGNAL_ENGINE_URL', key: 'signal_engine' },
+                ] as const).map(({ label, env, key }) => {
+                  const status = healthData?.[key];
+                  return (
+                    <div key={key} className="flex items-center justify-between py-2.5 border-b border-hairline last:border-0">
+                      <div>
+                        <p className="text-sm text-ink">{label}</p>
+                        <p className="text-xs text-muted font-mono">{env}</p>
+                      </div>
+                      {healthLoading || !healthData ? (
+                        <span className="text-xs text-muted">Checking…</span>
+                      ) : status === 'ok' ? (
+                        <span className="flex items-center gap-1.5 text-xs text-success font-medium">
+                          <Wifi className="w-3.5 h-3.5" /> Connected
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1.5 text-xs text-sig-coral font-medium">
+                          <WifiOff className="w-3.5 h-3.5" /> Error
+                        </span>
+                      )}
                     </div>
-                    <span className="text-xs text-muted">Check .env</span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               {/* About */}

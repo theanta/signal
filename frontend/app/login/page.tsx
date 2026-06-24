@@ -49,15 +49,15 @@ export default function LoginPage() {
             <Radar className="w-5 h-5 text-white" />
           </div>
           <div>
-            <div className="text-[15px] font-semibold text-white tracking-wide">Lead Radar</div>
-            <div className="text-[10px] text-white/40 font-medium tracking-[0.2em] uppercase">ANTA</div>
+            <div className="text-base font-semibold text-white tracking-wide">Lead Radar</div>
+            <div className="text-3xs text-white/40 font-medium tracking-[0.2em] uppercase">ANTA</div>
           </div>
         </div>
 
         {/* Hero copy */}
         <div className="relative space-y-8">
           <div className="space-y-3">
-            <p className="text-[11px] font-semibold text-brand tracking-[0.15em] uppercase">
+            <p className="text-2xs font-semibold text-brand tracking-[0.15em] uppercase">
               AI-Powered Lead Intelligence
             </p>
             <h2 className="text-[32px] font-semibold text-white leading-tight tracking-tight">
@@ -73,28 +73,15 @@ export default function LoginPage() {
                 <div className="w-7 h-7 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center flex-shrink-0">
                   <Icon className="w-3.5 h-3.5 text-brand" />
                 </div>
-                <span className="text-[13.5px] text-white/60 leading-snug">{text}</span>
+                <span className="text-body-sm text-white/60 leading-snug">{text}</span>
               </li>
             ))}
           </ul>
 
-          {/* Stat pills */}
-          <div className="flex items-center gap-3 flex-wrap">
-            {[
-              { value: '2,400+', label: 'Leads analyzed' },
-              { value: '94%',    label: 'Score accuracy' },
-              { value: '3×',     label: 'Response rate lift' },
-            ].map(stat => (
-              <div key={stat.label} className="flex flex-col items-center px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl">
-                <span className="text-[18px] font-bold text-white">{stat.value}</span>
-                <span className="text-[10.5px] text-white/40 mt-0.5">{stat.label}</span>
-              </div>
-            ))}
-          </div>
         </div>
 
         {/* Footer */}
-        <p className="text-[11px] text-white/25 relative">
+        <p className="text-2xs text-white/25 relative">
           Detroit, MI · ANTA Software
         </p>
       </div>
@@ -108,12 +95,12 @@ export default function LoginPage() {
             <div className="w-8 h-8 rounded-lg bg-brand flex items-center justify-center">
               <Radar className="w-4 h-4 text-white" />
             </div>
-            <span className="text-[15px] font-semibold text-ink">Lead Radar</span>
+            <span className="text-base font-semibold text-ink">Lead Radar</span>
           </div>
 
           <div className="mb-8">
-            <h1 className="text-[26px] font-semibold text-ink tracking-tight">Welcome back</h1>
-            <p className="text-[13.5px] text-neutral-400 mt-1">Sign in to your workspace</p>
+            <h1 className="text-title-xl font-semibold text-ink tracking-tight">Welcome back</h1>
+            <p className="text-body-sm text-neutral-400 mt-1">Sign in to your workspace</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -129,7 +116,7 @@ export default function LoginPage() {
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 placeholder="you@anta.dev"
-                className="w-full h-10 px-3.5 text-[13.5px] bg-white border border-neutral-200 rounded-lg text-ink placeholder:text-neutral-300 focus:outline-none focus:border-brand focus:ring-2 focus:ring-brand/10 transition-all"
+                className="w-full h-10 px-3.5 text-body-sm bg-white border border-neutral-200 rounded-lg text-ink placeholder:text-neutral-300 focus:outline-none focus:border-brand focus:ring-2 focus:ring-brand/10 transition-all"
               />
             </div>
 
@@ -145,7 +132,7 @@ export default function LoginPage() {
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full h-10 px-3.5 text-[13.5px] bg-white border border-neutral-200 rounded-lg text-ink placeholder:text-neutral-300 focus:outline-none focus:border-brand focus:ring-2 focus:ring-brand/10 transition-all"
+                className="w-full h-10 px-3.5 text-body-sm bg-white border border-neutral-200 rounded-lg text-ink placeholder:text-neutral-300 focus:outline-none focus:border-brand focus:ring-2 focus:ring-brand/10 transition-all"
               />
             </div>
 
@@ -159,7 +146,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full h-10 px-4 bg-brand text-white text-[13.5px] font-medium rounded-lg hover:bg-brand/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_1px_4px_rgba(79,110,247,0.3)] mt-2"
+              className="w-full h-10 px-4 bg-brand text-white text-body-sm font-medium rounded-lg hover:bg-brand/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_1px_4px_rgba(79,110,247,0.3)] mt-2"
             >
               {isSubmitting ? 'Signing in…' : 'Sign in'}
             </button>

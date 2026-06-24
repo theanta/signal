@@ -169,7 +169,7 @@ def _scrape_site_emails(website: str) -> list[tuple[str, str]]:
     for path in _CONTACT_PATHS:
         url = f"https://{domain_host}{path}"
         try:
-            resp = _SESSION.get(url, timeout=8, allow_redirects=True)
+            resp = _SESSION.get(url, timeout=4, allow_redirects=True)
             if resp.status_code >= 400:
                 continue
             emails = _EMAIL_RE.findall(resp.text)

@@ -7,7 +7,7 @@ export async function analyzeLeadSignals(lead: ScrapedLeadRaw): Promise<SignalAn
   const { data } = await axios.post<SignalAnalysisResult>(
     `${SIGNAL_ENGINE_URL}/analyze`,
     { lead },
-    { timeout: 30_000 },
+    { timeout: 60_000 },
   );
   return data;
 }

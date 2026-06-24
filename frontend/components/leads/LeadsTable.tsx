@@ -59,7 +59,7 @@ function RowMenu({ lead, generating, copied, onGenerateOutreach, onMarkContacted
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
-  const menuItem = 'w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-neutral-700 hover:bg-neutral-50 transition-colors text-left';
+  const menuItem = 'w-full flex items-center gap-2.5 px-3 py-2 text-body-sm text-neutral-700 hover:bg-neutral-50 transition-colors text-left';
   const menuIcon = 'w-3.5 h-3.5 text-neutral-400 flex-shrink-0';
 
   return (
@@ -142,7 +142,7 @@ function SortTh({
   return (
     <th
       className={cn(
-        'px-4 py-3 text-left text-[11px] font-semibold text-neutral-400 uppercase tracking-wider whitespace-nowrap',
+        'px-4 py-3 text-left text-2xs font-semibold text-neutral-400 uppercase tracking-wider whitespace-nowrap',
         col && 'cursor-pointer select-none hover:text-neutral-600 transition-colors',
         className,
       )}
@@ -289,8 +289,8 @@ export default function LeadsTable({
                       <div className="w-12 h-12 rounded-full bg-neutral-100 flex items-center justify-center">
                         <Users className="w-6 h-6 text-neutral-300" />
                       </div>
-                      <p className="text-[13.5px] font-medium text-neutral-400">No leads found</p>
-                      <p className="text-[12px] text-neutral-300">Try running a scrape or adjusting your filters</p>
+                      <p className="text-body-sm font-medium text-neutral-400">No leads found</p>
+                      <p className="text-xs text-neutral-300">Try running a scrape or adjusting your filters</p>
                     </div>
                   </td>
                 </tr>
@@ -319,14 +319,14 @@ export default function LeadsTable({
                       {/* Company */}
                       <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                         <Link href={`/leads/${lead.id}`} className="flex items-center gap-2.5 group/name">
-                          <span className="w-7 h-7 rounded-lg bg-neutral-100 group-hover/name:bg-brand-50 flex items-center justify-center flex-shrink-0 text-[11px] font-semibold text-neutral-500 transition-colors">
+                          <span className="w-7 h-7 rounded-lg bg-neutral-100 group-hover/name:bg-brand-50 flex items-center justify-center flex-shrink-0 text-2xs font-semibold text-neutral-500 transition-colors">
                             {lead.company_name.charAt(0).toUpperCase()}
                           </span>
                           <div className="min-w-0">
-                            <p className="text-[13px] font-medium text-ink group-hover/name:text-brand-700 truncate max-w-[160px] transition-colors">
+                            <p className="text-body-sm font-medium text-ink group-hover/name:text-brand-700 truncate max-w-[160px] transition-colors">
                               {lead.company_name}
                             </p>
-                            <p className="text-[11px] text-neutral-400 capitalize">
+                            <p className="text-2xs text-neutral-400 capitalize">
                               {lead.source?.replace('_', ' ')}
                             </p>
                           </div>
@@ -335,14 +335,14 @@ export default function LeadsTable({
 
                       {/* Location */}
                       {col('location') && (
-                        <td className="px-4 py-3 text-[12.5px] text-neutral-500 whitespace-nowrap max-w-[120px] truncate">
+                        <td className="px-4 py-3 text-xs text-neutral-500 whitespace-nowrap max-w-[120px] truncate">
                           {lead.location ?? '—'}
                         </td>
                       )}
 
                       {/* Industry / Role / Size */}
                       {col('industry') && (
-                        <td className="px-4 py-3 text-[12.5px] text-neutral-500 max-w-[120px] truncate">
+                        <td className="px-4 py-3 text-xs text-neutral-500 max-w-[120px] truncate">
                           {tab === 'hiring'
                             ? (lead.job_title ?? '—')
                             : tab === 'discovery'
@@ -354,7 +354,7 @@ export default function LeadsTable({
                       {/* Signal */}
                       {col('signal') && (
                         <td className="px-4 py-3 max-w-[180px]">
-                          <p className="text-[12px] text-neutral-500 truncate" title={lead.hiring_signal ?? ''}>
+                          <p className="text-xs text-neutral-500 truncate" title={lead.hiring_signal ?? ''}>
                             {lead.hiring_signal ?? '—'}
                           </p>
                         </td>
@@ -372,7 +372,7 @@ export default function LeadsTable({
 
                       {/* Discovered */}
                       {col('discovered') && (
-                        <td className="px-4 py-3 text-[12px] text-neutral-400 whitespace-nowrap">
+                        <td className="px-4 py-3 text-xs text-neutral-400 whitespace-nowrap">
                           {formatDistanceToNow(new Date(lead.created_at), { addSuffix: true })}
                         </td>
                       )}
@@ -398,7 +398,7 @@ export default function LeadsTable({
         {/* ── Pagination ── */}
         {totalPages > 1 && (
           <div className="flex items-center justify-between px-5 py-3 border-t border-hairline bg-neutral-50/50">
-            <span className="text-[12px] text-neutral-400">
+            <span className="text-xs text-neutral-400">
               {(page - 1) * 25 + 1}–{Math.min(page * 25, total)} of {total} leads
             </span>
 
@@ -406,19 +406,19 @@ export default function LeadsTable({
               <button
                 onClick={() => onPageChange(page - 1)}
                 disabled={page === 1}
-                className="flex items-center gap-1 px-3 py-1.5 text-[12.5px] font-medium text-neutral-500 hover:text-neutral-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors rounded-lg hover:bg-neutral-100"
+                className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-neutral-500 hover:text-neutral-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors rounded-lg hover:bg-neutral-100"
               >
                 <ChevronLeft className="w-3.5 h-3.5" /> Previous
               </button>
 
-              <span className="px-3 text-[12.5px] text-neutral-400">
+              <span className="px-3 text-xs text-neutral-400">
                 Page {page} of {totalPages}
               </span>
 
               <button
                 onClick={() => onPageChange(page + 1)}
                 disabled={page === totalPages}
-                className="flex items-center gap-1 px-3 py-1.5 text-[12.5px] font-medium text-neutral-500 hover:text-neutral-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors rounded-lg hover:bg-neutral-100"
+                className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-neutral-500 hover:text-neutral-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors rounded-lg hover:bg-neutral-100"
               >
                 Next <ChevronRight className="w-3.5 h-3.5" />
               </button>
@@ -434,7 +434,7 @@ export default function LeadsTable({
         selected.size > 0 ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none',
       )}>
         <div className="pointer-events-auto flex items-center gap-3 bg-[#0f1117] text-white px-5 py-3 rounded-2xl shadow-cmd animate-slide-in-from-bottom">
-          <span className="text-[13px] font-medium text-white/90">
+          <span className="text-body-sm font-medium text-white/90">
             {selected.size} selected
           </span>
 
@@ -442,7 +442,7 @@ export default function LeadsTable({
 
           <button
             onClick={bulkMarkContacted}
-            className="flex items-center gap-1.5 text-[12.5px] font-medium text-white/80 hover:text-white transition-colors"
+            className="flex items-center gap-1.5 text-xs font-medium text-white/80 hover:text-white transition-colors"
           >
             <UserCheck className="w-3.5 h-3.5" />
             Mark contacted
@@ -453,7 +453,7 @@ export default function LeadsTable({
               const outreachUrl = `/outreach`;
               window.location.href = outreachUrl;
             }}
-            className="flex items-center gap-1.5 text-[12.5px] font-medium text-white/80 hover:text-white transition-colors"
+            className="flex items-center gap-1.5 text-xs font-medium text-white/80 hover:text-white transition-colors"
           >
             <Send className="w-3.5 h-3.5" />
             View outreach
@@ -463,7 +463,7 @@ export default function LeadsTable({
 
           <button
             onClick={() => setSelected(new Set())}
-            className="text-[12px] text-white/50 hover:text-white/80 transition-colors"
+            className="text-xs text-white/50 hover:text-white/80 transition-colors"
           >
             ✕ Clear
           </button>

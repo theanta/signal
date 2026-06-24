@@ -87,10 +87,10 @@ export default function Sidebar() {
 
         {!collapsed && (
           <div className="min-w-0">
-            <div className="text-[13.5px] font-semibold text-white leading-tight tracking-wide truncate">
+            <div className="text-body-sm font-semibold text-white leading-tight tracking-wide truncate">
               Lead Radar
             </div>
-            <div className="text-[10px] font-semibold text-brand-400 tracking-[0.18em] uppercase leading-tight">
+            <div className="text-3xs font-semibold text-brand-400 tracking-[0.18em] uppercase leading-tight">
               ANTA
             </div>
           </div>
@@ -153,7 +153,7 @@ export default function Sidebar() {
             ? <ChevronRight className="w-4 h-4" />
             : <>
                 <ChevronLeft className="w-4 h-4" />
-                <span className="text-[12px]">Collapse</span>
+                <span className="text-xs">Collapse</span>
               </>
           }
         </button>
@@ -174,14 +174,14 @@ export default function Sidebar() {
           >
             {/* Avatar */}
             <div className="w-7 h-7 rounded-full bg-brand/20 border border-brand/30 flex items-center justify-center flex-shrink-0">
-              <span className="text-[10px] font-semibold text-brand-400 leading-none">
+              <span className="text-3xs font-semibold text-brand-400 leading-none">
                 {getInitials(user.name || user.email || 'U')}
               </span>
             </div>
 
             {!collapsed && (
               <div className="min-w-0">
-                <div className="text-[12.5px] font-medium text-white truncate leading-tight">
+                <div className="text-xs font-medium text-white truncate leading-tight">
                   {user.name}
                 </div>
                 <div className="text-[11px] text-[#5a6270] truncate leading-tight">
@@ -201,7 +201,7 @@ export default function Sidebar() {
           )}
         >
           <LogOut className="w-[15px] h-[15px] flex-shrink-0" />
-          {!collapsed && <span className="text-[12.5px]">Sign out</span>}
+          {!collapsed && <span className="text-xs">Sign out</span>}
         </button>
       </div>
     </aside>

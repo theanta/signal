@@ -21,7 +21,9 @@ export async function getConfig(): Promise<PlatformConfig> {
     return { ...DEFAULT_PLATFORM_CONFIG };
   }
 
-  return { ...DEFAULT_PLATFORM_CONFIG, ...data.config } as PlatformConfig;
+  const merged = { ...DEFAULT_PLATFORM_CONFIG, ...data.config } as PlatformConfig;
+  merged.active_sources = [...new Set(merged.active_sources)];
+  return merged;
 }
 
 export async function saveConfig(updates: Partial<PlatformConfig>): Promise<PlatformConfig> {
@@ -29,6 +31,9 @@ export async function saveConfig(updates: Partial<PlatformConfig>): Promise<Plat
 
   const current = await getConfig();
   const merged = { ...current, ...updates };
+  if (Array.isArray(merged.active_sources)) {
+    merged.active_sources = [...new Set(merged.active_sources)];
+  }
 
   const { data: existing } = await supabase
     .from('platform_config')

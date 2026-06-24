@@ -130,13 +130,16 @@ const config: Config = {
         'display-xl': ['48px', { lineHeight: '1.1', fontWeight: '500' }],
         'display-lg': ['40px', { lineHeight: '1.2', fontWeight: '400' }],
         'display-md': ['32px', { lineHeight: '1.2', fontWeight: '400' }],
+        'title-xl':   ['26px', { lineHeight: '1.3', fontWeight: '600' }],
         'title-lg':   ['24px', { lineHeight: '1.35', fontWeight: '400', letterSpacing: '0.12px' }],
         'title-md':   ['20px', { lineHeight: '1.5',  fontWeight: '400' }],
         'title-sm':   ['18px', { lineHeight: '1.4',  fontWeight: '500' }],
         'label-md':   ['16px', { lineHeight: '1.4',  fontWeight: '500' }],
         'body-md':    ['14px', { lineHeight: '1.25', fontWeight: '400' }],
+        'body-sm':    ['13px', { lineHeight: '1.5',  fontWeight: '400' }],
         caption:      ['14px', { lineHeight: '1.35', fontWeight: '500', letterSpacing: '0.16px' }],
         '2xs':        ['11px', { lineHeight: '1.4' }],
+        '3xs':        ['10px', { lineHeight: '1.4' }],
       },
 
       borderRadius: {

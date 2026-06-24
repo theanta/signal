@@ -4,15 +4,15 @@ import { useParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchLead, analyzeLead, generateOutreach, updateLeadStatus } from '@/services/leads';
 import PageHeader from '@/components/ui/PageHeader';
-import ScoreBadge from '@/components/ui/ScoreBadge';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
 import {
-  Brain, Copy, CheckCircle, ExternalLink, Link2,
+  Brain, Copy, Check, CheckCircle, ExternalLink, Link2,
   Zap, Target, MessageSquare, RefreshCw, Monitor, User,
-  Building2, MapPin, ChevronRight, TrendingUp, ShieldCheck, ShieldAlert, ShieldQuestion,
+  Building2, MapPin, TrendingUp, ShieldCheck, ShieldAlert, ShieldQuestion,
+  Clock,
 } from 'lucide-react';
 import { useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
@@ -20,15 +20,10 @@ import type { LeadStatus, OutreachMessage } from '../../../../shared/types';
 
 const STATUS_PIPELINE: LeadStatus[] = ['new', 'analyzed', 'contacted', 'replied', 'meeting', 'proposal', 'client'];
 
-const STATUS_COLORS: Record<LeadStatus, string> = {
-  new:       'bg-slate-100 text-slate-600 border-slate-200',
-  analyzed:  'bg-blue-50 text-blue-600 border-blue-200',
-  contacted: 'bg-indigo-50 text-indigo-600 border-indigo-200',
-  replied:   'bg-violet-50 text-violet-600 border-violet-200',
-  meeting:   'bg-amber-50 text-amber-700 border-amber-200',
-  proposal:  'bg-orange-50 text-orange-700 border-orange-200',
-  client:    'bg-emerald-50 text-emerald-700 border-emerald-200',
-};
+function getLeadAge(scrapedAt: string | null | undefined): number {
+  if (!scrapedAt) return 0;
+  return Math.floor((Date.now() - new Date(scrapedAt).getTime()) / 86400000);
+}
 
 function CompanyAvatar({ name }: { name: string }) {
   const initials = name.split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase();
@@ -50,7 +45,7 @@ function SectionCard({ title, icon: Icon, children, className }: {
       {title && (
         <div className="flex items-center gap-2 mb-4">
           {Icon && <Icon className="w-4 h-4 text-neutral-400" />}
-          <h3 className="text-[11.5px] font-semibold text-neutral-400 uppercase tracking-wider">{title}</h3>
+          <h3 className="text-2xs font-semibold text-neutral-400 uppercase tracking-wider">{title}</h3>
         </div>
       )}
       {children}
@@ -61,8 +56,8 @@ function SectionCard({ title, icon: Icon, children, className }: {
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-3 py-2.5 border-b border-neutral-100 last:border-0">
-      <span className="text-[12px] text-neutral-400 font-medium flex-shrink-0">{label}</span>
-      <span className="text-[13px] text-ink text-right capitalize">{value}</span>
+      <span className="text-xs text-neutral-400 font-medium flex-shrink-0">{label}</span>
+      <span className="text-body-sm text-ink text-right capitalize">{value}</span>
     </div>
   );
 }
@@ -71,7 +66,7 @@ function ScoreBar({ label, score, max }: { label: string; score: number; max: nu
   const pct = Math.round(((score ?? 0) / max) * 100);
   return (
     <div className="space-y-1">
-      <div className="flex justify-between text-[11.5px]">
+      <div className="flex justify-between text-2xs">
         <span className="text-neutral-400">{label}</span>
         <span className="font-medium text-ink">
           {score ?? 0}<span className="text-neutral-300">/{max}</span>
@@ -79,13 +74,62 @@ function ScoreBar({ label, score, max }: { label: string; score: number; max: nu
       </div>
       <div className="h-1.5 bg-neutral-100 rounded-full overflow-hidden">
         <div
-          className="h-full rounded-full transition-all duration-500"
-          style={{
-            width: `${pct}%`,
-            background: pct >= 70 ? '#10b981' : pct >= 45 ? '#f59e0b' : '#94a3b8',
-          }}
+          className={cn('h-full rounded-full transition-all duration-500',
+            pct >= 70 ? 'bg-emerald-500' : pct >= 45 ? 'bg-amber-400' : 'bg-neutral-300'
+          )}
+          style={{ width: `${pct}%` }}
         />
       </div>
+    </div>
+  );
+}
+
+function PipelineStepper({ stages, current, onSelect, disabled }: {
+  stages: LeadStatus[];
+  current: LeadStatus;
+  onSelect: (s: LeadStatus) => void;
+  disabled: boolean;
+}) {
+  const currentIndex = stages.indexOf(current);
+  return (
+    <div className="space-y-0.5">
+      {stages.map((stage, i) => {
+        const isPast = i < currentIndex;
+        const isCurrent = i === currentIndex;
+        return (
+          <button
+            key={stage}
+            onClick={() => !isCurrent && onSelect(stage)}
+            disabled={disabled}
+            className={cn(
+              'w-full flex items-center gap-3 px-2 py-2 rounded-lg transition-all text-left disabled:opacity-50',
+              isCurrent ? 'bg-brand/5 cursor-default' : 'hover:bg-neutral-50',
+            )}
+          >
+            <div className={cn(
+              'w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-3xs font-bold transition-all',
+              isPast ? 'bg-emerald-100 text-emerald-600' :
+              isCurrent ? 'bg-brand text-white' :
+              'bg-neutral-100 text-neutral-400',
+            )}>
+              {isPast ? <Check className="w-3 h-3" /> : <span>{i + 1}</span>}
+            </div>
+            <span className={cn(
+              'text-body-sm capitalize flex-1',
+              isCurrent ? 'font-semibold text-ink' :
+              isPast ? 'text-neutral-400' :
+              'text-neutral-500',
+            )}>
+              {stage}
+            </span>
+            {isCurrent && (
+              <span className="text-3xs font-semibold text-brand uppercase tracking-wide">
+                Current
+              </span>
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -185,6 +229,8 @@ export default function LeadDetailPage() {
   const latestSignal = signals[0];
   const messages = (lead.outreach_messages ?? []).slice().reverse();
   const isDisqualified = latestSignal?.signal_type === 'disqualified';
+  const leadAge = getLeadAge(lead.scraped_at);
+  const isStale = leadAge >= 7 && ['new', 'analyzed'].includes(lead.status);
 
   return (
     <div className="min-h-screen animate-fade-in">
@@ -202,7 +248,7 @@ export default function LeadDetailPage() {
                 href={lead.website}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-1.5 h-8 px-3 text-[13px] font-medium border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors text-neutral-600"
+                className="flex items-center gap-1.5 h-8 px-3 text-body-sm font-medium border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors text-neutral-600"
               >
                 <ExternalLink className="w-3.5 h-3.5" />
                 Website
@@ -213,7 +259,7 @@ export default function LeadDetailPage() {
                 href={lead.linkedin_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-1.5 h-8 px-3 text-[13px] font-medium border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors text-neutral-600"
+                className="flex items-center gap-1.5 h-8 px-3 text-body-sm font-medium border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors text-neutral-600"
               >
                 <Link2 className="w-3.5 h-3.5" />
                 LinkedIn
@@ -225,9 +271,7 @@ export default function LeadDetailPage() {
 
       <div className="px-8 py-6 grid grid-cols-3 gap-6 items-start">
 
-        {/* ═══════════════════════════════════════
-            LEFT COLUMN — col-span-2
-        ═══════════════════════════════════════ */}
+        {/* LEFT COLUMN */}
         <div className="col-span-2 space-y-5">
 
           {/* Header card */}
@@ -236,7 +280,7 @@ export default function LeadDetailPage() {
               <CompanyAvatar name={lead.company_name} />
               <div className="flex-1 min-w-0">
                 <h1 className="text-2xl font-semibold text-ink leading-tight">{lead.company_name}</h1>
-                <div className="flex items-center gap-2 mt-1 text-[13px] text-neutral-400 flex-wrap">
+                <div className="flex items-center gap-2 mt-1 text-body-sm text-neutral-400 flex-wrap">
                   {lead.industry && (
                     <span className="flex items-center gap-1">
                       <Building2 className="w-3 h-3" />
@@ -255,16 +299,15 @@ export default function LeadDetailPage() {
                 </div>
                 <div className="flex items-center gap-2 mt-2.5 flex-wrap">
                   <StatusBadge status={lead.status} />
-                  <ScoreBadge score={lead.lead_score} />
                   {lead.hiring_signal && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded-full border bg-amber-50 text-amber-700 border-amber-200">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-2xs font-medium rounded-full border bg-amber-50 text-amber-700 border-amber-200">
                       <Zap className="w-3 h-3" />
                       {lead.hiring_signal}
                     </span>
                   )}
                 </div>
                 {lead.description && (
-                  <p className="text-[13px] text-neutral-500 mt-3 leading-relaxed border-t border-neutral-100 pt-3">
+                  <p className="text-body-sm text-neutral-500 mt-3 leading-relaxed border-t border-neutral-100 pt-3">
                     {lead.description}
                   </p>
                 )}
@@ -276,7 +319,7 @@ export default function LeadDetailPage() {
               <button
                 onClick={() => outreachMutation.mutate('email')}
                 disabled={outreachMutation.isPending}
-                className="inline-flex items-center gap-1.5 h-8 px-4 text-[13px] font-medium bg-brand text-white rounded-lg hover:bg-brand/90 transition-colors disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 h-8 px-4 text-body-sm font-medium bg-brand text-white rounded-lg hover:bg-brand/90 transition-colors disabled:opacity-50"
               >
                 {outreachMutation.isPending
                   ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -286,7 +329,7 @@ export default function LeadDetailPage() {
               <button
                 onClick={() => outreachMutation.mutate('linkedin')}
                 disabled={outreachMutation.isPending}
-                className="inline-flex items-center gap-1.5 h-8 px-3 text-[13px] font-medium border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors text-neutral-600 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 h-8 px-3 text-body-sm font-medium border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors text-neutral-600 disabled:opacity-50"
               >
                 <Link2 className="w-3.5 h-3.5" />
                 LinkedIn Message
@@ -294,7 +337,7 @@ export default function LeadDetailPage() {
               <button
                 onClick={() => statusMutation.mutate('contacted')}
                 disabled={statusMutation.isPending || lead.status === 'contacted'}
-                className="inline-flex items-center gap-1.5 h-8 px-3 text-[13px] font-medium border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors text-neutral-600 disabled:opacity-40"
+                className="inline-flex items-center gap-1.5 h-8 px-3 text-body-sm font-medium border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors text-neutral-600 disabled:opacity-40"
               >
                 <CheckCircle className="w-3.5 h-3.5" />
                 Mark Contacted
@@ -303,7 +346,7 @@ export default function LeadDetailPage() {
                 onClick={() => analyzeMutation.mutate()}
                 disabled={analyzeMutation.isPending}
                 className={cn(
-                  'inline-flex items-center gap-1.5 h-8 px-3 text-[13px] font-medium border rounded-lg transition-colors disabled:opacity-40 ml-auto',
+                  'inline-flex items-center gap-1.5 h-8 px-3 text-body-sm font-medium border rounded-lg transition-colors disabled:opacity-40 ml-auto',
                   latestSignal
                     ? 'border-neutral-200 hover:bg-neutral-50 text-neutral-400 hover:text-ink'
                     : 'border-brand/30 bg-brand/5 text-brand hover:bg-brand/10',
@@ -320,17 +363,72 @@ export default function LeadDetailPage() {
             </div>
           </div>
 
+          {/* Staleness banner — surfaces urgency before the user scrolls */}
+          {isStale && (
+            <div className={cn(
+              'flex items-center gap-3 px-4 py-3 rounded-xl border text-body-sm',
+              leadAge >= 14
+                ? 'bg-rose-50 border-rose-200 text-rose-700'
+                : 'bg-amber-50 border-amber-200 text-amber-700',
+            )}>
+              <Clock className="w-4 h-4 flex-shrink-0" />
+              <span>
+                This lead is <strong>{leadAge} days old</strong> and hasn&apos;t been contacted yet.{' '}
+                {leadAge >= 14
+                  ? 'Older leads convert at lower rates — reach out now.'
+                  : 'Reach out soon while the signal is fresh.'}
+              </span>
+            </div>
+          )}
+
+          {/* Outreach CTA — promoted above the fold when no messages exist yet */}
+          {messages.length === 0 && latestSignal && !isDisqualified && (
+            <div className="bg-white border border-brand/20 rounded-xl shadow-card p-5">
+              <div className="flex items-start gap-4">
+                <div className="w-10 h-10 rounded-xl bg-brand/10 flex items-center justify-center flex-shrink-0">
+                  <MessageSquare className="w-5 h-5 text-brand" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-ink mb-1">Ready to reach out?</p>
+                  <p className="text-body-sm text-neutral-500 mb-4 leading-relaxed">
+                    Generate a personalized cold email or LinkedIn message based on the analysis below.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => outreachMutation.mutate('email')}
+                      disabled={outreachMutation.isPending}
+                      className="inline-flex items-center gap-1.5 h-8 px-4 text-body-sm font-medium bg-brand text-white rounded-lg hover:bg-brand/90 transition-colors disabled:opacity-50"
+                    >
+                      {outreachMutation.isPending
+                        ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        : <MessageSquare className="w-3.5 h-3.5" />}
+                      Generate Email
+                    </button>
+                    <button
+                      onClick={() => outreachMutation.mutate('linkedin')}
+                      disabled={outreachMutation.isPending}
+                      className="inline-flex items-center gap-1.5 h-8 px-3 text-body-sm font-medium border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors text-neutral-600 disabled:opacity-50"
+                    >
+                      <Link2 className="w-3.5 h-3.5" />
+                      LinkedIn Message
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* AI Analysis */}
           {!latestSignal ? (
             <div className="bg-white border border-neutral-200 rounded-xl shadow-card p-8 text-center">
               <div className="w-12 h-12 rounded-xl bg-neutral-50 flex items-center justify-center mx-auto mb-3">
                 <Brain className="w-6 h-6 text-neutral-300" />
               </div>
-              <p className="text-[13px] text-neutral-400 mb-4">This lead hasn&apos;t been analyzed yet.</p>
+              <p className="text-body-sm text-neutral-400 mb-4">This lead hasn&apos;t been analyzed yet.</p>
               <button
                 onClick={() => analyzeMutation.mutate()}
                 disabled={analyzeMutation.isPending}
-                className="inline-flex items-center gap-2 h-9 px-5 text-[13px] font-medium bg-brand text-white rounded-lg hover:bg-brand/90 transition-colors mx-auto disabled:opacity-50"
+                className="inline-flex items-center gap-2 h-9 px-5 text-body-sm font-medium bg-brand text-white rounded-lg hover:bg-brand/90 transition-colors mx-auto disabled:opacity-50"
               >
                 {analyzeMutation.isPending
                   ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -345,11 +443,11 @@ export default function LeadDetailPage() {
                   <Target className="w-4 h-4 text-neutral-400" />
                 </div>
                 <div>
-                  <p className="text-[13px] font-medium text-ink">Lead Disqualified</p>
-                  <p className="text-[13px] text-neutral-500 mt-1 leading-relaxed">
+                  <p className="text-body-sm font-medium text-ink">Lead Disqualified</p>
+                  <p className="text-body-sm text-neutral-500 mt-1 leading-relaxed">
                     {latestSignal.operational_maturity}
                   </p>
-                  <p className="text-[12px] text-neutral-400 mt-2">
+                  <p className="text-xs text-neutral-400 mt-2">
                     Falls outside ANTA&apos;s SMB target market. No outreach will be generated.
                   </p>
                 </div>
@@ -357,50 +455,56 @@ export default function LeadDetailPage() {
             </div>
           ) : (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <SectionCard title="Pain Points" icon={Target}>
-                  <ul className="space-y-2">
-                    {(latestSignal.likely_pain_points ?? []).length > 0
-                      ? latestSignal.likely_pain_points!.map((pt, i) => (
-                        <li key={i} className="text-[13px] text-neutral-600 flex items-start gap-2">
-                          <span className="w-1.5 h-1.5 rounded-full bg-rose-400 mt-1.5 flex-shrink-0" />
-                          {pt}
-                        </li>
-                      ))
-                      : <li className="text-[13px] text-neutral-400">No pain points identified.</li>
-                    }
-                  </ul>
-                </SectionCard>
 
-                <SectionCard title="ANTA Recommendation" icon={Brain}>
-                  {latestSignal.recommended_anta_service && (
-                    <p className="text-[15px] font-semibold text-ink mb-2">
-                      {latestSignal.recommended_anta_service}
-                    </p>
-                  )}
-                  {latestSignal.outreach_angle && (
-                    <p className="text-[13px] text-neutral-500 leading-relaxed">
-                      {latestSignal.outreach_angle}
-                    </p>
-                  )}
-                  {latestSignal.operational_maturity && (
-                    <div className="mt-3 pt-3 border-t border-neutral-100">
-                      <p className="text-[11px] font-medium text-neutral-400 uppercase tracking-wide mb-0.5">
-                        Digital Maturity
-                      </p>
-                      <p className="text-[13px] text-neutral-600">{latestSignal.operational_maturity}</p>
-                    </div>
-                  )}
-                </SectionCard>
+              {/* ANTA Recommendation — hero card, full width, visually primary */}
+              <div className="bg-white border border-brand/20 rounded-xl shadow-card p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <Brain className="w-4 h-4 text-brand/60" />
+                  <h3 className="text-2xs font-semibold text-brand/70 uppercase tracking-wider">ANTA Recommendation</h3>
+                </div>
+                {latestSignal.recommended_anta_service && (
+                  <p className="text-base font-semibold text-ink mb-2">
+                    {latestSignal.recommended_anta_service}
+                  </p>
+                )}
+                {latestSignal.outreach_angle && (
+                  <p className="text-body-sm text-neutral-500 leading-relaxed">
+                    {latestSignal.outreach_angle}
+                  </p>
+                )}
+                {latestSignal.operational_maturity && (
+                  <div className="mt-3 pt-3 border-t border-neutral-100 flex items-center gap-2">
+                    <span className="text-2xs font-semibold text-neutral-400 uppercase tracking-wide">
+                      Digital Maturity
+                    </span>
+                    <span className="text-xs text-neutral-600">{latestSignal.operational_maturity}</span>
+                  </div>
+                )}
               </div>
 
+              {/* Pain Points — full width, secondary priority */}
+              <SectionCard title="Pain Points" icon={Target}>
+                <ul className="grid grid-cols-2 gap-x-6 gap-y-2">
+                  {(latestSignal.likely_pain_points ?? []).length > 0
+                    ? latestSignal.likely_pain_points!.map((pt, i) => (
+                      <li key={i} className="text-body-sm text-neutral-600 flex items-start gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-400 mt-1.5 flex-shrink-0" />
+                        {pt}
+                      </li>
+                    ))
+                    : <li className="text-body-sm text-neutral-400 col-span-2">No pain points identified.</li>
+                  }
+                </ul>
+              </SectionCard>
+
+              {/* Tech Stack + Gaps — tertiary, 2-col detail row */}
               {(latestSignal.tech_stack?.length || latestSignal.tech_gaps?.length) ? (
                 <div className="grid grid-cols-2 gap-4">
                   {latestSignal.tech_stack && latestSignal.tech_stack.length > 0 && (
                     <SectionCard title="Tech Stack" icon={Monitor}>
                       <div className="flex flex-wrap gap-1.5">
                         {latestSignal.tech_stack.map((tech, i) => (
-                          <span key={i} className="inline-flex items-center px-2 py-0.5 text-[11.5px] font-medium rounded-full border bg-blue-50 text-blue-700 border-blue-200">
+                          <span key={i} className="inline-flex items-center px-2 py-0.5 text-2xs font-medium rounded-full border bg-blue-50 text-blue-700 border-blue-200">
                             {tech}
                           </span>
                         ))}
@@ -411,7 +515,7 @@ export default function LeadDetailPage() {
                     <SectionCard title="Tech Gaps — Opportunity" icon={Zap}>
                       <ul className="space-y-2">
                         {latestSignal.tech_gaps.map((gap, i) => (
-                          <li key={i} className="text-[13px] text-neutral-600 flex items-start gap-2">
+                          <li key={i} className="text-body-sm text-neutral-600 flex items-start gap-2">
                             <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1.5 flex-shrink-0" />
                             {gap}
                           </li>
@@ -426,7 +530,7 @@ export default function LeadDetailPage() {
                 <SectionCard title="Growth Signals" icon={TrendingUp}>
                   <div className="flex flex-wrap gap-1.5">
                     {latestSignal.growth_indicators.map((indicator, i) => (
-                      <span key={i} className="inline-flex items-center px-2 py-0.5 text-[11.5px] font-medium rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200">
+                      <span key={i} className="inline-flex items-center px-2 py-0.5 text-2xs font-medium rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200">
                         {indicator}
                       </span>
                     ))}
@@ -441,36 +545,36 @@ export default function LeadDetailPage() {
             <SectionCard title="Point of Contact" icon={User}>
               <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full bg-neutral-100 flex items-center justify-center text-[13px] font-medium text-neutral-500">
+                  <div className="w-9 h-9 rounded-full bg-neutral-100 flex items-center justify-center text-body-sm font-medium text-neutral-500">
                     {(lead.contact_name ?? '?')[0].toUpperCase()}
                   </div>
                   <div>
                     {lead.contact_name && (
-                      <p className="text-[13px] font-medium text-ink">{lead.contact_name}</p>
+                      <p className="text-body-sm font-medium text-ink">{lead.contact_name}</p>
                     )}
                     {lead.contact_title && (
-                      <p className="text-[12px] text-neutral-400">{lead.contact_title}</p>
+                      <p className="text-xs text-neutral-400">{lead.contact_title}</p>
                     )}
                     {lead.contact_email && (
                       <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                         <a href={`mailto:${lead.contact_email}`}
-                          className="text-[12px] text-brand hover:text-brand/80">
+                          className="text-xs text-brand hover:text-brand/80">
                           {lead.contact_email}
                         </a>
                         {lead.contact_email_confidence === 'verified' && (
-                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0 text-[10px] font-medium rounded-full bg-emerald-50 text-emerald-600 border border-emerald-200">
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0 text-3xs font-medium rounded-full bg-emerald-50 text-emerald-600 border border-emerald-200">
                             <ShieldCheck className="w-2.5 h-2.5" />
                             verified
                           </span>
                         )}
                         {lead.contact_email_confidence === 'catch_all' && (
-                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0 text-[10px] font-medium rounded-full bg-amber-50 text-amber-600 border border-amber-200">
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0 text-3xs font-medium rounded-full bg-amber-50 text-amber-600 border border-amber-200">
                             <ShieldAlert className="w-2.5 h-2.5" />
                             catch-all
                           </span>
                         )}
                         {(lead.contact_email_confidence === 'pattern_inferred' || lead.contact_email_confidence === 'unknown') && (
-                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0 text-[10px] font-medium rounded-full bg-neutral-50 text-neutral-400 border border-neutral-200">
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0 text-3xs font-medium rounded-full bg-neutral-50 text-neutral-400 border border-neutral-200">
                             <ShieldQuestion className="w-2.5 h-2.5" />
                             unverified
                           </span>
@@ -494,28 +598,28 @@ export default function LeadDetailPage() {
             </SectionCard>
           )}
 
-          {/* Outreach Messages */}
-          {messages.length > 0 ? (
+          {/* Outreach Messages — shown when populated */}
+          {messages.length > 0 && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <h3 className="text-[11.5px] font-semibold text-neutral-400 uppercase tracking-wider">
+                <h3 className="text-2xs font-semibold text-neutral-400 uppercase tracking-wider">
                   Outreach Messages
                 </h3>
-                <span className="text-[12px] text-neutral-400">{messages.length} generated</span>
+                <span className="text-xs text-neutral-400">{messages.length} generated</span>
               </div>
               {messages.map((msg: OutreachMessage) => (
                 <div key={msg.id} className="bg-white border border-neutral-200 rounded-xl shadow-card p-5">
                   <div className="flex items-start justify-between gap-3 mb-3">
                     <div className="flex items-center gap-2">
                       <span className={cn(
-                        'inline-flex items-center px-2 py-0.5 text-[11px] font-medium rounded-full border capitalize',
+                        'inline-flex items-center px-2 py-0.5 text-2xs font-medium rounded-full border capitalize',
                         msg.channel === 'email'
                           ? 'bg-blue-50 text-blue-700 border-blue-200'
                           : 'bg-indigo-50 text-indigo-700 border-indigo-200',
                       )}>
                         {msg.channel}
                       </span>
-                      <span className="text-[11.5px] text-neutral-400">
+                      <span className="text-2xs text-neutral-400">
                         {formatDistanceToNow(new Date(msg.created_at), { addSuffix: true })}
                       </span>
                     </div>
@@ -533,45 +637,65 @@ export default function LeadDetailPage() {
                     </button>
                   </div>
                   {msg.subject && (
-                    <p className="text-[13px] font-medium text-ink mb-2 pb-2 border-b border-neutral-100">
+                    <p className="text-body-sm font-medium text-ink mb-2 pb-2 border-b border-neutral-100">
                       {msg.subject}
                     </p>
                   )}
-                  <pre className="text-[13px] text-neutral-600 whitespace-pre-wrap font-sans leading-relaxed">
+                  <pre className="text-body-sm text-neutral-600 whitespace-pre-wrap font-sans leading-relaxed">
                     {msg.body}
                   </pre>
                 </div>
               ))}
             </div>
-          ) : (
-            <div className="bg-white border border-dashed border-neutral-200 rounded-xl p-8 text-center">
-              <div className="w-10 h-10 rounded-xl bg-neutral-50 flex items-center justify-center mx-auto mb-3">
-                <MessageSquare className="w-5 h-5 text-neutral-300" />
-              </div>
-              <p className="text-[13px] text-neutral-400 mb-3">No outreach messages generated yet.</p>
-              <button
-                onClick={() => outreachMutation.mutate('email')}
-                disabled={outreachMutation.isPending}
-                className="inline-flex items-center gap-1.5 h-8 px-4 text-[12.5px] font-medium bg-brand text-white rounded-lg hover:bg-brand/90 transition-colors disabled:opacity-50"
-              >
-                <MessageSquare className="w-3.5 h-3.5" />
-                Generate Cold Email
-              </button>
-            </div>
           )}
         </div>
 
-        {/* ═══════════════════════════════════════
-            RIGHT COLUMN — sticky sidebar
-        ═══════════════════════════════════════ */}
+        {/* RIGHT COLUMN — sticky sidebar */}
         <div className="sticky top-6 space-y-4">
 
-          {/* Company details */}
+          {/* Score breakdown — first in sidebar, canonical home for the score */}
+          {lead.score_detail && (
+            <SectionCard title="Score Breakdown">
+              <div className="flex items-center justify-between mb-4 pb-3 border-b border-neutral-100">
+                <span className="text-xs text-neutral-400 font-medium">Lead Score</span>
+                <span className={cn(
+                  'text-[28px] font-bold leading-none',
+                  (lead.lead_score ?? 0) >= 70 ? 'text-emerald-600' :
+                  (lead.lead_score ?? 0) >= 45 ? 'text-amber-600' :
+                  'text-neutral-400',
+                )}>
+                  {lead.lead_score ?? 0}
+                  <span className="text-sm font-normal text-neutral-300">/100</span>
+                </span>
+              </div>
+              <div className="space-y-3">
+                {[
+                  { label: 'Company Size',   score: lead.score_detail.company_size_score  ?? 0, max: 25 },
+                  { label: 'Hiring Urgency', score: lead.score_detail.hiring_urgency_score ?? 0, max: 25 },
+                  { label: 'Ops Complexity', score: lead.score_detail.complexity_score     ?? 0, max: 25 },
+                  { label: 'Digital Gap',    score: lead.score_detail.digital_score        ?? 0, max: 25 },
+                ].map(item => <ScoreBar key={item.label} {...item} />)}
+              </div>
+              {lead.score_detail.scoring_rationale && (
+                <p className="text-2xs text-neutral-400 italic mt-3 leading-relaxed">
+                  {lead.score_detail.scoring_rationale}
+                </p>
+              )}
+            </SectionCard>
+          )}
+
+          {/* Company details — unknown fields hidden, not shown as noise */}
           <SectionCard title="Company Details">
             <div>
-              <DetailRow label="Size" value={lead.company_size ?? <span className="text-neutral-300">Unknown</span>} />
-              <DetailRow label="Industry" value={lead.industry ?? <span className="text-neutral-300">Unknown</span>} />
-              <DetailRow label="Location" value={lead.location ?? <span className="text-neutral-300">Unknown</span>} />
+              {lead.company_size && (
+                <DetailRow label="Size" value={lead.company_size} />
+              )}
+              {lead.industry && (
+                <DetailRow label="Industry" value={lead.industry} />
+              )}
+              {lead.location && (
+                <DetailRow label="Location" value={lead.location} />
+              )}
               <DetailRow
                 label="Source"
                 value={lead.source?.replace('_', ' ') ?? 'Unknown'}
@@ -582,63 +706,32 @@ export default function LeadDetailPage() {
               <DetailRow
                 label="Discovered"
                 value={
-                  lead.scraped_at
-                    ? formatDistanceToNow(new Date(lead.scraped_at), { addSuffix: true })
-                    : <span className="text-neutral-300">N/A</span>
+                  lead.scraped_at ? (
+                    <span className={cn(
+                      'flex items-center gap-1.5 justify-end',
+                      leadAge >= 14 && isStale ? 'text-rose-600' :
+                      isStale ? 'text-amber-600' : '',
+                    )}>
+                      {isStale && <Clock className="w-3 h-3 flex-shrink-0" />}
+                      {formatDistanceToNow(new Date(lead.scraped_at), { addSuffix: true })}
+                    </span>
+                  ) : <span className="text-neutral-300">N/A</span>
                 }
               />
             </div>
           </SectionCard>
 
-          {/* Score breakdown */}
-          {lead.score_detail && (
-            <SectionCard title="Score Breakdown">
-              <div className="space-y-3 mb-4">
-                {[
-                  { label: 'Company Size',   score: lead.score_detail.company_size_score  ?? 0, max: 25 },
-                  { label: 'Hiring Urgency', score: lead.score_detail.hiring_urgency_score ?? 0, max: 25 },
-                  { label: 'Ops Complexity', score: lead.score_detail.complexity_score     ?? 0, max: 25 },
-                  { label: 'Digital Gap',    score: lead.score_detail.digital_score        ?? 0, max: 25 },
-                ].map(item => <ScoreBar key={item.label} {...item} />)}
-              </div>
-              <div className="flex items-center justify-between pt-3 border-t border-neutral-100">
-                <span className="text-[12px] text-neutral-400 font-medium">Total Score</span>
-                <span className="text-[22px] font-bold text-ink">{lead.lead_score ?? 0}</span>
-              </div>
-              {lead.score_detail.scoring_rationale && (
-                <p className="text-[11.5px] text-neutral-400 italic mt-2 leading-relaxed">
-                  {lead.score_detail.scoring_rationale}
-                </p>
-              )}
-            </SectionCard>
-          )}
-
-          {/* Status changer */}
+          {/* Pipeline Stage — visual stepper, not a settings list */}
           <SectionCard title="Pipeline Stage">
-            <div className="space-y-1">
-              {STATUS_PIPELINE.map(s => (
-                <button
-                  key={s}
-                  onClick={() => s !== lead.status && statusMutation.mutate(s)}
-                  disabled={statusMutation.isPending}
-                  className={cn(
-                    'w-full flex items-center justify-between px-3 py-2 rounded-lg text-[13px] font-medium transition-all',
-                    s === lead.status
-                      ? cn('border cursor-default', STATUS_COLORS[s])
-                      : 'text-neutral-500 hover:bg-neutral-50 hover:text-ink border border-transparent hover:border-neutral-200',
-                  )}
-                >
-                  <span className="capitalize">{s}</span>
-                  {s === lead.status
-                    ? <span className="text-[10px] font-semibold uppercase tracking-wide opacity-60">Current</span>
-                    : <ChevronRight className="w-3.5 h-3.5 opacity-40" />
-                  }
-                </button>
-              ))}
-            </div>
+            <PipelineStepper
+              stages={STATUS_PIPELINE}
+              current={lead.status}
+              onSelect={(s) => statusMutation.mutate(s)}
+              disabled={statusMutation.isPending}
+            />
           </SectionCard>
 
-          {/* Signal history (if multiple) */}
+          {/* Signal history */}
           {signals.length > 1 && (
             <SectionCard title="Signal History">
               <div className="space-y-2">
@@ -646,10 +739,10 @@ export default function LeadDetailPage() {
                   <div key={sig.id} className={cn('flex items-start gap-2', i > 0 && 'pt-2 border-t border-neutral-100')}>
                     <div className="w-1.5 h-1.5 rounded-full bg-brand mt-1.5 flex-shrink-0" />
                     <div>
-                      <p className="text-[12px] font-medium text-ink capitalize">
+                      <p className="text-xs font-medium text-ink capitalize">
                         {sig.signal_type?.replace(/_/g, ' ')}
                       </p>
-                      <p className="text-[11px] text-neutral-400">
+                      <p className="text-2xs text-neutral-400">
                         {sig.confidence_score
                           ? `${Math.round(sig.confidence_score * 100)}% confidence · `
                           : ''}

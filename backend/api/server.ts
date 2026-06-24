@@ -17,6 +17,7 @@ import metricsRouter from '../routes/metrics';
 import cronRouter, { initCronJobs } from '../routes/cron';
 import configRouter from '../routes/config';
 import authRouter from '../routes/auth';
+import healthRouter from '../routes/health';
 import { authenticate } from './middleware/auth';
 
 const app = express();
@@ -85,6 +86,7 @@ app.use('/api/signals',  authenticate, signalsRouter);
 app.use('/api/metrics',  authenticate, metricsRouter);
 app.use('/api/config',   authenticate, configRouter);
 app.use('/api/cron',     authenticate, cronRouter);
+app.use('/api/health',   authenticate, healthRouter);
 
 // ---- 404 handler ----
 app.use((_req, res) => {

@@ -196,10 +196,17 @@ async def analyze_lead(request: AnalysisRequest):
     classifier = IndustryClassifier()
 
     # ---- Step 1: Enrichment (run in thread pool — all are blocking HTTP calls) ----
+    # Each task is individually capped so a slow Apollo/scrape call can't block the whole pipeline.
+    async def _with_timeout(coro, seconds):
+        try:
+            return await asyncio.wait_for(coro, timeout=seconds)
+        except asyncio.TimeoutError as exc:
+            return exc
+
     verified_website_res, raw_tech_stack, contact_res = await asyncio.gather(
-        asyncio.to_thread(verify_website, lead.website, lead.company_name, lead.location or ""),
-        asyncio.to_thread(detect_tech_stack, lead.website or ""),
-        asyncio.to_thread(find_contact, lead.company_name, lead.website, lead.location),
+        _with_timeout(asyncio.to_thread(verify_website, lead.website, lead.company_name, lead.location or ""), 15),
+        _with_timeout(asyncio.to_thread(detect_tech_stack, lead.website or ""), 15),
+        _with_timeout(asyncio.to_thread(find_contact, lead.company_name, lead.website, lead.location), 20),
         return_exceptions=True,
     )
 

@@ -43,12 +43,12 @@ export default function PageHeader({ title, subtitle, actions, breadcrumbs, icon
                     {crumb.href ? (
                       <Link
                         href={crumb.href}
-                        className="text-[13px] text-neutral-400 hover:text-ink transition-colors"
+                        className="text-body-sm text-neutral-400 hover:text-ink transition-colors"
                       >
                         {crumb.label}
                       </Link>
                     ) : (
-                      <span className="text-[13px] font-medium text-ink">{crumb.label}</span>
+                      <span className="text-body-sm font-medium text-ink">{crumb.label}</span>
                     )}
                   </span>
                 ))}
@@ -56,11 +56,11 @@ export default function PageHeader({ title, subtitle, actions, breadcrumbs, icon
             )}
             {!breadcrumbs?.length && title && (
               <div className="flex items-baseline gap-2.5">
-                <h1 className="text-[15px] font-semibold text-ink leading-tight tracking-[-0.01em]">
+                <h1 className="text-base font-semibold text-ink leading-tight tracking-[-0.01em]">
                   {title}
                 </h1>
                 {subtitle && (
-                  <span className="text-[12.5px] text-neutral-400 truncate hidden sm:block">{subtitle}</span>
+                  <span className="text-xs text-neutral-400 truncate hidden sm:block">{subtitle}</span>
                 )}
               </div>
             )}
@@ -76,14 +76,14 @@ export default function PageHeader({ title, subtitle, actions, breadcrumbs, icon
           <button
             onClick={() => setCmdOpen(true)}
             className={cn(
-              'flex items-center gap-2 px-3 py-1.5 rounded-lg text-[12.5px] font-medium',
+              'flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium',
               'text-neutral-400 bg-neutral-50 border border-neutral-200',
               'hover:bg-neutral-100 hover:text-neutral-600 transition-colors',
             )}
           >
             <Search className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Search</span>
-            <kbd className="hidden sm:inline-flex items-center gap-0.5 ml-1 text-[11px] text-neutral-400">
+            <kbd className="hidden sm:inline-flex items-center gap-0.5 ml-1 text-2xs text-neutral-400">
               <span className="font-sans">⌘</span>K
             </kbd>
           </button>
