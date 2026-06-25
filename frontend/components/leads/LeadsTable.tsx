@@ -142,7 +142,7 @@ function SortTh({
   return (
     <th
       className={cn(
-        'px-4 py-3 text-left text-2xs font-semibold text-neutral-400 uppercase tracking-wider whitespace-nowrap',
+        'px-4 py-2 text-left text-2xs font-semibold text-neutral-400 uppercase tracking-wider whitespace-nowrap',
         col && 'cursor-pointer select-none hover:text-neutral-600 transition-colors',
         className,
       )}
@@ -258,7 +258,7 @@ export default function LeadsTable({
             <thead>
               <tr>
                 {/* Checkbox */}
-                <th className={cn(thCn, 'px-4 py-3 w-10')}>
+                <th className={cn(thCn, 'px-4 py-2 w-10')}>
                   <input
                     type="checkbox"
                     checked={leads.length > 0 && selected.size === leads.length}
@@ -277,7 +277,7 @@ export default function LeadsTable({
                 <SortTh col="lead_score" label="Score"    sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className={thCn} />
                 <SortTh col="status"     label="Status"   sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className={thCn} />
                 {col('discovered') && <SortTh col="created_at"  label="Discovered" sortBy={sortBy} sortOrder={sortOrder} onSort={handleSort} className={thCn} />}
-                <th className={cn(thCn, 'px-4 py-3 w-10')} />
+                <th className={cn(thCn, 'px-4 py-2 w-10')} />
               </tr>
             </thead>
 
@@ -307,7 +307,7 @@ export default function LeadsTable({
                       onClick={() => toggleRow(lead.id)}
                     >
                       {/* Checkbox */}
-                      <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                      <td className="px-4 py-1.5" onClick={e => e.stopPropagation()}>
                         <input
                           type="checkbox"
                           checked={isSelected}
@@ -317,7 +317,7 @@ export default function LeadsTable({
                       </td>
 
                       {/* Company */}
-                      <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                      <td className="px-4 py-1.5" onClick={e => e.stopPropagation()}>
                         <Link href={`/leads/${lead.id}`} className="flex items-center gap-2.5 group/name">
                           <span className="w-7 h-7 rounded-lg bg-neutral-100 group-hover/name:bg-brand-50 flex items-center justify-center flex-shrink-0 text-2xs font-semibold text-neutral-500 transition-colors">
                             {lead.company_name.charAt(0).toUpperCase()}
@@ -335,14 +335,14 @@ export default function LeadsTable({
 
                       {/* Location */}
                       {col('location') && (
-                        <td className="px-4 py-3 text-xs text-neutral-500 whitespace-nowrap max-w-[120px] truncate">
+                        <td className="px-4 py-1.5 text-xs text-neutral-500 whitespace-nowrap max-w-[120px] truncate">
                           {lead.location ?? '—'}
                         </td>
                       )}
 
                       {/* Industry / Role / Size */}
                       {col('industry') && (
-                        <td className="px-4 py-3 text-xs text-neutral-500 max-w-[120px] truncate">
+                        <td className="px-4 py-1.5 text-xs text-neutral-500 max-w-[120px] truncate">
                           {tab === 'hiring'
                             ? (lead.job_title ?? '—')
                             : tab === 'discovery'
@@ -353,7 +353,7 @@ export default function LeadsTable({
 
                       {/* Signal */}
                       {col('signal') && (
-                        <td className="px-4 py-3 max-w-[180px]">
+                        <td className="px-4 py-1.5 max-w-[180px]">
                           <p className="text-xs text-neutral-500 truncate" title={lead.hiring_signal ?? ''}>
                             {lead.hiring_signal ?? '—'}
                           </p>
@@ -361,24 +361,24 @@ export default function LeadsTable({
                       )}
 
                       {/* Score */}
-                      <td className="px-4 py-3">
-                        <ScoreBadge score={lead.lead_score} size="sm" />
+                      <td className="px-4 py-1.5">
+                        <ScoreBadge score={lead.lead_score} variant="dot" />
                       </td>
 
                       {/* Status */}
-                      <td className="px-4 py-3">
-                        <StatusBadge status={lead.status} size="sm" />
+                      <td className="px-4 py-1.5">
+                        <StatusBadge status={lead.status} variant="dot" />
                       </td>
 
                       {/* Discovered */}
                       {col('discovered') && (
-                        <td className="px-4 py-3 text-xs text-neutral-400 whitespace-nowrap">
+                        <td className="px-4 py-1.5 text-xs text-neutral-400 whitespace-nowrap">
                           {formatDistanceToNow(new Date(lead.created_at), { addSuffix: true })}
                         </td>
                       )}
 
                       {/* Row menu */}
-                      <td className="px-3 py-3" onClick={e => e.stopPropagation()}>
+                      <td className="px-3 py-1.5" onClick={e => e.stopPropagation()}>
                         <RowMenu
                           lead={lead}
                           generating={generatingId === lead.id}

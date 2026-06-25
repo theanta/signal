@@ -42,9 +42,9 @@ function SectionCard({ title, icon: Icon, children, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn('bg-white border border-neutral-200 rounded-xl shadow-card p-5', className)}>
+    <div className={cn('bg-white border border-neutral-200 rounded-lg p-4', className)}>
       {title && (
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex items-center gap-2 mb-3">
           {Icon && <Icon className="w-4 h-4 text-neutral-400" />}
           <h3 className="text-2xs font-semibold text-neutral-400 uppercase tracking-wider">{title}</h3>
         </div>
@@ -56,7 +56,7 @@ function SectionCard({ title, icon: Icon, children, className }: {
 
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex items-start justify-between gap-3 py-2.5 border-b border-neutral-100 last:border-0">
+    <div className="flex items-start justify-between gap-3 py-1.5 border-b border-neutral-100 last:border-0">
       <span className="text-xs text-neutral-400 font-medium flex-shrink-0">{label}</span>
       <span className="text-body-sm text-ink text-right capitalize">{value}</span>
     </div>
@@ -103,7 +103,7 @@ function PipelineStepper({ stages, current, onSelect, disabled }: {
             onClick={() => !isCurrent && onSelect(stage)}
             disabled={disabled}
             className={cn(
-              'w-full flex items-center gap-3 px-2 py-2 rounded-lg transition-all text-left disabled:opacity-50',
+              'w-full flex items-center gap-3 px-2 py-1.5 rounded-lg transition-all text-left disabled:opacity-50',
               isCurrent ? 'bg-brand/5 cursor-default' : 'hover:bg-neutral-50',
             )}
           >
@@ -137,9 +137,9 @@ function PipelineStepper({ stages, current, onSelect, disabled }: {
 
 function DetailSkeleton() {
   return (
-    <div className="px-8 py-6 grid grid-cols-3 gap-6 animate-fade-in">
-      <div className="col-span-2 space-y-5">
-        <div className="bg-white border border-neutral-200 rounded-xl p-5 space-y-4">
+    <div className="px-6 py-4 grid grid-cols-3 gap-5 animate-fade-in">
+      <div className="col-span-2 space-y-3">
+        <div className="bg-white border border-neutral-200 rounded-lg p-4 space-y-4">
           <div className="flex items-center gap-3">
             <Skeleton className="w-12 h-12 rounded-xl" />
             <div className="space-y-2 flex-1">
@@ -152,16 +152,16 @@ function DetailSkeleton() {
             <Skeleton className="h-8 w-28 rounded-lg" />
           </div>
         </div>
-        <div className="bg-white border border-neutral-200 rounded-xl p-5 space-y-3">
-          <Skeleton className="h-3 w-24 mb-4" />
+        <div className="bg-white border border-neutral-200 rounded-lg p-4 space-y-3">
+          <Skeleton className="h-3 w-24 mb-3" />
           <Skeleton className="h-4 w-full" />
           <Skeleton className="h-4 w-5/6" />
           <Skeleton className="h-4 w-4/6" />
         </div>
       </div>
-      <div className="space-y-4">
-        <div className="bg-white border border-neutral-200 rounded-xl p-5 space-y-3">
-          <Skeleton className="h-3 w-28 mb-4" />
+      <div className="bg-white border border-neutral-200 rounded-lg divide-y divide-neutral-100 overflow-hidden">
+        <div className="p-4 space-y-3">
+          <Skeleton className="h-3 w-28 mb-3" />
           {[1,2,3,4,5].map(i => <Skeleton key={i} className="h-3 w-full" />)}
         </div>
       </div>
@@ -333,13 +333,13 @@ export default function LeadDetailPage() {
         }
       />
 
-      <div className="px-8 py-6 grid grid-cols-3 gap-6 items-start">
+      <div className="px-6 py-4 grid grid-cols-3 gap-5 items-start">
 
         {/* LEFT COLUMN */}
-        <div className="col-span-2 space-y-5">
+        <div className="col-span-2 space-y-3">
 
           {/* Header card */}
-          <div className="bg-white border border-neutral-200 rounded-xl shadow-card p-5">
+          <div className="bg-white border border-neutral-200 rounded-lg p-4">
             <div className="flex items-start gap-4">
               <CompanyAvatar name={lead.company_name} />
               <div className="flex-1 min-w-0">
@@ -379,7 +379,7 @@ export default function LeadDetailPage() {
             </div>
 
             {/* Action row */}
-            <div className="flex items-center gap-2 mt-5 pt-4 border-t border-neutral-100">
+            <div className="flex items-center gap-2 mt-4 pt-3 border-t border-neutral-100">
               {isAnalyzing && analysisPhase && (
                 <span className="text-xs text-neutral-400 italic truncate max-w-xs">{analysisPhase}</span>
               )}
@@ -400,7 +400,7 @@ export default function LeadDetailPage() {
           {/* Staleness banner — surfaces urgency before the user scrolls */}
           {isStale && (
             <div className={cn(
-              'flex items-center gap-3 px-4 py-3 rounded-xl border text-body-sm',
+              'flex items-center gap-3 px-4 py-3 rounded-lg border text-body-sm',
               leadAge >= 14
                 ? 'bg-rose-50 border-rose-200 text-rose-700'
                 : 'bg-amber-50 border-amber-200 text-amber-700',
@@ -417,14 +417,14 @@ export default function LeadDetailPage() {
 
           {/* Outreach CTA — promoted above the fold when no messages exist yet */}
           {messages.length === 0 && latestSignal && !isDisqualified && (
-            <div className="bg-white border border-brand/20 rounded-xl shadow-card p-5">
+            <div className="bg-white border border-brand/20 rounded-lg p-4">
               <div className="flex items-start gap-4">
                 <div className="w-10 h-10 rounded-xl bg-brand/10 flex items-center justify-center flex-shrink-0">
                   <MessageSquare className="w-5 h-5 text-brand" />
                 </div>
                 <div className="flex-1">
                   <p className="text-sm font-semibold text-ink mb-1">Ready to reach out?</p>
-                  <p className="text-body-sm text-neutral-500 mb-4 leading-relaxed">
+                  <p className="text-body-sm text-neutral-500 mb-3 leading-relaxed">
                     Generate a personalized cold email or LinkedIn message based on the analysis below.
                   </p>
                   <div className="flex items-center gap-2">
@@ -454,7 +454,7 @@ export default function LeadDetailPage() {
 
           {/* AI Analysis */}
           {!latestSignal ? (
-            <div className="bg-white border border-neutral-200 rounded-xl shadow-card p-8 text-center">
+            <div className="bg-white border border-neutral-200 rounded-lg p-6 text-center">
               <div className="w-12 h-12 rounded-xl bg-neutral-50 flex items-center justify-center mx-auto mb-3">
                 <Brain className={cn('w-6 h-6', isAnalyzing ? 'text-brand/40' : 'text-neutral-300')} />
               </div>
@@ -475,7 +475,7 @@ export default function LeadDetailPage() {
               </button>
             </div>
           ) : isDisqualified ? (
-            <div className="bg-white border border-neutral-200 border-l-4 border-l-neutral-300 rounded-xl shadow-card p-5">
+            <div className="bg-white border border-neutral-200 border-l-4 border-l-neutral-300 rounded-lg p-4">
               <div className="flex items-start gap-3">
                 <div className="w-8 h-8 rounded-lg bg-neutral-50 flex items-center justify-center flex-shrink-0">
                   <Target className="w-4 h-4 text-neutral-400" />
@@ -495,8 +495,8 @@ export default function LeadDetailPage() {
             <div className="space-y-4">
 
               {/* ANTA Recommendation — hero card, full width, visually primary */}
-              <div className="bg-white border border-brand/20 rounded-xl shadow-card p-5">
-                <div className="flex items-center gap-2 mb-4">
+              <div className="bg-white border border-brand/20 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-3">
                   <Brain className="w-4 h-4 text-brand/60" />
                   <h3 className="text-2xs font-semibold text-brand/70 uppercase tracking-wider">ANTA Recommendation</h3>
                 </div>
@@ -646,7 +646,7 @@ export default function LeadDetailPage() {
                 <span className="text-xs text-neutral-400">{messages.length} generated</span>
               </div>
               {messages.map((msg: OutreachMessage) => (
-                <div key={msg.id} className="bg-white border border-neutral-200 rounded-xl shadow-card p-5">
+                <div key={msg.id} className="bg-white border border-neutral-200 rounded-lg p-4">
                   <div className="flex items-start justify-between gap-3 mb-3">
                     <div className="flex items-center gap-2">
                       <span className={cn(
@@ -689,65 +689,56 @@ export default function LeadDetailPage() {
         </div>
 
         {/* RIGHT COLUMN — sticky sidebar */}
-        <div className="sticky top-6 space-y-4">
+        <div className="sticky top-6">
+          <div className="bg-white border border-neutral-200 rounded-lg divide-y divide-neutral-100 overflow-hidden">
 
-          {/* Score breakdown — first in sidebar, canonical home for the score */}
-          {lead.score_detail && (
-            <SectionCard title="Score Breakdown">
-              <div className="flex items-center justify-between mb-4 pb-3 border-b border-neutral-100">
-                <div>
-                  <span className="text-xs text-neutral-400 font-medium block">Lead Score</span>
-                  {lead.score_detail.score_percentile !== undefined && (
-                    <span className="text-2xs text-neutral-400 mt-0.5 block">
-                      Top {100 - lead.score_detail.score_percentile}% of leads
-                    </span>
-                  )}
+            {/* Score breakdown */}
+            {lead.score_detail && (
+              <div className="p-4">
+                <h3 className="text-2xs font-semibold text-neutral-400 uppercase tracking-wider mb-3">Score Breakdown</h3>
+                <div className="flex items-center justify-between mb-3 pb-2.5 border-b border-neutral-100">
+                  <div>
+                    <span className="text-xs text-neutral-400 font-medium block">Lead Score</span>
+                    {lead.score_detail.score_percentile !== undefined && (
+                      <span className="text-2xs text-neutral-400 mt-0.5 block">
+                        Top {100 - lead.score_detail.score_percentile}% of leads
+                      </span>
+                    )}
+                  </div>
+                  <span className={cn(
+                    'text-[28px] font-bold leading-none',
+                    (lead.lead_score ?? 0) >= 70 ? 'text-emerald-600' :
+                    (lead.lead_score ?? 0) >= 45 ? 'text-amber-600' :
+                    'text-neutral-400',
+                  )}>
+                    {lead.lead_score ?? 0}
+                    <span className="text-sm font-normal text-neutral-300">/100</span>
+                  </span>
                 </div>
-                <span className={cn(
-                  'text-[28px] font-bold leading-none',
-                  (lead.lead_score ?? 0) >= 70 ? 'text-emerald-600' :
-                  (lead.lead_score ?? 0) >= 45 ? 'text-amber-600' :
-                  'text-neutral-400',
-                )}>
-                  {lead.lead_score ?? 0}
-                  <span className="text-sm font-normal text-neutral-300">/100</span>
-                </span>
+                <div className="space-y-2.5">
+                  {[
+                    { label: 'Company Size',   score: lead.score_detail.company_size_score  ?? 0, max: 25 },
+                    { label: 'Hiring Urgency', score: lead.score_detail.hiring_urgency_score ?? 0, max: 25 },
+                    { label: 'Ops Complexity', score: lead.score_detail.complexity_score     ?? 0, max: 25 },
+                    { label: 'Digital Gap',    score: lead.score_detail.digital_score        ?? 0, max: 25 },
+                  ].map(item => <ScoreBar key={item.label} {...item} />)}
+                </div>
+                {lead.score_detail.scoring_rationale && (
+                  <p className="text-2xs text-neutral-400 italic mt-3 leading-relaxed">
+                    {lead.score_detail.scoring_rationale}
+                  </p>
+                )}
               </div>
-              <div className="space-y-3">
-                {[
-                  { label: 'Company Size',   score: lead.score_detail.company_size_score  ?? 0, max: 25 },
-                  { label: 'Hiring Urgency', score: lead.score_detail.hiring_urgency_score ?? 0, max: 25 },
-                  { label: 'Ops Complexity', score: lead.score_detail.complexity_score     ?? 0, max: 25 },
-                  { label: 'Digital Gap',    score: lead.score_detail.digital_score        ?? 0, max: 25 },
-                ].map(item => <ScoreBar key={item.label} {...item} />)}
-              </div>
-              {lead.score_detail.scoring_rationale && (
-                <p className="text-2xs text-neutral-400 italic mt-3 leading-relaxed">
-                  {lead.score_detail.scoring_rationale}
-                </p>
-              )}
-            </SectionCard>
-          )}
+            )}
 
-          {/* Company details — unknown fields hidden, not shown as noise */}
-          <SectionCard title="Company Details">
-            <div>
-              {lead.company_size && (
-                <DetailRow label="Size" value={lead.company_size} />
-              )}
-              {lead.industry && (
-                <DetailRow label="Industry" value={lead.industry} />
-              )}
-              {lead.location && (
-                <DetailRow label="Location" value={lead.location} />
-              )}
-              <DetailRow
-                label="Source"
-                value={lead.source?.replace('_', ' ') ?? 'Unknown'}
-              />
-              {lead.job_title && (
-                <DetailRow label="Hiring For" value={lead.job_title} />
-              )}
+            {/* Company details */}
+            <div className="p-4">
+              <h3 className="text-2xs font-semibold text-neutral-400 uppercase tracking-wider mb-3">Company</h3>
+              {lead.company_size && <DetailRow label="Size" value={lead.company_size} />}
+              {lead.industry && <DetailRow label="Industry" value={lead.industry} />}
+              {lead.location && <DetailRow label="Location" value={lead.location} />}
+              <DetailRow label="Source" value={lead.source?.replace('_', ' ') ?? 'Unknown'} />
+              {lead.job_title && <DetailRow label="Hiring For" value={lead.job_title} />}
               <DetailRow
                 label="Discovered"
                 value={
@@ -764,41 +755,43 @@ export default function LeadDetailPage() {
                 }
               />
             </div>
-          </SectionCard>
 
-          {/* Pipeline Stage — visual stepper, not a settings list */}
-          <SectionCard title="Pipeline Stage">
-            <PipelineStepper
-              stages={STATUS_PIPELINE}
-              current={lead.status}
-              onSelect={(s) => statusMutation.mutate(s)}
-              disabled={statusMutation.isPending}
-            />
-          </SectionCard>
+            {/* Pipeline Stage */}
+            <div className="p-4">
+              <h3 className="text-2xs font-semibold text-neutral-400 uppercase tracking-wider mb-3">Pipeline Stage</h3>
+              <PipelineStepper
+                stages={STATUS_PIPELINE}
+                current={lead.status}
+                onSelect={(s) => statusMutation.mutate(s)}
+                disabled={statusMutation.isPending}
+              />
+            </div>
 
-          {/* Signal history */}
-          {signals.length > 1 && (
-            <SectionCard title="Signal History">
-              <div className="space-y-2">
-                {signals.slice(0, 5).map((sig, i) => (
-                  <div key={sig.id} className={cn('flex items-start gap-2', i > 0 && 'pt-2 border-t border-neutral-100')}>
-                    <div className="w-1.5 h-1.5 rounded-full bg-brand mt-1.5 flex-shrink-0" />
-                    <div>
-                      <p className="text-xs font-medium text-ink capitalize">
-                        {sig.signal_type?.replace(/_/g, ' ')}
-                      </p>
-                      <p className="text-2xs text-neutral-400">
-                        {sig.confidence_score
-                          ? `${Math.round(sig.confidence_score * 100)}% confidence · `
-                          : ''}
-                        {formatDistanceToNow(new Date(sig.detected_at), { addSuffix: true })}
-                      </p>
+            {/* Signal history */}
+            {signals.length > 1 && (
+              <div className="p-4">
+                <h3 className="text-2xs font-semibold text-neutral-400 uppercase tracking-wider mb-3">Signal History</h3>
+                <div className="space-y-2">
+                  {signals.slice(0, 5).map((sig, i) => (
+                    <div key={sig.id} className={cn('flex items-start gap-2', i > 0 && 'pt-2 border-t border-neutral-100')}>
+                      <div className="w-1.5 h-1.5 rounded-full bg-brand mt-1.5 flex-shrink-0" />
+                      <div>
+                        <p className="text-xs font-medium text-ink capitalize">
+                          {sig.signal_type?.replace(/_/g, ' ')}
+                        </p>
+                        <p className="text-2xs text-neutral-400">
+                          {sig.confidence_score
+                            ? `${Math.round(sig.confidence_score * 100)}% confidence · `
+                            : ''}
+                          {formatDistanceToNow(new Date(sig.detected_at), { addSuffix: true })}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </SectionCard>
-          )}
+            )}
+          </div>
         </div>
       </div>
     </div>
