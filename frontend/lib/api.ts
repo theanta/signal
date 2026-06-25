@@ -11,6 +11,7 @@ let _refreshInFlight: Promise<string | null> | null = null;
 
 export const tokenStore = {
   setToken: (t: string | null) => { _token = t; },
+  getToken: () => _token,
   setRefreshFn: (fn: () => Promise<string | null>) => { _refreshFn = fn; },
   refresh: (): Promise<string | null> => {
     if (!_refreshInFlight) {

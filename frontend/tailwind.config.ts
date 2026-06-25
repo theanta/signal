@@ -9,31 +9,34 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // ── Legacy tokens (preserved for backward-compat) ──
-        ink: '#181d26',
-        'ink-active': '#0d1218',
-        body: '#333840',
-        muted: '#41454d',
-        hairline: '#dddddd',
-        'border-strong': '#9297a0',
-        canvas: '#ffffff',
-        'surface-soft': '#f8fafc',
-        'surface-strong': '#e0e2e6',
-        'surface-dark': '#181d26',
-        'surface-dark-elevated': '#1d1f25',
-        'sig-coral': '#aa2d00',
-        'sig-forest': '#0a2e0e',
-        'sig-cream': '#f5e9d4',
-        'sig-peach': '#fcab79',
-        'sig-mint': '#a8d8c4',
-        'sig-yellow': '#f4d35e',
-        'sig-mustard': '#d9a441',
+        // ── Semantic aliases (legacy names → neutral/brand values) ──
+        // Keep these names so existing components don't break; values now
+        // match the systematic scale so both namespaces resolve identically.
+        ink:            '#111827', // = neutral-900
+        'ink-active':   '#030712', // = neutral-950
+        body:           '#374151', // = neutral-700
+        muted:          '#4b5563', // = neutral-600
+        hairline:       '#e5e7eb', // = neutral-200
+        'border-strong':'#9ca3af', // = neutral-400
+        canvas:         '#ffffff',
+        'surface-soft': '#f9fafb', // = neutral-50
+        'surface-strong':'#e5e7eb',// = neutral-200
+        'surface-dark': '#111827', // = neutral-900
+        'surface-dark-elevated': '#1f2937', // = neutral-800
+
+        // ── Semantic status ──
         link: '#1b61c9',
         'link-active': '#1a3866',
         info: '#254fad',
         'info-border': '#458fff',
         success: '#006400',
         'success-border': '#39bf45',
+
+        // ── Semantic error / warning ──
+        error:          '#aa2d00',
+        'error-bg':     '#fcede8',
+        'error-border': '#f5c9b8',
+        warning:        '#d9a441',
 
         // ── Brand ──
         brand: {
@@ -97,6 +100,8 @@ const config: Config = {
           'rejected-bg':   '#fef2f2',
           'rejected-text': '#b91c1c',
           'rejected-border':'#fecaca',
+          'active-bg':     '#e8f5ec',
+          'active-border': '#b3dcbe',
         },
 
         // ── Score badge colors ──

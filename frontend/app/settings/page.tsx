@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
 import type { PlatformConfig, CronJobLog } from '../../../shared/types';
-import { clsx } from 'clsx';
+import { cn } from '@/lib/utils';
 
 const TABS = [
   { id: 'agency',   label: 'Agency Profile',  icon: Building2 },
@@ -52,9 +52,9 @@ function TextInput({
       value={value}
       onChange={e => onChange(e.target.value)}
       placeholder={placeholder}
-      className={clsx(
+      className={cn(
         'w-full px-3 py-2 text-sm text-ink bg-canvas border border-hairline rounded-md',
-        'focus:outline-none focus:border-info-border focus:ring-1 focus:ring-info-border',
+        'focus:outline-none focus:border-brand-400 focus:ring-1 focus:ring-brand-400/20',
         'placeholder:text-muted',
         className,
       )}
@@ -71,7 +71,7 @@ function TextArea({
       value={value}
       onChange={e => onChange(e.target.value)}
       placeholder={placeholder}
-      className="w-full px-3 py-2 text-sm text-ink bg-canvas border border-hairline rounded-md resize-none focus:outline-none focus:border-info-border focus:ring-1 focus:ring-info-border placeholder:text-muted"
+      className="w-full px-3 py-2 text-sm text-ink bg-canvas border border-hairline rounded-md resize-none focus:outline-none focus:border-brand-400 focus:ring-1 focus:ring-brand-400/20 placeholder:text-muted"
     />
   );
 }
@@ -100,7 +100,7 @@ function TagList({
         {values.map((v, i) => (
           <span key={i} className="flex items-center gap-1 text-xs bg-surface-soft border border-hairline text-ink rounded px-2 py-1">
             {v}
-            <button onClick={() => remove(i)} className="text-muted hover:text-sig-coral ml-0.5">
+            <button onClick={() => remove(i)} className="text-muted hover:text-error ml-0.5">
               <X className="w-3 h-3" />
             </button>
           </span>
@@ -231,7 +231,7 @@ export default function SettingsPage() {
             <button
               key={id}
               onClick={() => setActiveTab(id)}
-              className={clsx(
+              className={cn(
                 'w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm text-left transition-colors',
                 activeTab === id
                   ? 'bg-surface-strong text-ink font-medium'
@@ -379,7 +379,7 @@ export default function SettingsPage() {
                         <button
                           key={size}
                           onClick={() => toggleSize(size)}
-                          className={clsx(
+                          className={cn(
                             'px-3 py-1.5 text-xs rounded-md border font-medium transition-colors',
                             on
                               ? 'bg-ink text-canvas border-ink'
@@ -424,10 +424,10 @@ export default function SettingsPage() {
                       </div>
                       <button
                         onClick={() => toggleSource(id)}
-                        className={clsx(
+                        className={cn(
                           'flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border font-medium transition-colors',
                           on
-                            ? 'bg-[#e8f5ec] text-success border-[#b3dcbe]'
+                            ? 'bg-status-active-bg text-success border-status-active-border'
                             : 'bg-surface-soft text-muted border-hairline',
                         )}
                       >
@@ -517,8 +517,8 @@ export default function SettingsPage() {
               <div className="card overflow-hidden">
                 {cronLogsError ? (
                   <div className="py-10 text-center text-sm">
-                    <XCircle className="w-5 h-5 text-sig-coral mx-auto mb-2" />
-                    <p className="text-sig-coral font-medium">Failed to load job history</p>
+                    <XCircle className="w-5 h-5 text-error mx-auto mb-2" />
+                    <p className="text-error font-medium">Failed to load job history</p>
                     <p className="text-muted mt-1 text-xs">The <code className="font-mono">cron_job_logs</code> table may not exist yet — run the migration in your Supabase SQL editor.</p>
                   </div>
                 ) : cronLogs.length === 0 ? (
@@ -541,11 +541,11 @@ export default function SettingsPage() {
                             <td className="px-4 py-2.5">
                               <div className="flex items-center gap-1.5">
                                 {log.status === 'success'  && <CheckCircle className="w-3.5 h-3.5 text-success" />}
-                                {log.status === 'failed'   && <XCircle    className="w-3.5 h-3.5 text-sig-coral" />}
+                                {log.status === 'failed'   && <XCircle    className="w-3.5 h-3.5 text-error" />}
                                 {log.status === 'running'  && <Activity   className="w-3.5 h-3.5 text-info animate-pulse" />}
-                                <span className={clsx('text-xs capitalize', {
+                                <span className={cn('text-xs capitalize', {
                                   'text-success':   log.status === 'success',
-                                  'text-sig-coral': log.status === 'failed',
+                                  'text-error': log.status === 'failed',
                                   'text-info':      log.status === 'running',
                                 })}>
                                   {log.status}
@@ -561,9 +561,9 @@ export default function SettingsPage() {
                               } as Record<string, string>)[log.job_name] ?? log.job_name}
                             </td>
                             <td className="px-4 py-2.5">
-                              <span className={clsx('text-[10px] px-2 py-0.5 rounded-full border font-medium', {
+                              <span className={cn('text-[10px] px-2 py-0.5 rounded-full border font-medium', {
                                 'bg-surface-soft text-muted border-hairline': log.trigger_type === 'scheduled',
-                                'bg-[#e8f5ec] text-success border-[#b3dcbe]': log.trigger_type === 'manual',
+                                'bg-status-active-bg text-success border-status-active-border': log.trigger_type === 'manual',
                               })}>
                                 {log.trigger_type}
                               </span>
@@ -612,7 +612,7 @@ export default function SettingsPage() {
                           <Wifi className="w-3.5 h-3.5" /> Connected
                         </span>
                       ) : (
-                        <span className="flex items-center gap-1.5 text-xs text-sig-coral font-medium">
+                        <span className="flex items-center gap-1.5 text-xs text-error font-medium">
                           <WifiOff className="w-3.5 h-3.5" /> Error
                         </span>
                       )}

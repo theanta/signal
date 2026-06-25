@@ -1,119 +1,291 @@
-"""Analyze likely operational pain points and map to ANTA services."""
+"""
+Analyze operational pain points and map to ANTA services.
+Uses Groq (Llama 3.3-70B) to synthesize evidence from scraped company data.
+Falls back to rule-based analysis when Groq is unavailable or rate-limited.
+"""
 
+import json
+import logging
+import os
 import re
 from typing import Tuple
 
-ANTA_SERVICES = {
-    "ai_automation": "AI Automation Systems",
-    "saas_dev": "SaaS Development",
-    "operational_dashboard": "Operational Dashboard",
-    "workflow_automation": "Workflow Automation",
-    "internal_tools": "Custom Internal Tools",
-    "crm": "CRM System",
-    "mvp": "Startup MVP Development",
-    "frontend": "React/Next.js Frontend Modernization",
-}
+from pydantic import BaseModel, field_validator, ValidationError
 
-INDUSTRY_PAIN_MAP = {
+logger = logging.getLogger(__name__)
+
+ANTA_SERVICES = [
+    "AI Automation Systems",
+    "SaaS Development",
+    "Operational Dashboard",
+    "Workflow Automation",
+    "Custom Internal Tools",
+    "CRM System",
+    "Startup MVP Development",
+    "React/Next.js Frontend Modernization",
+]
+
+ANTA_PARTNERSHIP_SERVICES = [
+    "Development Partnership",
+    "Project Outsourcing",
+    "White-label Development",
+    "AI Feature Subcontracting",
+]
+
+_GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+_MODEL = "llama-3.3-70b-versatile"
+
+
+class _PainPointResponse(BaseModel):
+    pain_points: list[str]
+    recommended_service: str
+    outreach_angle: str
+
+    @field_validator("pain_points", mode="before")
+    @classmethod
+    def _coerce_pain_points(cls, v: object) -> list[str]:
+        if not isinstance(v, list):
+            return []
+        return [p for p in v if isinstance(p, str) and p.strip()][:4]
+
+    @field_validator("recommended_service", "outreach_angle")
+    @classmethod
+    def _require_non_empty(cls, v: object) -> str:
+        s = str(v).strip() if v else ""
+        if not s:
+            raise ValueError("field is required and cannot be empty")
+        return s
+
+
+def _build_prompt(
+    company_name: str,
+    industry: str,
+    location: str,
+    hiring_signal: str,
+    job_title: str,
+    description: str,
+    tech_stack: list[str],
+    website_content: str,
+) -> str:
+    stack_str = ", ".join(tech_stack) if tech_stack else "none detected"
+    content_str = website_content.strip() if website_content else "not available"
+
+    services_list = "\n".join(f"- {s}" for s in ANTA_SERVICES)
+
+    return f"""You are a B2B analyst for ANTA, a Detroit-based software agency that builds custom operational software for SMBs.
+
+ANTA services (pick exactly one as recommended_service):
+{services_list}
+
+Evidence observed about this lead:
+- Company: {company_name}
+- Location: {location or "unknown"}
+- Industry: {industry or "unknown"}
+- Description: {description or "not provided"}
+- Hiring signal: {hiring_signal or "none"}
+- Job posting title: {job_title or "none"}
+- Tech stack detected via website fingerprinting: {stack_str}
+- Website text scraped from their pages:
+{content_str}
+
+CRITICAL RULES — read carefully before answering:
+
+1. A pain point is something the company is STRUGGLING WITH or LACKING — an operational gap, a manual process, a missing tool, an inefficiency. It is NOT something they advertise, sell, or claim to be good at. If a statement describes the company's own capabilities or value proposition, it is MARKETING COPY — not a pain point.
+
+2. Grounding rule: each pain point must cite a specific observed signal (a tool absence, a phrase from the job posting indicating manual work, a technology gap). Do not infer pain points from marketing language or taglines.
+
+3. If evidence is thin or ambiguous, return fewer pain points — do not pad with generic ones.
+
+4. Write a 2-3 sentence outreach_angle referencing specific observed signals (job posting language, tech stack gaps, website copy about their operations). No generic phrases like "we noticed you're growing."
+
+Return only a valid JSON object with exactly these keys: pain_points (array of strings), recommended_service (string), outreach_angle (string). No markdown, no explanation."""
+
+
+def _build_partnership_prompt(
+    company_name: str,
+    industry: str,
+    location: str,
+    hiring_signal: str,
+    job_title: str,
+    description: str,
+    tech_stack: list[str],
+    website_content: str,
+) -> str:
+    stack_str = ", ".join(tech_stack) if tech_stack else "none detected"
+    content_str = website_content.strip() if website_content else "not available"
+    partnership_services = "\n".join(f"- {s}" for s in ANTA_PARTNERSHIP_SERVICES)
+
+    return f"""You are a B2B analyst for ANTA, a Detroit-based software agency specialising in React/Next.js, AI automation, and custom operational tools.
+
+ANTA is evaluating {company_name} as a potential PARTNER or OUTSOURCING client — NOT as a software buyer. This company is in {industry}, meaning they build or sell technology themselves. ANTA is looking for opportunities to collaborate: subcontracting overflow work, white-label development, or joint delivery on client projects.
+
+Partnership engagement types ANTA can offer (pick the best fit as recommended_service):
+{partnership_services}
+
+Evidence observed:
+- Company: {company_name}
+- Location: {location or "unknown"}
+- Industry: {industry}
+- Description: {description or "not provided"}
+- Hiring signal: {hiring_signal or "none"}
+- Job posting title: {job_title or "none"}
+- Tech stack detected on website: {stack_str}
+- Website content:
+{content_str}
+
+Your task:
+1. Identify up to 3 partnership opportunity signals — specific observations that suggest this company has overflow dev work, capability gaps ANTA can fill, or project outsourcing needs. Ground each in the evidence (e.g. hiring contractors = variable load, specific tech in job posting ANTA specialises in, service areas that require dev partners).
+2. Pick the single best partnership engagement type from the list above.
+3. Write a 2-3 sentence outreach angle framed as a partnership pitch — reference specific signals observed. The tone should be peer-to-peer ("collaborate", "partner", "support your pipeline"), NOT a sales pitch.
+
+Return only a valid JSON object with exactly these keys: pain_points (array of strings — these are partnership signals, not operational gaps), recommended_service (string), outreach_angle (string). No markdown, no explanation."""
+
+
+def _call_groq(prompt: str) -> dict | None:
+    """Call Groq and validate the response. Retries up to 3 times on JSON/validation failures."""
+    from groq import Groq
+    client = Groq(api_key=_GROQ_API_KEY)
+
+    for attempt in range(3):
+        try:
+            resp = client.chat.completions.create(
+                model=_MODEL,
+                response_format={"type": "json_object"},
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.2,
+                max_tokens=600,
+            )
+            raw = resp.choices[0].message.content
+            validated = _PainPointResponse.model_validate(json.loads(raw))
+            return validated.model_dump()
+        except json.JSONDecodeError as e:
+            logger.warning("[PainPointAnalyzer] JSON decode failed (attempt %d/3): %s", attempt + 1, e)
+        except ValidationError as e:
+            logger.warning("[PainPointAnalyzer] Response validation failed (attempt %d/3): %s", attempt + 1, e)
+        except Exception as e:
+            # API-level errors (auth, rate limit, network) — no point retrying immediately
+            logger.warning("[PainPointAnalyzer] Groq API error: %s", e)
+            return None
+
+    logger.warning("[PainPointAnalyzer] All 3 attempts failed — falling back to rule-based analysis")
+    return None
+
+
+# ============================================================
+# Rule-based fallback — used when Groq is unavailable
+# ============================================================
+
+_INDUSTRY_FALLBACK: dict[str, dict] = {
     "manufacturing": {
         "pain_points": [
             "Manual production tracking in spreadsheets",
             "No real-time inventory visibility",
             "Disconnected ERP from shop floor data",
-            "Paper-based quality control processes",
         ],
-        "service": "ai_automation",
-        "angle": "We build operational dashboards that give manufacturing teams real-time visibility into production, inventory, and quality — replacing spreadsheets with live data.",
+        "service": "Operational Dashboard",
+        "angle": "ANTA builds operational dashboards that give manufacturing teams real-time visibility into production and inventory.",
     },
     "logistics": {
         "pain_points": [
             "Manual route planning and dispatch",
             "No real-time shipment tracking",
             "Paper-based proof of delivery",
-            "Disconnected customer communication",
         ],
-        "service": "operational_dashboard",
-        "angle": "We build logistics ops platforms — route optimization, shipment tracking, driver portals — that replace manual dispatching with automated workflows.",
+        "service": "Operational Dashboard",
+        "angle": "ANTA builds logistics ops platforms — route optimization, shipment tracking, driver portals.",
     },
     "healthcare": {
         "pain_points": [
             "Paper-based patient intake",
             "Manual scheduling across locations",
-            "No centralized patient communication",
             "Disconnected billing and care workflows",
         ],
-        "service": "workflow_automation",
-        "angle": "We build healthcare ops tools — digital intake, scheduling systems, care coordination dashboards — that reduce administrative burden.",
-    },
-    "saas": {
-        "pain_points": [
-            "MVP needs full engineering support",
-            "Frontend needs professional rebuild",
-            "No CI/CD or deployment pipeline",
-            "Needs AI feature integration",
-        ],
-        "service": "saas_dev",
-        "angle": "ANTA specializes in helping SaaS founders move fast — from MVP to scalable product architecture using React/Next.js and AI integrations.",
+        "service": "Workflow Automation",
+        "angle": "ANTA builds healthcare ops tools that reduce administrative burden through digital intake and scheduling.",
     },
     "legal": {
         "pain_points": [
             "Case management via email chains",
             "Manual document tracking",
             "No client portal",
-            "Billing done in spreadsheets",
         ],
-        "service": "internal_tools",
-        "angle": "We build legal ops tools — case management systems, client portals, document workflows — tailored to how your firm actually works.",
+        "service": "Custom Internal Tools",
+        "angle": "ANTA builds legal ops tools — case management, client portals, document workflows.",
     },
     "staffing": {
         "pain_points": [
             "Candidate tracking in spreadsheets",
             "No internal ATS",
             "Manual client reporting",
-            "Disconnected placement workflows",
         ],
-        "service": "crm",
-        "angle": "We build staffing CRMs and recruitment workflow systems that automate candidate tracking, placement coordination, and client reporting.",
+        "service": "CRM System",
+        "angle": "ANTA builds staffing CRMs that automate candidate tracking and placement coordination.",
     },
-    "default": {
+    "saas": {
         "pain_points": [
-            "Manual operational processes",
-            "No centralized data visibility",
-            "Disconnected systems and tools",
-            "Scaling without software infrastructure",
+            "MVP needs full engineering support",
+            "Frontend needs professional rebuild",
+            "Needs AI feature integration",
         ],
-        "service": "workflow_automation",
-        "angle": "ANTA builds the operational software layer your business needs to scale — from workflow automation to real-time dashboards.",
+        "service": "SaaS Development",
+        "angle": "ANTA helps SaaS founders move fast — from MVP to scalable product architecture.",
     },
 }
 
-JOB_SIGNAL_MAP = {
-    r"data entry|spreadsheet|excel analyst": {
-        "pain": "Manual data workflows consuming staff time",
-        "service": "workflow_automation",
-    },
-    r"operations coordinator|ops manager": {
-        "pain": "Operational scaling without software support",
-        "service": "operational_dashboard",
-    },
-    r"react|frontend|next\.?js": {
-        "pain": "Frontend modernization or new product build",
-        "service": "frontend",
-    },
-    r"full.?stack|software engineer|web developer": {
-        "pain": "Building new internal tools or SaaS product",
-        "service": "saas_dev",
-    },
-    r"crm|sales ops|salesforce": {
-        "pain": "No centralized CRM or sales ops system",
-        "service": "crm",
-    },
-    r"ai|machine learning|automation": {
-        "pain": "Wants AI but lacks engineering to implement",
-        "service": "ai_automation",
-    },
+_JOB_SIGNAL_FALLBACK = [
+    (r"data entry|spreadsheet|excel analyst", "Manual data workflows consuming staff time", "Workflow Automation"),
+    (r"operations coordinator|ops manager", "Operational scaling without software support", "Operational Dashboard"),
+    (r"react|frontend|next\.?js", "Frontend modernization or new product build", "React/Next.js Frontend Modernization"),
+    (r"full.?stack|software engineer|web developer", "Building new internal tools or SaaS product", "SaaS Development"),
+    (r"crm|sales ops|salesforce", "No centralized CRM or sales ops system", "CRM System"),
+    (r"ai|machine learning|automation", "Wants AI but lacks engineering to implement", "AI Automation Systems"),
+]
+
+_DEFAULT_FALLBACK = {
+    "pain_points": [
+        "Manual operational processes",
+        "No centralized data visibility",
+        "Scaling without software infrastructure",
+    ],
+    "service": "Workflow Automation",
+    "angle": "ANTA builds the operational software layer your business needs to scale.",
 }
 
+
+def _fallback_analyze(
+    industry: str,
+    hiring_signal: str,
+    job_title: str,
+    location: str,
+) -> tuple[list[str], str, str]:
+    text = f"{hiring_signal} {job_title}".lower()
+    industry_lower = industry.lower()
+
+    data = next(
+        (v for k, v in _INDUSTRY_FALLBACK.items() if k in industry_lower),
+        _DEFAULT_FALLBACK,
+    )
+
+    pain_points = list(data["pain_points"])
+    service = data["service"]
+    angle = data["angle"]
+
+    for pattern, pain, svc in _JOB_SIGNAL_FALLBACK:
+        if re.search(pattern, text, re.IGNORECASE):
+            if pain not in pain_points:
+                pain_points.insert(0, pain)
+            service = svc
+            break
+
+    if any(loc in location.lower() for loc in ["detroit", "michigan", "dearborn", "warren"]):
+        angle = f"As Detroit-based engineers, ANTA understands Michigan business operations. {angle}"
+
+    return pain_points[:4], service, angle
+
+
+# ============================================================
+# Public API
+# ============================================================
 
 class PainPointAnalyzer:
     def analyze(
@@ -125,45 +297,39 @@ class PainPointAnalyzer:
         location: str,
         tech_stack: list[str] | None = None,
         tech_gaps: list[str] | None = None,
+        website_content: str = "",
+        company_name: str = "",
+        is_vendor_company: bool = False,
     ) -> Tuple[list[str], str, str]:
-        """
-        Returns (pain_points, recommended_service_name, outreach_angle).
-        """
-        text = f"{hiring_signal} {job_title} {description}".lower()
-        industry_lower = industry.lower()
         tech_stack = tech_stack or []
-        tech_gaps = tech_gaps or []
 
-        # Match industry
-        industry_data = INDUSTRY_PAIN_MAP["default"]
-        for key, data in INDUSTRY_PAIN_MAP.items():
-            if key != "default" and key in industry_lower:
-                industry_data = data
-                break
+        if _GROQ_API_KEY:
+            prompt = (
+                _build_partnership_prompt if is_vendor_company else _build_prompt
+            )(
+                company_name=company_name,
+                industry=industry,
+                location=location,
+                hiring_signal=hiring_signal,
+                job_title=job_title,
+                description=description,
+                tech_stack=tech_stack,
+                website_content=website_content,
+            )
+            result = _call_groq(prompt)
+            if result:
+                logger.info(
+                    "[PainPointAnalyzer] Groq %s analysis succeeded",
+                    "partnership" if is_vendor_company else "SMB",
+                )
+                return result["pain_points"], result["recommended_service"], result["outreach_angle"]
 
-        pain_points = list(industry_data["pain_points"])
-        service_key = industry_data["service"]
-        angle = industry_data["angle"]
+        if is_vendor_company:
+            return (
+                ["Hiring contract developers signals variable project load"],
+                "Development Partnership",
+                "ANTA specialises in React/Next.js and AI — we can support your client delivery pipeline as a development partner.",
+            )
 
-        # Override with job-specific signals if stronger
-        for pattern, override in JOB_SIGNAL_MAP.items():
-            if re.search(pattern, text, re.IGNORECASE):
-                specific_pain = override["pain"]
-                if specific_pain not in pain_points:
-                    pain_points.insert(0, specific_pain)
-                service_key = override["service"]
-                break
-
-        # Refine the outreach angle when we have concrete detected tech (not inferred gaps —
-        # gap text is speculative and breaks the sentence if appended raw)
-        if tech_stack:
-            tech_context = f" We can see you're running {', '.join(tech_stack[:3])}."
-            angle = angle.rstrip(".") + tech_context
-
-        service_name = ANTA_SERVICES.get(service_key, "Custom Software Development")
-
-        # Add Detroit-specific angle
-        if any(loc in location.lower() for loc in ["detroit", "michigan", "dearborn", "warren"]):
-            angle = f"As Detroit-based engineers, ANTA understands Michigan business operations. {angle}"
-
-        return pain_points[:4], service_name, angle
+        logger.info("[PainPointAnalyzer] Using rule-based fallback")
+        return _fallback_analyze(industry, hiring_signal, job_title, location)

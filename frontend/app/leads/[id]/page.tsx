@@ -2,7 +2,7 @@
 
 import { useParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { fetchLead, analyzeLead, generateOutreach, updateLeadStatus } from '@/services/leads';
+import { fetchLead, generateOutreach, updateLeadStatus } from '@/services/leads';
 import PageHeader from '@/components/ui/PageHeader';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -14,7 +14,8 @@ import {
   Building2, MapPin, TrendingUp, ShieldCheck, ShieldAlert, ShieldQuestion,
   Clock,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useCallback, useRef } from 'react';
+import { tokenStore } from '@/lib/api';
 import { formatDistanceToNow } from 'date-fns';
 import type { LeadStatus, OutreachMessage } from '../../../../shared/types';
 
@@ -168,6 +169,79 @@ function DetailSkeleton() {
   );
 }
 
+function useAnalysisStream(id: string) {
+  const [phase, setPhase] = useState<string | null>(null);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const qc = useQueryClient();
+
+  const start = useCallback(() => {
+    if (isStreaming) return;
+    setIsStreaming(true);
+    setPhase('Starting analysis…');
+
+    const abort = new AbortController();
+    abortRef.current = abort;
+    const token = tokenStore.getToken();
+
+    fetch(`/api/leads/${id}/analyze/stream`, {
+      signal: abort.signal,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then(response => {
+        if (!response.ok || !response.body) throw new Error('Stream failed');
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        const pump = (): Promise<void> =>
+          reader.read().then(({ done, value }) => {
+            if (done) {
+              setIsStreaming(false);
+              setPhase(null);
+              return;
+            }
+            buffer += decoder.decode(value, { stream: true });
+            const events = buffer.split('\n\n');
+            buffer = events.pop() ?? '';
+
+            for (const event of events) {
+              for (const line of event.split('\n')) {
+                if (!line.startsWith('data: ')) continue;
+                try {
+                  const data = JSON.parse(line.slice(6)) as { phase: string; message?: string };
+                  if (data.phase === 'complete') {
+                    setIsStreaming(false);
+                    setPhase(null);
+                    qc.invalidateQueries({ queryKey: ['lead', id] });
+                    toast.success('Analysis complete');
+                    return;
+                  }
+                  if (data.phase === 'error') {
+                    setIsStreaming(false);
+                    setPhase(null);
+                    toast.error('Analysis failed');
+                    return;
+                  }
+                  if (data.message) setPhase(data.message);
+                } catch { /* malformed event */ }
+              }
+            }
+            return pump();
+          });
+
+        return pump();
+      })
+      .catch(err => {
+        if ((err as Error).name !== 'AbortError') toast.error('Analysis failed');
+        setIsStreaming(false);
+        setPhase(null);
+      });
+  }, [id, isStreaming, qc]);
+
+  return { phase, isStreaming, start };
+}
+
 export default function LeadDetailPage() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
@@ -178,17 +252,7 @@ export default function LeadDetailPage() {
     queryFn: () => fetchLead(id),
   });
 
-  const analyzeMutation = useMutation({
-    mutationFn: () => analyzeLead(id),
-    onMutate: () => toast.loading('Analyzing lead with AI…') as unknown as string | number,
-    onSuccess: (_data, _vars, ctx) => {
-      toast.resolve(ctx as string | number, 'success', 'Analysis complete');
-      qc.invalidateQueries({ queryKey: ['lead', id] });
-    },
-    onError: (_err, _vars, ctx) => {
-      toast.resolve(ctx as string | number, 'error', 'Analysis failed');
-    },
-  });
+  const { phase: analysisPhase, isStreaming: isAnalyzing, start: startAnalysis } = useAnalysisStream(id);
 
   const outreachMutation = useMutation({
     mutationFn: (channel: 'email' | 'linkedin') => generateOutreach(id, channel),
@@ -316,50 +380,20 @@ export default function LeadDetailPage() {
 
             {/* Action row */}
             <div className="flex items-center gap-2 mt-5 pt-4 border-t border-neutral-100">
-              <button
-                onClick={() => outreachMutation.mutate('email')}
-                disabled={outreachMutation.isPending}
-                className="inline-flex items-center gap-1.5 h-8 px-4 text-body-sm font-medium bg-brand text-white rounded-lg hover:bg-brand/90 transition-colors disabled:opacity-50"
-              >
-                {outreachMutation.isPending
-                  ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  : <MessageSquare className="w-3.5 h-3.5" />}
-                Generate Email
-              </button>
-              <button
-                onClick={() => outreachMutation.mutate('linkedin')}
-                disabled={outreachMutation.isPending}
-                className="inline-flex items-center gap-1.5 h-8 px-3 text-body-sm font-medium border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors text-neutral-600 disabled:opacity-50"
-              >
-                <Link2 className="w-3.5 h-3.5" />
-                LinkedIn Message
-              </button>
-              <button
-                onClick={() => statusMutation.mutate('contacted')}
-                disabled={statusMutation.isPending || lead.status === 'contacted'}
-                className="inline-flex items-center gap-1.5 h-8 px-3 text-body-sm font-medium border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors text-neutral-600 disabled:opacity-40"
-              >
-                <CheckCircle className="w-3.5 h-3.5" />
-                Mark Contacted
-              </button>
-              <button
-                onClick={() => analyzeMutation.mutate()}
-                disabled={analyzeMutation.isPending}
-                className={cn(
-                  'inline-flex items-center gap-1.5 h-8 px-3 text-body-sm font-medium border rounded-lg transition-colors disabled:opacity-40 ml-auto',
-                  latestSignal
-                    ? 'border-neutral-200 hover:bg-neutral-50 text-neutral-400 hover:text-ink'
-                    : 'border-brand/30 bg-brand/5 text-brand hover:bg-brand/10',
-                )}
-                title={latestSignal ? 'Re-run AI analysis to refresh tech stack and enrichment data' : 'Run AI analysis on this lead'}
-              >
-                {analyzeMutation.isPending
-                  ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  : latestSignal
-                    ? <RefreshCw className="w-3.5 h-3.5" />
-                    : <Brain className="w-3.5 h-3.5" />}
-                {analyzeMutation.isPending ? 'Analyzing…' : latestSignal ? 'Re-analyze' : 'Analyze'}
-              </button>
+              {isAnalyzing && analysisPhase && (
+                <span className="text-xs text-neutral-400 italic truncate max-w-xs">{analysisPhase}</span>
+              )}
+              {latestSignal && (
+                <button
+                  onClick={startAnalysis}
+                  disabled={isAnalyzing}
+                  className="inline-flex items-center gap-1.5 h-8 px-3 text-body-sm font-medium border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors text-neutral-400 hover:text-ink disabled:opacity-40 ml-auto"
+                  title="Refresh analysis data"
+                >
+                  <RefreshCw className={cn('w-3.5 h-3.5', isAnalyzing && 'animate-spin')} />
+                  {isAnalyzing ? 'Analysing…' : 'Refresh'}
+                </button>
+              )}
             </div>
           </div>
 
@@ -422,18 +456,22 @@ export default function LeadDetailPage() {
           {!latestSignal ? (
             <div className="bg-white border border-neutral-200 rounded-xl shadow-card p-8 text-center">
               <div className="w-12 h-12 rounded-xl bg-neutral-50 flex items-center justify-center mx-auto mb-3">
-                <Brain className="w-6 h-6 text-neutral-300" />
+                <Brain className={cn('w-6 h-6', isAnalyzing ? 'text-brand/40' : 'text-neutral-300')} />
               </div>
-              <p className="text-body-sm text-neutral-400 mb-4">This lead hasn&apos;t been analyzed yet.</p>
+              <p className="text-body-sm text-neutral-400 mb-1">This lead hasn&apos;t been analysed yet.</p>
+              <p className="text-xs text-neutral-300 mb-4">Finds tech stack, contacts, pain points and score in one pass.</p>
+              {isAnalyzing && analysisPhase && (
+                <p className="text-xs text-brand/60 italic mb-3">{analysisPhase}</p>
+              )}
               <button
-                onClick={() => analyzeMutation.mutate()}
-                disabled={analyzeMutation.isPending}
+                onClick={startAnalysis}
+                disabled={isAnalyzing}
                 className="inline-flex items-center gap-2 h-9 px-5 text-body-sm font-medium bg-brand text-white rounded-lg hover:bg-brand/90 transition-colors mx-auto disabled:opacity-50"
               >
-                {analyzeMutation.isPending
+                {isAnalyzing
                   ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                   : <Brain className="w-3.5 h-3.5" />}
-                {analyzeMutation.isPending ? 'Analyzing…' : 'Analyze with AI'}
+                {isAnalyzing ? 'Analysing…' : 'Analyse with AI'}
               </button>
             </div>
           ) : isDisqualified ? (
@@ -657,7 +695,14 @@ export default function LeadDetailPage() {
           {lead.score_detail && (
             <SectionCard title="Score Breakdown">
               <div className="flex items-center justify-between mb-4 pb-3 border-b border-neutral-100">
-                <span className="text-xs text-neutral-400 font-medium">Lead Score</span>
+                <div>
+                  <span className="text-xs text-neutral-400 font-medium block">Lead Score</span>
+                  {lead.score_detail.score_percentile !== undefined && (
+                    <span className="text-2xs text-neutral-400 mt-0.5 block">
+                      Top {100 - lead.score_detail.score_percentile}% of leads
+                    </span>
+                  )}
+                </div>
                 <span className={cn(
                   'text-[28px] font-bold leading-none',
                   (lead.lead_score ?? 0) >= 70 ? 'text-emerald-600' :

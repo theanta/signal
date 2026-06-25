@@ -57,11 +57,13 @@ class LeadScorer:
         industry: str,
         tech_stack: list[str] | None = None,
         tech_gaps: list[str] | None = None,
+        source: str = "",
     ) -> dict:
         text = f"{hiring_signal} {job_title} {description}".lower()
         location_lower = location.lower()
         tech_stack = tech_stack or []
         tech_gaps = tech_gaps or []
+        source_count = len([s for s in source.split(",") if s.strip()]) if source else 1
 
         # ---- Component 1: Company size (0-25) ----
         size_key = company_size.lower().strip()
@@ -102,8 +104,18 @@ class LeadScorer:
         if any(loc in location_lower for loc in self.geo_bonus_list):
             location_bonus = 5
 
+        # ---- Multi-source corroboration bonus ----
+        # Same company appearing on 2+ independent sources is a stronger signal
+        if source_count >= 3:
+            multi_source_bonus = 12
+        elif source_count == 2:
+            multi_source_bonus = 8
+        else:
+            multi_source_bonus = 0
+
         overall_score = min(
-            company_size_score + hiring_urgency_score + complexity_score + digital_score + location_bonus,
+            company_size_score + hiring_urgency_score + complexity_score + digital_score
+            + location_bonus + multi_source_bonus,
             100,
         )
 
@@ -135,6 +147,8 @@ class LeadScorer:
             rationale_parts.append("target location match")
         if tech_gap_bonus:
             rationale_parts.append(f"{len(tech_gaps)} confirmed tech gap(s) from website scan")
+        if multi_source_bonus:
+            rationale_parts.append(f"confirmed on {source_count} independent sources")
 
         rationale = (
             "Strong lead: " + ", ".join(rationale_parts) + "."
@@ -152,4 +166,5 @@ class LeadScorer:
             "operational_maturity": operational_maturity,
             "growth_indicators": growth_indicators[:4],
             "rationale": rationale,
+            "source_count": source_count,
         }

@@ -72,7 +72,7 @@ export default function NewLeadPage() {
                 value={form.company_name ?? ''}
                 onChange={e => set('company_name', e.target.value)}
               />
-              {errors.company_name && <p className="text-xs text-sig-coral mt-1">{errors.company_name}</p>}
+              {errors.company_name && <p className="text-xs text-error mt-1">{errors.company_name}</p>}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -168,7 +168,7 @@ export default function NewLeadPage() {
           </div>
 
           {mutation.error && (
-            <p className="text-sm text-sig-coral">{(mutation.error as Error).message}</p>
+            <p className="text-sm text-error">{(mutation.error as Error).message}</p>
           )}
 
           <div className="flex gap-3">

@@ -93,6 +93,7 @@ export interface LeadScore {
   complexity_score?: number;
   digital_score?: number;
   scoring_rationale?: string;
+  score_percentile?: number;
   scored_at: string;
   created_at: string;
 }
@@ -144,6 +145,11 @@ export interface ScrapedLeadRaw {
   description?: string;
   industry?: string;
   company_size?: string;
+  // Cached enrichment from a prior analysis — signal engine skips those calls when set
+  cached_tech_stack?: string[];
+  cached_tech_gaps?: string[];
+  cached_contact?: LeadContact | null;
+  cached_verified_website?: string;
 }
 
 export interface ScrapingLog {

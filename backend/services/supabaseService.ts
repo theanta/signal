@@ -136,6 +136,14 @@ export async function getLeadScore(leadId: string): Promise<LeadScore | null> {
   return data as LeadScore | null;
 }
 
+export async function getScorePercentile(score: number): Promise<number> {
+  const { data, error } = await supabase.from('lead_scores').select('overall_score');
+  if (error || !data || data.length < 2) return 50;
+  const scores = (data as { overall_score: number }[]).map(r => r.overall_score);
+  const below = scores.filter(s => s < score).length;
+  return Math.round((below / scores.length) * 100);
+}
+
 // ============================================================
 // OUTREACH
 // ============================================================

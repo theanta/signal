@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import { CheckCircle, XCircle, X, RefreshCw } from 'lucide-react';
-import { clsx } from 'clsx';
+import { cn } from '@/lib/utils';
 
 type ToastType = 'info' | 'success' | 'error';
 
@@ -87,18 +87,18 @@ function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: (id: string) =
   const accentClass = {
     info: 'border-l-info',
     success: 'border-l-success',
-    error: 'border-l-sig-coral',
+    error: 'border-l-error',
   }[toast.type];
 
   const icon = {
     info: <RefreshCw className="w-4 h-4 text-info animate-spin flex-shrink-0" />,
     success: <CheckCircle className="w-4 h-4 text-success flex-shrink-0" />,
-    error: <XCircle className="w-4 h-4 text-sig-coral flex-shrink-0" />,
+    error: <XCircle className="w-4 h-4 text-error flex-shrink-0" />,
   }[toast.type];
 
   return (
     <div
-      className={clsx(
+      className={cn(
         'pointer-events-auto flex items-center gap-3 pl-3 pr-2 py-3',
         'bg-canvas border border-hairline border-l-2 rounded-xl shadow-lg',
         'min-w-[260px] max-w-sm text-sm text-ink',

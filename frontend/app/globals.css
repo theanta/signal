@@ -6,15 +6,15 @@
 
 @layer base {
   :root {
-    /* ── Legacy CSS vars (preserved for backward-compat) ── */
-    --ink: #181d26;
-    --ink-active: #0d1218;
-    --body: #333840;
-    --muted: #41454d;
-    --hairline: #dddddd;
+    /* ── Semantic alias vars (values now match neutral/brand scale) ── */
+    --ink: #111827;
+    --ink-active: #030712;
+    --body: #374151;
+    --muted: #4b5563;
+    --hairline: #e5e7eb;
     --canvas: #ffffff;
-    --surface-soft: #f8fafc;
-    --surface-strong: #e0e2e6;
+    --surface-soft: #f9fafb;
+    --surface-strong: #e5e7eb;
 
     /* ── Design system vars ── */
     --radius: 8px;

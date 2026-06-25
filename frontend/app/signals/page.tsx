@@ -6,7 +6,7 @@ import { useScrapeJob } from '@/hooks/useScrapeJob';
 import PageHeader from '@/components/ui/PageHeader';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import { RefreshCw, Zap, CheckCircle, XCircle, Clock, Activity } from 'lucide-react';
-import { clsx } from 'clsx';
+import { cn } from '@/lib/utils';
 import type { ScrapingLog, LeadSource } from '../../../shared/types';
 import { getSourceLabel } from '../../../shared/utils';
 
@@ -39,9 +39,9 @@ export default function SignalsPage() {
 
   const statusIcon = (status: string) => {
     if (status === 'completed') return <CheckCircle className="w-4 h-4 text-success" />;
-    if (status === 'failed') return <XCircle className="w-4 h-4 text-sig-coral" />;
+    if (status === 'failed') return <XCircle className="w-4 h-4 text-error" />;
     if (status === 'running') return <RefreshCw className="w-4 h-4 text-info animate-spin" />;
-    return <Clock className="w-4 h-4 text-sig-mustard" />;
+    return <Clock className="w-4 h-4 text-warning" />;
   };
 
   return (
@@ -52,13 +52,13 @@ export default function SignalsPage() {
         icon={Activity}
         actions={
           <div className="flex items-center gap-3">
-            <div className={clsx(
+            <div className={cn(
               'flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border',
               healthLoading
                 ? 'text-muted border-hairline bg-surface-soft'
                 : health?.signal_engine_online
-                  ? 'text-success border-[#b3dcbe] bg-[#e8f5ec]'
-                  : 'text-sig-coral border-[#f5c9b8] bg-[#fcede8]'
+                  ? 'text-success border-status-active-border bg-status-active-bg'
+                  : 'text-error border-error-border bg-error-bg'
             )}>
               {healthLoading
                 ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -87,7 +87,7 @@ export default function SignalsPage() {
               <div key={key} className="card p-4">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-medium text-ink">{getSourceLabel(key)}</span>
-                  <Zap className="w-3.5 h-3.5 text-sig-mustard" />
+                  <Zap className="w-3.5 h-3.5 text-warning" />
                 </div>
                 <p className="text-xl font-medium text-ink">
                   {sourceLogs.reduce((sum: number, l: ScrapingLog) => sum + (l.leads_new ?? 0), 0)}
@@ -135,11 +135,11 @@ export default function SignalsPage() {
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-1.5">
                           {statusIcon(log.status)}
-                          <span className={clsx('text-xs capitalize', {
-                            'text-success':     log.status === 'completed',
-                            'text-sig-coral':   log.status === 'failed',
-                            'text-info':        log.status === 'running',
-                            'text-sig-mustard': log.status === 'partial',
+                          <span className={cn('text-xs capitalize', {
+                            'text-success': log.status === 'completed',
+                            'text-error':   log.status === 'failed',
+                            'text-info':    log.status === 'running',
+                            'text-warning': log.status === 'partial',
                           })}>
                             {log.status}
                           </span>

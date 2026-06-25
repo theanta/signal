@@ -1,15 +1,17 @@
 """ANTA Lead Radar - Signal Engine (FastAPI)"""
 
 import asyncio
+import json
 import logging
 import re
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import AsyncGenerator, Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 load_dotenv()
@@ -28,6 +30,8 @@ from classifiers.industry_classifier import IndustryClassifier
 from enrichment.website_verifier import verify_website
 from enrichment.tech_stack_detector import detect_tech_stack, infer_gaps
 from enrichment.contact_finder import find_contact
+from enrichment.website_content_scraper import scrape_website_content
+from scrapers.lead_merger import merge_leads
 
 # ============================================================
 # ENTERPRISE DISQUALIFICATION
@@ -117,6 +121,11 @@ class RawLead(BaseModel):
     description: Optional[str] = None
     industry: Optional[str] = None
     company_size: Optional[str] = None
+    # Cached enrichment from a prior analysis — skips expensive API calls on re-analysis
+    cached_tech_stack: Optional[list[str]] = None
+    cached_tech_gaps: Optional[list[str]] = None
+    cached_contact: Optional[dict] = None
+    cached_verified_website: Optional[str] = None
 
 
 class PlatformConfig(BaseModel):
@@ -152,18 +161,25 @@ def health():
 
 
 # ============================================================
-# ANALYZE LEAD
+# ANALYZE LEAD — shared core logic
 # ============================================================
 
-@app.post("/analyze")
-async def analyze_lead(request: AnalysisRequest):
-    """Analyze a raw lead and return signals, score, pain points, tech stack, and contact."""
-    lead = request.lead
-
-    # ---- Enterprise disqualification (runs before any expensive enrichment) ----
+async def _analyze_lead_core(
+    lead: RawLead,
+    config: Optional[PlatformConfig],
+) -> AsyncGenerator[tuple[str, object], None]:
+    """
+    Core analysis logic expressed as an async generator.
+    Yields (phase, payload) tuples:
+      - ("enriching",   message_str)   — before parallel enrichment
+      - ("classifying", message_str)   — before signal detection + industry classification
+      - ("analyzing",   message_str)   — before pain-point analysis + scoring (run in parallel)
+      - ("complete",    result_dict)   — final yield with the full analysis result
+    """
+    # ---- Enterprise disqualification ----
     is_enterprise, disqualify_reason = _is_enterprise_company(lead.company_name, lead.company_size)
     if is_enterprise:
-        return {
+        yield ("complete", {
             "lead_score": 0,
             "disqualified": True,
             "disqualify_reason": disqualify_reason,
@@ -186,27 +202,46 @@ async def analyze_lead(request: AnalysisRequest):
             "tech_gaps": [],
             "verified_website": lead.website,
             "contact": None,
-        }
+        })
+        return
 
-    target_locations = request.config.target_locations if request.config else None
-
+    target_locations = config.target_locations if config else None
     detector = SignalDetector(target_locations=target_locations)
     scorer = LeadScorer(target_locations=target_locations)
     pain_analyzer = PainPointAnalyzer()
     classifier = IndustryClassifier()
 
-    # ---- Step 1: Enrichment (run in thread pool — all are blocking HTTP calls) ----
-    # Each task is individually capped so a slow Apollo/scrape call can't block the whole pipeline.
+    # ---- Step 1: Parallel enrichment ----
+    yield ("enriching", "Verifying website and detecting tech stack…")
+
     async def _with_timeout(coro, seconds):
         try:
             return await asyncio.wait_for(coro, timeout=seconds)
         except asyncio.TimeoutError as exc:
             return exc
 
-    verified_website_res, raw_tech_stack, contact_res = await asyncio.gather(
-        _with_timeout(asyncio.to_thread(verify_website, lead.website, lead.company_name, lead.location or ""), 15),
-        _with_timeout(asyncio.to_thread(detect_tech_stack, lead.website or ""), 15),
-        _with_timeout(asyncio.to_thread(find_contact, lead.company_name, lead.website, lead.location), 20),
+    async def _cached(value):
+        return value
+
+    use_cached_website = bool(lead.cached_verified_website)
+    use_cached_tech    = lead.cached_tech_stack is not None
+    use_cached_contact = bool(lead.cached_contact)
+
+    if use_cached_website:
+        logger.info("[enrichment] website: using cached value")
+    if use_cached_tech:
+        logger.info("[enrichment] tech_stack: using cached value")
+    if use_cached_contact:
+        logger.info("[enrichment] contact: using cached value")
+
+    verified_website_res, raw_tech_stack, contact_res, website_content_res = await asyncio.gather(
+        _cached(lead.cached_verified_website) if use_cached_website
+            else _with_timeout(asyncio.to_thread(verify_website, lead.website, lead.company_name, lead.location or ""), 15),
+        _cached(lead.cached_tech_stack) if use_cached_tech
+            else _with_timeout(asyncio.to_thread(detect_tech_stack, lead.website or ""), 15),
+        _cached(lead.cached_contact) if use_cached_contact
+            else _with_timeout(asyncio.to_thread(find_contact, lead.company_name, lead.website, lead.location), 20),
+        _with_timeout(asyncio.to_thread(scrape_website_content, lead.website or ""), 15),
         return_exceptions=True,
     )
 
@@ -216,46 +251,70 @@ async def analyze_lead(request: AnalysisRequest):
         logger.warning(f"[enrichment] detect_tech_stack failed: {raw_tech_stack}")
     if isinstance(contact_res, Exception):
         logger.warning(f"[enrichment] find_contact failed: {contact_res}")
+    if isinstance(website_content_res, Exception):
+        logger.warning(f"[enrichment] scrape_website_content failed: {website_content_res}")
 
     verified_website = verified_website_res if isinstance(verified_website_res, str) else lead.website
     tech_stack: list[str] = raw_tech_stack if isinstance(raw_tech_stack, list) else []
-    tech_gaps: list[str] = infer_gaps(tech_stack)
+    tech_gaps: list[str] = (
+        lead.cached_tech_gaps if lead.cached_tech_gaps is not None else infer_gaps(tech_stack)
+    )
     contact: dict | None = contact_res if isinstance(contact_res, dict) else None
+    website_content: str = website_content_res if isinstance(website_content_res, str) else ""
 
-    # ---- Step 2: Signal detection ----
+    # ---- Steps 2+3: Signal detection + industry classification ----
+    yield ("classifying", "Classifying industry and detecting signals…")
+
     signal_type, confidence = detector.detect(lead.model_dump())
 
-    # ---- Step 3: Industry classification ----
-    industry = lead.industry or classifier.classify(
+    # Always re-classify using website content — never trust lead.industry from the scraper.
+    # Scrapers often misclassify (e.g. "Fulltime/Contract" job title → "Legal Services" false positive).
+    industry = classifier.classify(
         company_name=lead.company_name,
         description=lead.description or "",
         job_title=lead.job_title or "",
+        website_content=website_content,
     )
+    if industry == "General Business" and lead.industry:
+        industry = lead.industry
 
-    # ---- Step 4: Pain point analysis (now tech-aware) ----
-    pain_points, recommended_service, outreach_angle = pain_analyzer.analyze(
-        industry=industry,
-        hiring_signal=lead.hiring_signal or "",
-        job_title=lead.job_title or "",
-        description=lead.description or "",
-        location=lead.location or "",
-        tech_stack=tech_stack,
-        tech_gaps=tech_gaps,
+    _VENDOR_INDUSTRIES = {"IT Consulting / Managed Services", "SaaS / Software", "AI / Machine Learning"}
+    is_vendor_company = industry in _VENDOR_INDUSTRIES
+
+    # ---- Steps 4+5: Pain point analysis + scoring in parallel ----
+    # pain_analyzer calls Groq (I/O-bound); scorer is pure CPU — both are independent.
+    yield ("analyzing", "Identifying pain points and scoring lead…")
+
+    pain_result, score_result = await asyncio.gather(
+        asyncio.to_thread(
+            pain_analyzer.analyze,
+            company_name=lead.company_name,
+            industry=industry,
+            hiring_signal=lead.hiring_signal or "",
+            job_title=lead.job_title or "",
+            description=lead.description or "",
+            location=lead.location or "",
+            tech_stack=tech_stack,
+            tech_gaps=tech_gaps,
+            website_content=website_content,
+            is_vendor_company=is_vendor_company,
+        ),
+        asyncio.to_thread(
+            scorer.score,
+            company_size=lead.company_size or "unknown",
+            hiring_signal=lead.hiring_signal or "",
+            job_title=lead.job_title or "",
+            description=lead.description or "",
+            location=lead.location or "",
+            industry=industry,
+            tech_stack=tech_stack,
+            tech_gaps=tech_gaps,
+            source=lead.source or "",
+        ),
     )
+    pain_points, recommended_service, outreach_angle = pain_result
 
-    # ---- Step 5: Lead scoring (now tech-aware) ----
-    score_result = scorer.score(
-        company_size=lead.company_size or "unknown",
-        hiring_signal=lead.hiring_signal or "",
-        job_title=lead.job_title or "",
-        description=lead.description or "",
-        location=lead.location or "",
-        industry=industry,
-        tech_stack=tech_stack,
-        tech_gaps=tech_gaps,
-    )
-
-    return {
+    yield ("complete", {
         "lead_score": score_result["overall_score"],
         "industry": industry,
         "likely_pain_points": pain_points,
@@ -266,6 +325,7 @@ async def analyze_lead(request: AnalysisRequest):
         "digital_maturity_score": score_result["digital_maturity_score"],
         "signal_type": signal_type,
         "confidence_score": confidence,
+        "source_count": score_result["source_count"],
         "scoring_breakdown": {
             "company_size_score": score_result["company_size_score"],
             "hiring_urgency_score": score_result["hiring_urgency_score"],
@@ -273,12 +333,34 @@ async def analyze_lead(request: AnalysisRequest):
             "digital_score": score_result["digital_score"],
         },
         "scoring_rationale": score_result["rationale"],
-        # Enrichment results
         "tech_stack": tech_stack,
         "tech_gaps": tech_gaps,
         "verified_website": verified_website,
         "contact": contact,
-    }
+    })
+
+
+@app.post("/analyze")
+async def analyze_lead(request: AnalysisRequest):
+    """Analyze a raw lead and return signals, score, pain points, tech stack, and contact."""
+    result = None
+    async for phase, payload in _analyze_lead_core(request.lead, request.config):
+        if phase == "complete":
+            result = payload
+    return result
+
+
+@app.post("/analyze/stream")
+async def analyze_lead_stream(request: AnalysisRequest):
+    """Same as /analyze but streams SSE progress events as each phase completes."""
+    async def event_stream():
+        async for phase, payload in _analyze_lead_core(request.lead, request.config):
+            if phase == "complete":
+                yield f"data: {json.dumps({'phase': 'complete', 'result': payload})}\n\n"
+            else:
+                yield f"data: {json.dumps({'phase': phase, 'message': payload})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 # ============================================================
@@ -332,10 +414,11 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
         ),
     }
 
-    total_new = 0
     any_success = False
+    all_raw_leads: list[dict] = []
 
     try:
+        # ---- Phase 1: Run all scrapers; collect raw leads + write per-source logs ----
         for source in sources:
             scraper = scrapers.get(source)
             if not scraper:
@@ -343,55 +426,27 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
 
             source_started = datetime.utcnow()
             leads_found = 0
-            leads_new = 0
             log_status = "failed"
             error_msg = None
 
             try:
                 leads = await asyncio.to_thread(scraper.scrape)
                 leads_found = len(leads)
-
-                failed_inserts = 0
-                for lead_data in leads:
-                    try:
-                        existing = supabase.table("leads").select("id").eq(
-                            "source_url", lead_data.get("source_url", "")
-                        ).execute()
-                        if existing.data:
-                            continue
-                        supabase.table("leads").insert({
-                            **lead_data,
-                            "status": "new",
-                            "scraped_at": datetime.utcnow().isoformat(),
-                            "created_at": datetime.utcnow().isoformat(),
-                            "updated_at": datetime.utcnow().isoformat(),
-                        }).execute()
-                        leads_new += 1
-                        total_new += 1
-                    except Exception as e:
-                        failed_inserts += 1
-                        logger.error(f"[Scraper] Failed to save lead '{lead_data.get('company_name', '?')}' ({source}): {e}")
-
-                if failed_inserts:
-                    error_msg = f"{failed_inserts} of {leads_found} leads failed to insert"
-                    logger.error(f"[Scraper] {source}: {error_msg}")
-                    log_status = "partial" if leads_new > 0 else "failed"
-                else:
-                    log_status = "completed"
+                all_raw_leads.extend(leads)
+                log_status = "completed"
                 any_success = True
-
             except Exception as e:
                 error_msg = str(e)
                 logger.error(f"[Scraper] {source} failed: {e}")
 
-            # Write one scraping_logs row per source
             duration_ms = int((datetime.utcnow() - source_started).total_seconds() * 1000)
             try:
                 supabase.table("scraping_logs").insert({
                     "source": source,
                     "status": log_status,
                     "leads_found": leads_found,
-                    "leads_new": leads_new,
+                    # leads_new is resolved after the cross-source merge below
+                    "leads_new": 0,
                     "leads_updated": 0,
                     "duration_ms": duration_ms,
                     "started_at": source_started.isoformat(),
@@ -401,6 +456,40 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
                 }).execute()
             except Exception as e:
                 logger.error(f"[Scraper] Failed to write log for {source}: {e}")
+
+        # ---- Phase 2: Cross-source merge ----
+        merged_leads = merge_leads(all_raw_leads)
+        multi_source = sum(1 for l in merged_leads if "," in l.get("source", ""))
+        logger.info(
+            f"[Merger] {len(all_raw_leads)} raw leads → {len(merged_leads)} merged "
+            f"({multi_source} cross-source)"
+        )
+
+        # ---- Phase 3: Insert merged leads ----
+        total_new = 0
+        failed_inserts = 0
+        for lead_data in merged_leads:
+            try:
+                all_urls = lead_data.pop("_all_source_urls", [lead_data.get("source_url", "")])
+                existing = supabase.table("leads").select("id").in_(
+                    "source_url", [u for u in all_urls if u]
+                ).execute()
+                if existing.data:
+                    continue
+                supabase.table("leads").insert({
+                    **lead_data,
+                    "status": "new",
+                    "scraped_at": datetime.utcnow().isoformat(),
+                    "created_at": datetime.utcnow().isoformat(),
+                    "updated_at": datetime.utcnow().isoformat(),
+                }).execute()
+                total_new += 1
+            except Exception as e:
+                failed_inserts += 1
+                logger.error(f"[Scraper] Failed to insert '{lead_data.get('company_name', '?')}': {e}")
+
+        if failed_inserts:
+            logger.error(f"[Scraper] {failed_inserts} merged lead(s) failed to insert")
 
         overall_status = "completed" if any_success else "failed"
         scrape_jobs[job_id].update({

@@ -14,13 +14,20 @@ INDUSTRY_KEYWORDS = {
         r"health|medical|clinic|hospital|dental|therapy|wellness|pharma|patient|care"
     ],
     "SaaS / Software": [
-        r"saas|software|platform|app|startup|tech company|b2b software|api|developer tool"
+        r"saas|software platform|b2b software|developer tool|api platform|tech startup"
     ],
+    # "contract" deliberately removed — it matches employment contracts (fulltime/contract jobs)
+    # not legal services companies, causing widespread false positives from job board leads.
     "Legal Services": [
-        r"law firm|legal|attorney|litigation|counsel|barrister|paralegal|contract"
+        r"law firm|legal services|attorney|litigation|counsel|barrister|paralegal|legal counsel"
+    ],
+    "IT Consulting / Managed Services": [
+        r"it consulting|managed service|managed it|cybersecurity|cyber security|it solution|"
+        r"digital transformation|staffing firm|tech staffing|it staffing|consulting firm|"
+        r"solutioning|cloud service|enterprise solution|outsourc"
     ],
     "Staffing / HR": [
-        r"staffing|recruiting|talent|hr|human resource|workforce|placement|hiring firm"
+        r"staffing agency|recruiting|talent acquisition|hr consulting|human resource|workforce solution|placement firm"
     ],
     "Construction / Real Estate": [
         r"construction|contractor|builder|real estate|property|development|remodel"
@@ -41,13 +48,21 @@ INDUSTRY_KEYWORDS = {
 
 
 class IndustryClassifier:
-    def classify(self, company_name: str, description: str, job_title: str) -> str:
-        text = f"{company_name} {description} {job_title}".lower()
+    def classify(
+        self,
+        company_name: str,
+        description: str,
+        job_title: str,
+        website_content: str = "",
+    ) -> str:
+        # Website content is highest-signal — weight it by including it twice
+        text = f"{company_name} {description} {job_title} {website_content} {website_content}".lower()
 
         scores: dict[str, int] = {}
         for industry, patterns in INDUSTRY_KEYWORDS.items():
             count = sum(
-                1 for pattern in patterns if re.search(pattern, text, re.IGNORECASE)
+                len(re.findall(pattern, text, re.IGNORECASE))
+                for pattern in patterns
             )
             if count > 0:
                 scores[industry] = count
