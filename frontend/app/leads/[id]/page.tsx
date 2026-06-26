@@ -12,12 +12,12 @@ import {
   Brain, Copy, Check, CheckCircle, ExternalLink, Link2,
   Zap, Target, MessageSquare, RefreshCw, Monitor, User,
   Building2, MapPin, TrendingUp, ShieldCheck, ShieldAlert, ShieldQuestion,
-  Clock,
+  Clock, ChevronDown, Clipboard, Mail,
 } from 'lucide-react';
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { tokenStore } from '@/lib/api';
 import { formatDistanceToNow } from 'date-fns';
-import type { LeadStatus, OutreachMessage } from '../../../../shared/types';
+import type { LeadStatus, OutreachMessage, LeadWithSignals, LeadSignal } from '../../../../shared/types';
 
 const STATUS_PIPELINE: LeadStatus[] = ['new', 'analyzed', 'contacted', 'replied', 'meeting', 'proposal', 'client'];
 
@@ -242,6 +242,221 @@ function useAnalysisStream(id: string) {
   return { phase, isStreaming, start };
 }
 
+function buildLeadContext(lead: LeadWithSignals, latestSignal: LeadSignal | undefined): string {
+  const lines: string[] = [];
+  lines.push(`# Lead Context: ${lead.company_name}`);
+  lines.push('');
+  lines.push('## Company');
+  if (lead.industry)      lines.push(`- **Industry:** ${lead.industry}`);
+  if (lead.location)      lines.push(`- **Location:** ${lead.location}`);
+  if (lead.company_size)  lines.push(`- **Size:** ${lead.company_size}`);
+  if (lead.website)       lines.push(`- **Website:** ${lead.website}`);
+  if (lead.linkedin_url)  lines.push(`- **LinkedIn:** ${lead.linkedin_url}`);
+  if (lead.description)   lines.push(`- **Description:** ${lead.description}`);
+  if (lead.hiring_signal) lines.push(`- **Hiring Signal:** ${lead.hiring_signal}`);
+  if (lead.job_title)     lines.push(`- **Currently Hiring For:** ${lead.job_title}`);
+
+  if (latestSignal) {
+    lines.push('');
+    lines.push('## AI Analysis');
+    if (latestSignal.recommended_anta_service) lines.push(`**Recommended Service:** ${latestSignal.recommended_anta_service}`);
+    if (latestSignal.outreach_angle)           lines.push(`**Outreach Angle:** ${latestSignal.outreach_angle}`);
+    if (latestSignal.operational_maturity)     lines.push(`**Digital Maturity:** ${latestSignal.operational_maturity}`);
+    if (latestSignal.likely_pain_points?.length) {
+      lines.push('');
+      lines.push('### Pain Points');
+      latestSignal.likely_pain_points.forEach(pt => lines.push(`- ${pt}`));
+    }
+    if (latestSignal.tech_stack?.length) {
+      lines.push('');
+      lines.push('### Tech Stack');
+      lines.push(latestSignal.tech_stack.join(', '));
+    }
+    if (latestSignal.tech_gaps?.length) {
+      lines.push('');
+      lines.push('### Tech Gaps / Opportunities');
+      latestSignal.tech_gaps.forEach(g => lines.push(`- ${g}`));
+    }
+    if (latestSignal.growth_indicators?.length) {
+      lines.push('');
+      lines.push('### Growth Signals');
+      latestSignal.growth_indicators.forEach(g => lines.push(`- ${g}`));
+    }
+  }
+
+  if (lead.lead_score !== undefined && lead.lead_score !== null) {
+    lines.push('');
+    lines.push(`## Lead Score: ${lead.lead_score}/100`);
+    if (lead.score_detail?.scoring_rationale) lines.push(`*${lead.score_detail.scoring_rationale}*`);
+  }
+
+  if (lead.contact_name || lead.contact_email) {
+    lines.push('');
+    lines.push('## Point of Contact');
+    if (lead.contact_name)  lines.push(`**Name:** ${lead.contact_name}`);
+    if (lead.contact_title) lines.push(`**Title:** ${lead.contact_title}`);
+    if (lead.contact_email) {
+      const badge =
+        lead.contact_email_confidence === 'verified'   ? ' (verified)' :
+        lead.contact_email_confidence === 'catch_all'  ? ' (catch-all)' : '';
+      lines.push(`**Email:** ${lead.contact_email}${badge}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+function emailPromptSuffix(lead: LeadWithSignals, latestSignal: LeadSignal | undefined): string {
+  const contactLine = lead.contact_name
+    ? `The lead context names **${lead.contact_name}**${lead.contact_title ? ` (${lead.contact_title})` : ''} as the point of contact. Confirm this is the right decision-maker for ops or tech. If not, identify a better fit from your research.`
+    : `The lead context does not include a named contact. Identify the right person from your research — COO, Head of Operations, Founder, or VP of Technology, depending on company size.`;
+  const websiteStep = lead.website
+    ? `Visit **${lead.website}** and scan: (a) the About/Team page to confirm or find the right contact and their title; (b) the blog, news, or press section for recent updates, launches, or changes; (c) open job listings for hiring signals and operational gaps; (d) the product/service pages to understand their current tech posture.`
+    : `Search for **${lead.company_name}** online and scan their public presence — team/leadership page, any news or blog posts, job listings, and product/service pages.`;
+  const service = latestSignal?.recommended_anta_service;
+
+  return `
+
+---
+
+**Research phase — complete this before writing anything:**
+
+1. ${websiteStep}
+2. **Contact:** ${contactLine}
+3. **Find one anchor:** Extract a single specific, non-obvious observation from your research — a recent hire, a product update, a new location, a job post that reveals a gap, a blog post that signals a strategic shift. This becomes your opening line. It must prove you actually looked; "I noticed you're growing" does not qualify.
+
+---
+
+**Writing task — cold email, strictly under 150 words:**
+
+Write to the identified contact at **${lead.company_name}**.
+
+- **Opening line:** Lead with the specific observation from step 3. No "I hope this finds you well." No "I came across your company." No compliments.
+- **Body (2–3 sentences):** Connect their situation to a concrete operational problem.${service ? ` Describe the outcome that **"${service}"** delivers — not the service name itself.` : ''} Be consultative, not promotional. One problem, one implication, nothing more.
+- **CTA:** One sentence. Suggest a specific low-friction next step (e.g. "Worth a quick 15 min this week?"). Not "I'd love to learn more about your needs."
+- **Tone rules:** Peer-to-peer, direct, intelligent. No buzzwords — ban: *synergy, leverage, streamline, transform, solutions, excited to share, reaching out because*. No feature lists. No mention of your company name in the opener.`;
+}
+
+function linkedinPromptSuffix(lead: LeadWithSignals): string {
+  const contactLine = lead.contact_name
+    ? `The lead context names **${lead.contact_name}**${lead.contact_title ? ` (${lead.contact_title})` : ''} — confirm this is the right decision-maker. If not, identify a better fit.`
+    : `The lead context does not include a named contact. Identify the right person — COO, Head of Operations, Founder, or VP of Technology, depending on company size.`;
+  const websiteStep = lead.website
+    ? `Visit **${lead.website}** — specifically the About/Team or Leadership page — to identify or confirm the right contact. Also find one recent signal: a product update, new hire, funding news, or anything that shows what has changed recently at the company.`
+    : `Search for **${lead.company_name}** online. Find the right contact from their team/leadership page, and one recent signal from their public presence.`;
+
+  return `
+
+---
+
+**Research phase — complete this before writing anything:**
+
+1. ${websiteStep}
+2. **Contact:** ${contactLine}
+3. **Find one anchor:** One specific, recent thing about this company you can reference that shows you actually paid attention — a launch, a hire, a strategic shift, a job posting that reveals a gap. Generic signals ("you're growing fast") do not count.
+
+---
+
+**Writing task — LinkedIn connection request, strictly under 300 characters:**
+
+Write to the identified contact at **${lead.company_name}**.
+
+- Reference the specific anchor from step 3 — it must be clear you looked at their company, not sent a template
+- Sound like a curious peer, not a sales rep
+- **Do not** mention your company name, your services, or what you sell
+- **Do not** use: "I'd love to connect," "I came across your profile," "I wanted to reach out," or any variant
+- The only goal is to earn the connection — save everything else for after they accept`;
+}
+
+function CopyContextDropdown({ lead, latestSignal }: {
+  lead: LeadWithSignals;
+  latestSignal: LeadSignal | undefined;
+}) {
+  const [open, setOpen] = useState(false);
+  const [copiedVariant, setCopiedVariant] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, [open]);
+
+  async function handleCopy(variant: 'context' | 'email' | 'linkedin') {
+    const base = buildLeadContext(lead, latestSignal);
+    const text =
+      variant === 'email'    ? base + emailPromptSuffix(lead, latestSignal) :
+      variant === 'linkedin' ? base + linkedinPromptSuffix(lead) :
+      base;
+    await navigator.clipboard.writeText(text);
+    setCopiedVariant(variant);
+    setOpen(false);
+    setTimeout(() => setCopiedVariant(null), 2500);
+  }
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <button
+        onClick={() => setOpen(prev => !prev)}
+        className={cn(
+          'flex items-center gap-1.5 h-8 px-3 text-body-sm font-medium border rounded-lg transition-colors',
+          copiedVariant
+            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+            : 'border-neutral-200 hover:bg-neutral-50 text-neutral-600',
+        )}
+        title="Copy Lead Context"
+      >
+        {copiedVariant
+          ? <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />
+          : <Clipboard className="w-3.5 h-3.5" />}
+        <span>{copiedVariant ? 'Copied!' : 'Copy Context'}</span>
+        <ChevronDown className={cn('w-3 h-3 text-neutral-400 transition-transform', open && 'rotate-180')} />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-50 bg-white border border-neutral-200 rounded-lg shadow-lg overflow-hidden w-52">
+          <button
+            onClick={() => handleCopy('context')}
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body-sm text-neutral-700 hover:bg-neutral-50 transition-colors text-left"
+          >
+            <Copy className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />
+            <div>
+              <p className="font-medium leading-tight">Copy Context</p>
+              <p className="text-2xs text-neutral-400 mt-0.5">Lead data only</p>
+            </div>
+          </button>
+          <div className="border-t border-neutral-100" />
+          <button
+            onClick={() => handleCopy('email')}
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body-sm text-neutral-700 hover:bg-neutral-50 transition-colors text-left"
+          >
+            <Mail className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />
+            <div>
+              <p className="font-medium leading-tight">Copy + Email Prompt</p>
+              <p className="text-2xs text-neutral-400 mt-0.5">Includes cold email task</p>
+            </div>
+          </button>
+          <button
+            onClick={() => handleCopy('linkedin')}
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body-sm text-neutral-700 hover:bg-neutral-50 transition-colors text-left"
+          >
+            <Link2 className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />
+            <div>
+              <p className="font-medium leading-tight">Copy + LinkedIn Prompt</p>
+              <p className="text-2xs text-neutral-400 mt-0.5">Includes connection message task</p>
+            </div>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function LeadDetailPage() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
@@ -329,6 +544,7 @@ export default function LeadDetailPage() {
                 LinkedIn
               </a>
             )}
+            <CopyContextDropdown lead={lead} latestSignal={latestSignal} />
           </div>
         }
       />
