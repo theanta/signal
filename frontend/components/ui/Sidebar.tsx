@@ -70,7 +70,7 @@ export default function Sidebar() {
     <aside
       className={cn(
         'sidebar-scroll flex-shrink-0 flex flex-col h-screen overflow-y-auto overflow-x-hidden',
-        'bg-[#0f1117] border-r border-[rgba(255,255,255,0.06)]',
+        'bg-[#0a0c13] border-r border-[rgba(255,255,255,0.06)]',
         'transition-[width] duration-200 ease-in-out',
         width,
       )}

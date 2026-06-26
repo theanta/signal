@@ -32,17 +32,17 @@ const STATUS_ACTIONS: { status: LeadStatus; label: string; className: string }[]
   {
     status: 'contacted',
     label: 'Contacted',
-    className: 'border-status-contacted-border bg-status-contacted-bg text-status-contacted-text hover:bg-blue-100',
+    className: 'border-status-contacted-border bg-status-contacted-bg text-status-contacted-text hover:bg-blue-500/20',
   },
   {
     status: 'replied',
     label: 'Replied',
-    className: 'border-status-replied-border bg-status-replied-bg text-status-replied-text hover:bg-violet-100',
+    className: 'border-status-replied-border bg-status-replied-bg text-status-replied-text hover:bg-violet-500/20',
   },
   {
     status: 'meeting',
     label: 'Meeting Booked',
-    className: 'border-status-meeting-border bg-status-meeting-bg text-status-meeting-text hover:bg-amber-100',
+    className: 'border-status-meeting-border bg-status-meeting-bg text-status-meeting-text hover:bg-amber-500/20',
   },
 ];
 
@@ -132,15 +132,15 @@ export default function OutreachQueuePage() {
                   className={cn(
                     'w-full text-left p-3.5 rounded-xl border transition-all',
                     selected === lead.id
-                      ? 'bg-white border-brand/30 shadow-card'
-                      : 'bg-transparent border-transparent hover:bg-white hover:border-hairline hover:shadow-card',
+                      ? 'bg-canvas border-brand/30 shadow-card'
+                      : 'bg-transparent border-transparent hover:bg-canvas hover:border-hairline hover:shadow-card',
                   )}
                 >
                   <div className="flex items-start justify-between gap-2 mb-2">
                     <div className="min-w-0">
                       <p className={cn(
                         'text-body-sm font-medium truncate',
-                        selected === lead.id ? 'text-ink' : 'text-neutral-700',
+                        selected === lead.id ? 'text-ink' : 'text-body',
                       )}>
                         {lead.company_name}
                       </p>
@@ -168,22 +168,22 @@ export default function OutreachQueuePage() {
         <main className="flex-1 overflow-y-auto">
           {!selectedLead ? (
             <div className="flex flex-col items-center justify-center h-full gap-3 text-center p-8">
-              <div className="w-14 h-14 rounded-2xl bg-neutral-100 flex items-center justify-center">
-                <MessageSquare className="w-6 h-6 text-neutral-300" />
+              <div className="w-14 h-14 rounded-2xl bg-surface-strong flex items-center justify-center">
+                <MessageSquare className="w-6 h-6 text-muted/40" />
               </div>
-              <p className="text-sm font-medium text-neutral-400">Select a lead to manage outreach</p>
-              <p className="text-xs text-neutral-300 max-w-xs">
+              <p className="text-sm font-medium text-muted">Select a lead to manage outreach</p>
+              <p className="text-xs text-muted/60 max-w-xs">
                 Choose a lead from the list to view AI-generated messages and track status.
               </p>
             </div>
           ) : leads.length === 0 && !isLoading ? (
             <div className="flex flex-col items-center justify-center h-full gap-4 p-8 text-center">
-              <div className="w-14 h-14 rounded-2xl bg-neutral-100 flex items-center justify-center">
-                <Send className="w-6 h-6 text-neutral-300" />
+              <div className="w-14 h-14 rounded-2xl bg-surface-strong flex items-center justify-center">
+                <Send className="w-6 h-6 text-muted/40" />
               </div>
               <div>
-                <p className="text-sm font-medium text-neutral-500 mb-1">Outreach queue is empty</p>
-                <p className="text-xs text-neutral-400">Leads with score ≥ 50 and status "new" or "analyzed" appear here.</p>
+                <p className="text-sm font-medium text-muted mb-1">Outreach queue is empty</p>
+                <p className="text-xs text-muted/60">Leads with score ≥ 50 and status "new" or "analyzed" appear here.</p>
               </div>
               <Link href="/dashboard" className="btn-primary mt-1">Run a Scrape</Link>
             </div>
@@ -200,7 +200,7 @@ export default function OutreachQueuePage() {
                         className="text-lg font-semibold text-ink hover:text-brand transition-colors flex items-center gap-1.5 group"
                       >
                         {selectedLead.company_name}
-                        <ArrowUpRight className="w-3.5 h-3.5 text-neutral-300 group-hover:text-brand transition-colors" />
+                        <ArrowUpRight className="w-3.5 h-3.5 text-muted/40 group-hover:text-brand transition-colors" />
                       </Link>
                       <ScoreBadge score={selectedLead.lead_score} />
                     </div>
@@ -275,8 +275,8 @@ export default function OutreachQueuePage() {
                     <div className="w-10 h-10 rounded-xl bg-brand/5 flex items-center justify-center mx-auto mb-3">
                       <MessageSquare className="w-5 h-5 text-brand/40" />
                     </div>
-                    <p className="text-body-sm text-neutral-400 mb-1">No messages yet</p>
-                    <p className="text-xs text-neutral-300">Click "Generate New" to create AI-powered outreach.</p>
+                    <p className="text-body-sm text-muted mb-1">No messages yet</p>
+                    <p className="text-xs text-muted/60">Click "Generate New" to create AI-powered outreach.</p>
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -288,24 +288,24 @@ export default function OutreachQueuePage() {
                               <span className={cn(
                                 'inline-flex items-center px-2 py-0.5 text-2xs font-semibold rounded-full border capitalize',
                                 msg.channel === 'email'
-                                  ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                  : 'bg-indigo-50 text-indigo-700 border-indigo-200',
+                                  ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                                  : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
                               )}>
                                 {msg.channel}
                               </span>
                             </div>
                             {msg.subject && (
-                              <p className="text-body-sm font-semibold text-ink mb-2 pb-2 border-b border-neutral-200">
+                              <p className="text-body-sm font-semibold text-ink mb-2 pb-2 border-b border-hairline">
                                 {msg.subject}
                               </p>
                             )}
-                            <pre className="text-body-sm text-neutral-600 whitespace-pre-wrap font-sans leading-relaxed">
+                            <pre className="text-body-sm text-body whitespace-pre-wrap font-sans leading-relaxed">
                               {msg.body}
                             </pre>
                           </div>
                           <button
                             onClick={() => handleCopy(msg, msg.id)}
-                            className="p-1.5 rounded-lg hover:bg-neutral-200 text-neutral-400 hover:text-ink transition-colors flex-shrink-0 mt-0.5"
+                            className="p-1.5 rounded-lg hover:bg-surface-strong text-muted hover:text-ink transition-colors flex-shrink-0 mt-0.5"
                             title="Copy to clipboard"
                           >
                             {copied === msg.id

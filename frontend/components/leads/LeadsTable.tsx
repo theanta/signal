@@ -59,20 +59,20 @@ function RowMenu({ lead, generating, copied, onGenerateOutreach, onMarkContacted
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
-  const menuItem = 'w-full flex items-center gap-2.5 px-3 py-2 text-body-sm text-neutral-700 hover:bg-neutral-50 transition-colors text-left';
-  const menuIcon = 'w-3.5 h-3.5 text-neutral-400 flex-shrink-0';
+  const menuItem = 'w-full flex items-center gap-2.5 px-3 py-2 text-body-sm text-ink hover:bg-surface-strong transition-colors text-left';
+  const menuIcon = 'w-3.5 h-3.5 text-muted flex-shrink-0';
 
   return (
     <div className="relative" ref={ref}>
       <button
         onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
-        className="p-1.5 rounded-md hover:bg-neutral-100 text-neutral-400 hover:text-neutral-600 transition-colors"
+        className="p-1.5 rounded-md hover:bg-surface-strong text-muted hover:text-ink transition-colors"
       >
         <MoreHorizontal className="w-4 h-4" />
       </button>
 
       {open && (
-        <div className="absolute right-0 top-8 z-30 w-48 bg-white border border-neutral-200 rounded-xl shadow-card-lg py-1.5 animate-scale-in">
+        <div className="absolute right-0 top-8 z-30 w-48 bg-canvas border border-hairline rounded-xl shadow-card-lg py-1.5 animate-scale-in">
           <button
             className={menuItem}
             onClick={() => { router.push(`/leads/${lead.id}`); setOpen(false); }}
@@ -100,7 +100,7 @@ function RowMenu({ lead, generating, copied, onGenerateOutreach, onMarkContacted
           </button>
 
           {(lead.website || lead.linkedin_url) && (
-            <div className="my-1 border-t border-neutral-100" />
+            <div className="my-1 border-t border-hairline" />
           )}
 
           {lead.website && (
@@ -142,8 +142,8 @@ function SortTh({
   return (
     <th
       className={cn(
-        'px-4 py-2 text-left text-2xs font-semibold text-neutral-400 uppercase tracking-wider whitespace-nowrap',
-        col && 'cursor-pointer select-none hover:text-neutral-600 transition-colors',
+        'px-4 py-2 text-left text-2xs font-semibold text-muted uppercase tracking-wider whitespace-nowrap',
+        col && 'cursor-pointer select-none hover:text-ink transition-colors',
         className,
       )}
       onClick={() => col && onSort(col)}
@@ -236,7 +236,7 @@ export default function LeadsTable({
 
   const midLabel = tab === 'hiring' ? 'Role' : tab === 'discovery' ? 'Size' : 'Industry';
 
-  const thCn = 'sticky top-0 bg-white z-10 border-b border-hairline';
+  const thCn = 'sticky top-0 bg-canvas z-10 border-b border-hairline';
 
   if (isLoading) {
     return (
@@ -286,11 +286,11 @@ export default function LeadsTable({
                 <tr>
                   <td colSpan={10} className="py-20 text-center">
                     <div className="flex flex-col items-center gap-3">
-                      <div className="w-12 h-12 rounded-full bg-neutral-100 flex items-center justify-center">
-                        <Users className="w-6 h-6 text-neutral-300" />
+                      <div className="w-12 h-12 rounded-full bg-surface-strong flex items-center justify-center">
+                        <Users className="w-6 h-6 text-muted/40" />
                       </div>
-                      <p className="text-body-sm font-medium text-neutral-400">No leads found</p>
-                      <p className="text-xs text-neutral-300">Try running a scrape or adjusting your filters</p>
+                      <p className="text-body-sm font-medium text-muted">No leads found</p>
+                      <p className="text-xs text-muted/60">Try running a scrape or adjusting your filters</p>
                     </div>
                   </td>
                 </tr>
@@ -302,7 +302,7 @@ export default function LeadsTable({
                       key={lead.id}
                       className={cn(
                         'group transition-colors cursor-pointer',
-                        isSelected ? 'bg-brand-50/50' : 'hover:bg-neutral-50',
+                        isSelected ? 'bg-brand-500/5' : 'hover:bg-surface-strong',
                       )}
                       onClick={() => toggleRow(lead.id)}
                     >
@@ -319,14 +319,14 @@ export default function LeadsTable({
                       {/* Company */}
                       <td className="px-4 py-1.5" onClick={e => e.stopPropagation()}>
                         <Link href={`/leads/${lead.id}`} className="flex items-center gap-2.5 group/name">
-                          <span className="w-7 h-7 rounded-lg bg-neutral-100 group-hover/name:bg-brand-50 flex items-center justify-center flex-shrink-0 text-2xs font-semibold text-neutral-500 transition-colors">
+                          <span className="w-7 h-7 rounded-lg bg-surface-strong group-hover/name:bg-brand-500/10 flex items-center justify-center flex-shrink-0 text-2xs font-semibold text-muted transition-colors">
                             {lead.company_name.charAt(0).toUpperCase()}
                           </span>
                           <div className="min-w-0">
-                            <p className="text-body-sm font-medium text-ink group-hover/name:text-brand-700 truncate max-w-[160px] transition-colors">
+                            <p className="text-body-sm font-medium text-ink group-hover/name:text-brand-300 truncate max-w-[160px] transition-colors">
                               {lead.company_name}
                             </p>
-                            <p className="text-2xs text-neutral-400 capitalize">
+                            <p className="text-2xs text-muted capitalize">
                               {lead.source?.replace('_', ' ')}
                             </p>
                           </div>
@@ -335,14 +335,14 @@ export default function LeadsTable({
 
                       {/* Location */}
                       {col('location') && (
-                        <td className="px-4 py-1.5 text-xs text-neutral-500 whitespace-nowrap max-w-[120px] truncate">
+                        <td className="px-4 py-1.5 text-xs text-body whitespace-nowrap max-w-[120px] truncate">
                           {lead.location ?? '—'}
                         </td>
                       )}
 
                       {/* Industry / Role / Size */}
                       {col('industry') && (
-                        <td className="px-4 py-1.5 text-xs text-neutral-500 max-w-[120px] truncate">
+                        <td className="px-4 py-1.5 text-xs text-body max-w-[120px] truncate">
                           {tab === 'hiring'
                             ? (lead.job_title ?? '—')
                             : tab === 'discovery'
@@ -354,7 +354,7 @@ export default function LeadsTable({
                       {/* Signal */}
                       {col('signal') && (
                         <td className="px-4 py-1.5 max-w-[180px]">
-                          <p className="text-xs text-neutral-500 truncate" title={lead.hiring_signal ?? ''}>
+                          <p className="text-xs text-body truncate" title={lead.hiring_signal ?? ''}>
                             {lead.hiring_signal ?? '—'}
                           </p>
                         </td>
@@ -372,7 +372,7 @@ export default function LeadsTable({
 
                       {/* Discovered */}
                       {col('discovered') && (
-                        <td className="px-4 py-1.5 text-xs text-neutral-400 whitespace-nowrap">
+                        <td className="px-4 py-1.5 text-xs text-muted whitespace-nowrap">
                           {formatDistanceToNow(new Date(lead.created_at), { addSuffix: true })}
                         </td>
                       )}
@@ -397,8 +397,8 @@ export default function LeadsTable({
 
         {/* ── Pagination ── */}
         {totalPages > 1 && (
-          <div className="flex items-center justify-between px-5 py-3 border-t border-hairline bg-neutral-50/50">
-            <span className="text-xs text-neutral-400">
+          <div className="flex items-center justify-between px-5 py-3 border-t border-hairline bg-surface-soft/50">
+            <span className="text-xs text-muted">
               {(page - 1) * 25 + 1}–{Math.min(page * 25, total)} of {total} leads
             </span>
 
@@ -406,19 +406,19 @@ export default function LeadsTable({
               <button
                 onClick={() => onPageChange(page - 1)}
                 disabled={page === 1}
-                className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-neutral-500 hover:text-neutral-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors rounded-lg hover:bg-neutral-100"
+                className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-muted hover:text-ink disabled:opacity-30 disabled:cursor-not-allowed transition-colors rounded-lg hover:bg-surface-strong"
               >
                 <ChevronLeft className="w-3.5 h-3.5" /> Previous
               </button>
 
-              <span className="px-3 text-xs text-neutral-400">
+              <span className="px-3 text-xs text-muted">
                 Page {page} of {totalPages}
               </span>
 
               <button
                 onClick={() => onPageChange(page + 1)}
                 disabled={page === totalPages}
-                className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-neutral-500 hover:text-neutral-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors rounded-lg hover:bg-neutral-100"
+                className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-muted hover:text-ink disabled:opacity-30 disabled:cursor-not-allowed transition-colors rounded-lg hover:bg-surface-strong"
               >
                 Next <ChevronRight className="w-3.5 h-3.5" />
               </button>

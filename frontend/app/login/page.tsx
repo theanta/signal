@@ -87,7 +87,7 @@ export default function LoginPage() {
       </div>
 
       {/* ── Right panel — form ── */}
-      <div className="flex-1 flex items-center justify-center bg-neutral-50 px-6 py-10">
+      <div className="flex-1 flex items-center justify-center bg-surface-soft px-6 py-10">
         <div className="w-full max-w-[360px]">
 
           {/* Mobile logo */}
@@ -100,12 +100,12 @@ export default function LoginPage() {
 
           <div className="mb-8">
             <h1 className="text-title-xl font-semibold text-ink tracking-tight">Welcome back</h1>
-            <p className="text-body-sm text-neutral-400 mt-1">Sign in to your workspace</p>
+            <p className="text-body-sm text-muted mt-1">Sign in to your workspace</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1">
-              <label className="block text-[12px] font-medium text-neutral-600" htmlFor="email">
+              <label className="block text-[12px] font-medium text-body" htmlFor="email">
                 Email address
               </label>
               <input
@@ -116,12 +116,12 @@ export default function LoginPage() {
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 placeholder="you@anta.dev"
-                className="w-full h-10 px-3.5 text-body-sm bg-white border border-neutral-200 rounded-lg text-ink placeholder:text-neutral-300 focus:outline-none focus:border-brand focus:ring-2 focus:ring-brand/10 transition-all"
+                className="w-full h-10 px-3.5 text-body-sm bg-canvas border border-hairline rounded-lg text-ink placeholder:text-muted/40 focus:outline-none focus:border-brand focus:ring-2 focus:ring-brand/10 transition-all"
               />
             </div>
 
             <div className="space-y-1">
-              <label className="block text-[12px] font-medium text-neutral-600" htmlFor="password">
+              <label className="block text-[12px] font-medium text-body" htmlFor="password">
                 Password
               </label>
               <input
@@ -132,14 +132,14 @@ export default function LoginPage() {
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full h-10 px-3.5 text-body-sm bg-white border border-neutral-200 rounded-lg text-ink placeholder:text-neutral-300 focus:outline-none focus:border-brand focus:ring-2 focus:ring-brand/10 transition-all"
+                className="w-full h-10 px-3.5 text-body-sm bg-canvas border border-hairline rounded-lg text-ink placeholder:text-muted/40 focus:outline-none focus:border-brand focus:ring-2 focus:ring-brand/10 transition-all"
               />
             </div>
 
             {error && (
-              <div className="flex items-center gap-2.5 px-3.5 py-2.5 bg-rose-50 border border-rose-200 rounded-lg">
-                <AlertCircle className="w-4 h-4 text-rose-500 flex-shrink-0" />
-                <span className="text-[13px] text-rose-600">{error}</span>
+              <div className="flex items-center gap-2.5 px-3.5 py-2.5 bg-rose-500/10 border border-rose-500/20 rounded-lg">
+                <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+                <span className="text-[13px] text-rose-400">{error}</span>
               </div>
             )}
 

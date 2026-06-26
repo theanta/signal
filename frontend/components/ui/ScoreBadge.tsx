@@ -7,30 +7,30 @@ interface ScoreBadgeProps {
 }
 
 const TIER_STYLES = {
-  hot:  'bg-emerald-50 text-emerald-700 border-emerald-200',
-  warm: 'bg-amber-50  text-amber-700  border-amber-200',
-  cold: 'bg-slate-100 text-slate-500  border-slate-200',
+  hot:  'bg-score-hot-bg  text-score-hot-text  border-score-hot-border',
+  warm: 'bg-score-warm-bg text-score-warm-text border-score-warm-border',
+  cold: 'bg-score-cold-bg text-score-cold-text border-score-cold-border',
 };
 
 const TEXT_STYLES = {
-  hot:  'text-emerald-700',
-  warm: 'text-amber-700',
-  cold: 'text-slate-500',
+  hot:  'text-score-hot-text',
+  warm: 'text-score-warm-text',
+  cold: 'text-score-cold-text',
 };
 
 const DOT_STYLES = {
-  hot:  'bg-emerald-500',
-  warm: 'bg-amber-500',
-  cold: 'bg-slate-400',
+  hot:  'bg-emerald-400',
+  warm: 'bg-amber-400',
+  cold: 'bg-slate-500',
 };
 
 export default function ScoreBadge({ score, size = 'md', variant = 'pill' }: ScoreBadgeProps) {
   if (score === undefined || score === null) {
-    if (variant === 'dot') return <span className="text-xs text-neutral-300">—</span>;
+    if (variant === 'dot') return <span className="text-xs text-muted">—</span>;
     return (
       <span className={cn(
         'inline-flex items-center rounded-full border font-medium',
-        'bg-slate-100 text-slate-400 border-slate-200',
+        'bg-score-cold-bg text-score-cold-text border-score-cold-border',
         size === 'sm' ? 'text-[10px] px-2 py-0.5' : 'text-xs px-2.5 py-0.5',
       )}>
         —

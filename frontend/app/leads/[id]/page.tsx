@@ -29,7 +29,7 @@ function getLeadAge(scrapedAt: string | null | undefined): number {
 function CompanyAvatar({ name }: { name: string }) {
   const initials = name.split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase();
   return (
-    <div className="w-12 h-12 rounded-xl bg-brand-50 text-brand font-semibold text-lg flex items-center justify-center flex-shrink-0">
+    <div className="w-12 h-12 rounded-xl bg-brand-500/10 text-brand-400 font-semibold text-lg flex items-center justify-center flex-shrink-0">
       {initials}
     </div>
   );
@@ -42,11 +42,11 @@ function SectionCard({ title, icon: Icon, children, className }: {
   className?: string;
 }) {
   return (
-    <div className={cn('bg-white border border-neutral-200 rounded-lg p-4', className)}>
+    <div className={cn('bg-canvas border border-hairline rounded-lg p-4', className)}>
       {title && (
         <div className="flex items-center gap-2 mb-3">
-          {Icon && <Icon className="w-4 h-4 text-neutral-400" />}
-          <h3 className="text-2xs font-semibold text-neutral-400 uppercase tracking-wider">{title}</h3>
+          {Icon && <Icon className="w-4 h-4 text-muted" />}
+          <h3 className="text-2xs font-semibold text-muted uppercase tracking-wider">{title}</h3>
         </div>
       )}
       {children}
@@ -56,8 +56,8 @@ function SectionCard({ title, icon: Icon, children, className }: {
 
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex items-start justify-between gap-3 py-1.5 border-b border-neutral-100 last:border-0">
-      <span className="text-xs text-neutral-400 font-medium flex-shrink-0">{label}</span>
+    <div className="flex items-start justify-between gap-3 py-1.5 border-b border-hairline last:border-0">
+      <span className="text-xs text-muted font-medium flex-shrink-0">{label}</span>
       <span className="text-body-sm text-ink text-right capitalize">{value}</span>
     </div>
   );
@@ -68,15 +68,15 @@ function ScoreBar({ label, score, max }: { label: string; score: number; max: nu
   return (
     <div className="space-y-1">
       <div className="flex justify-between text-2xs">
-        <span className="text-neutral-400">{label}</span>
+        <span className="text-muted">{label}</span>
         <span className="font-medium text-ink">
-          {score ?? 0}<span className="text-neutral-300">/{max}</span>
+          {score ?? 0}<span className="text-muted/50">/{max}</span>
         </span>
       </div>
-      <div className="h-1.5 bg-neutral-100 rounded-full overflow-hidden">
+      <div className="h-1.5 bg-surface-strong rounded-full overflow-hidden">
         <div
           className={cn('h-full rounded-full transition-all duration-500',
-            pct >= 70 ? 'bg-emerald-500' : pct >= 45 ? 'bg-amber-400' : 'bg-neutral-300'
+            pct >= 70 ? 'bg-emerald-500' : pct >= 45 ? 'bg-amber-400' : 'bg-muted'
           )}
           style={{ width: `${pct}%` }}
         />
@@ -104,22 +104,22 @@ function PipelineStepper({ stages, current, onSelect, disabled }: {
             disabled={disabled}
             className={cn(
               'w-full flex items-center gap-3 px-2 py-1.5 rounded-lg transition-all text-left disabled:opacity-50',
-              isCurrent ? 'bg-brand/5 cursor-default' : 'hover:bg-neutral-50',
+              isCurrent ? 'bg-brand/5 cursor-default' : 'hover:bg-surface-strong',
             )}
           >
             <div className={cn(
               'w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-3xs font-bold transition-all',
-              isPast ? 'bg-emerald-100 text-emerald-600' :
+              isPast ? 'bg-emerald-500/10 text-emerald-400' :
               isCurrent ? 'bg-brand text-white' :
-              'bg-neutral-100 text-neutral-400',
+              'bg-surface-strong text-muted',
             )}>
               {isPast ? <Check className="w-3 h-3" /> : <span>{i + 1}</span>}
             </div>
             <span className={cn(
               'text-body-sm capitalize flex-1',
               isCurrent ? 'font-semibold text-ink' :
-              isPast ? 'text-neutral-400' :
-              'text-neutral-500',
+              isPast ? 'text-muted' :
+              'text-body',
             )}>
               {stage}
             </span>
@@ -139,7 +139,7 @@ function DetailSkeleton() {
   return (
     <div className="px-6 py-4 grid grid-cols-3 gap-5 animate-fade-in">
       <div className="col-span-2 space-y-3">
-        <div className="bg-white border border-neutral-200 rounded-lg p-4 space-y-4">
+        <div className="bg-canvas border border-hairline rounded-lg p-4 space-y-4">
           <div className="flex items-center gap-3">
             <Skeleton className="w-12 h-12 rounded-xl" />
             <div className="space-y-2 flex-1">
@@ -147,19 +147,19 @@ function DetailSkeleton() {
               <Skeleton className="h-4 w-32" />
             </div>
           </div>
-          <div className="flex gap-2 pt-3 border-t border-neutral-100">
+          <div className="flex gap-2 pt-3 border-t border-hairline">
             <Skeleton className="h-8 w-36 rounded-lg" />
             <Skeleton className="h-8 w-28 rounded-lg" />
           </div>
         </div>
-        <div className="bg-white border border-neutral-200 rounded-lg p-4 space-y-3">
+        <div className="bg-canvas border border-hairline rounded-lg p-4 space-y-3">
           <Skeleton className="h-3 w-24 mb-3" />
           <Skeleton className="h-4 w-full" />
           <Skeleton className="h-4 w-5/6" />
           <Skeleton className="h-4 w-4/6" />
         </div>
       </div>
-      <div className="bg-white border border-neutral-200 rounded-lg divide-y divide-neutral-100 overflow-hidden">
+      <div className="bg-canvas border border-hairline rounded-lg divide-y divide-hairline overflow-hidden">
         <div className="p-4 space-y-3">
           <Skeleton className="h-3 w-28 mb-3" />
           {[1,2,3,4,5].map(i => <Skeleton key={i} className="h-3 w-full" />)}
@@ -406,49 +406,49 @@ function CopyContextDropdown({ lead, latestSignal }: {
         className={cn(
           'flex items-center gap-1.5 h-8 px-3 text-body-sm font-medium border rounded-lg transition-colors',
           copiedVariant
-            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-            : 'border-neutral-200 hover:bg-neutral-50 text-neutral-600',
+            ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+            : 'border-hairline hover:bg-surface-strong text-muted',
         )}
         title="Copy Lead Context"
       >
         {copiedVariant
-          ? <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />
+          ? <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
           : <Clipboard className="w-3.5 h-3.5" />}
         <span>{copiedVariant ? 'Copied!' : 'Copy Context'}</span>
-        <ChevronDown className={cn('w-3 h-3 text-neutral-400 transition-transform', open && 'rotate-180')} />
+        <ChevronDown className={cn('w-3 h-3 text-muted transition-transform', open && 'rotate-180')} />
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 bg-white border border-neutral-200 rounded-lg shadow-lg overflow-hidden w-52">
+        <div className="absolute right-0 top-full mt-1 z-50 bg-canvas border border-hairline rounded-lg shadow-lg overflow-hidden w-52">
           <button
             onClick={() => handleCopy('context')}
-            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body-sm text-neutral-700 hover:bg-neutral-50 transition-colors text-left"
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body-sm text-ink hover:bg-surface-strong transition-colors text-left"
           >
-            <Copy className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />
+            <Copy className="w-3.5 h-3.5 text-muted flex-shrink-0" />
             <div>
               <p className="font-medium leading-tight">Copy Context</p>
-              <p className="text-2xs text-neutral-400 mt-0.5">Lead data only</p>
+              <p className="text-2xs text-muted mt-0.5">Lead data only</p>
             </div>
           </button>
-          <div className="border-t border-neutral-100" />
+          <div className="border-t border-hairline" />
           <button
             onClick={() => handleCopy('email')}
-            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body-sm text-neutral-700 hover:bg-neutral-50 transition-colors text-left"
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body-sm text-ink hover:bg-surface-strong transition-colors text-left"
           >
-            <Mail className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />
+            <Mail className="w-3.5 h-3.5 text-muted flex-shrink-0" />
             <div>
               <p className="font-medium leading-tight">Copy + Email Prompt</p>
-              <p className="text-2xs text-neutral-400 mt-0.5">Includes cold email task</p>
+              <p className="text-2xs text-muted mt-0.5">Includes cold email task</p>
             </div>
           </button>
           <button
             onClick={() => handleCopy('linkedin')}
-            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body-sm text-neutral-700 hover:bg-neutral-50 transition-colors text-left"
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body-sm text-ink hover:bg-surface-strong transition-colors text-left"
           >
-            <Link2 className="w-3.5 h-3.5 text-neutral-400 flex-shrink-0" />
+            <Link2 className="w-3.5 h-3.5 text-muted flex-shrink-0" />
             <div>
               <p className="font-medium leading-tight">Copy + LinkedIn Prompt</p>
-              <p className="text-2xs text-neutral-400 mt-0.5">Includes connection message task</p>
+              <p className="text-2xs text-muted mt-0.5">Includes connection message task</p>
             </div>
           </button>
         </div>
@@ -498,7 +498,7 @@ export default function LeadDetailPage() {
 
   if (isLoading) return <DetailSkeleton />;
   if (!lead) return (
-    <div className="flex flex-col items-center justify-center h-screen gap-3 text-neutral-400">
+    <div className="flex flex-col items-center justify-center h-screen gap-3 text-muted">
       <Building2 className="w-10 h-10" />
       <p className="text-sm">Lead not found</p>
     </div>
@@ -527,7 +527,7 @@ export default function LeadDetailPage() {
                 href={lead.website}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-1.5 h-8 px-3 text-body-sm font-medium border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors text-neutral-600"
+                className="flex items-center gap-1.5 h-8 px-3 text-body-sm font-medium border border-hairline rounded-lg hover:bg-surface-strong transition-colors text-muted"
               >
                 <ExternalLink className="w-3.5 h-3.5" />
                 Website
@@ -538,7 +538,7 @@ export default function LeadDetailPage() {
                 href={lead.linkedin_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-1.5 h-8 px-3 text-body-sm font-medium border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors text-neutral-600"
+                className="flex items-center gap-1.5 h-8 px-3 text-body-sm font-medium border border-hairline rounded-lg hover:bg-surface-strong transition-colors text-muted"
               >
                 <Link2 className="w-3.5 h-3.5" />
                 LinkedIn
@@ -555,12 +555,12 @@ export default function LeadDetailPage() {
         <div className="col-span-2 space-y-3">
 
           {/* Header card */}
-          <div className="bg-white border border-neutral-200 rounded-lg p-4">
+          <div className="bg-canvas border border-hairline rounded-lg p-4">
             <div className="flex items-start gap-4">
               <CompanyAvatar name={lead.company_name} />
               <div className="flex-1 min-w-0">
                 <h1 className="text-2xl font-semibold text-ink leading-tight">{lead.company_name}</h1>
-                <div className="flex items-center gap-2 mt-1 text-body-sm text-neutral-400 flex-wrap">
+                <div className="flex items-center gap-2 mt-1 text-body-sm text-muted flex-wrap">
                   {lead.industry && (
                     <span className="flex items-center gap-1">
                       <Building2 className="w-3 h-3" />
@@ -568,7 +568,7 @@ export default function LeadDetailPage() {
                     </span>
                   )}
                   {lead.industry && lead.location && (
-                    <span className="text-neutral-200">·</span>
+                    <span className="text-muted/30">·</span>
                   )}
                   {lead.location && (
                     <span className="flex items-center gap-1">
@@ -580,14 +580,14 @@ export default function LeadDetailPage() {
                 <div className="flex items-center gap-2 mt-2.5 flex-wrap">
                   <StatusBadge status={lead.status} />
                   {lead.hiring_signal && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-2xs font-medium rounded-full border bg-amber-50 text-amber-700 border-amber-200">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-2xs font-medium rounded-full border bg-amber-500/10 text-amber-400 border-amber-500/20">
                       <Zap className="w-3 h-3" />
                       {lead.hiring_signal}
                     </span>
                   )}
                 </div>
                 {lead.description && (
-                  <p className="text-body-sm text-neutral-500 mt-3 leading-relaxed border-t border-neutral-100 pt-3">
+                  <p className="text-body-sm text-body mt-3 leading-relaxed border-t border-hairline pt-3">
                     {lead.description}
                   </p>
                 )}
@@ -595,15 +595,15 @@ export default function LeadDetailPage() {
             </div>
 
             {/* Action row */}
-            <div className="flex items-center gap-2 mt-4 pt-3 border-t border-neutral-100">
+            <div className="flex items-center gap-2 mt-4 pt-3 border-t border-hairline">
               {isAnalyzing && analysisPhase && (
-                <span className="text-xs text-neutral-400 italic truncate max-w-xs">{analysisPhase}</span>
+                <span className="text-xs text-muted italic truncate max-w-xs">{analysisPhase}</span>
               )}
               {latestSignal && (
                 <button
                   onClick={startAnalysis}
                   disabled={isAnalyzing}
-                  className="inline-flex items-center gap-1.5 h-8 px-3 text-body-sm font-medium border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors text-neutral-400 hover:text-ink disabled:opacity-40 ml-auto"
+                  className="inline-flex items-center gap-1.5 h-8 px-3 text-body-sm font-medium border border-hairline rounded-lg hover:bg-surface-strong transition-colors text-muted hover:text-ink disabled:opacity-40 ml-auto"
                   title="Refresh analysis data"
                 >
                   <RefreshCw className={cn('w-3.5 h-3.5', isAnalyzing && 'animate-spin')} />
@@ -618,8 +618,8 @@ export default function LeadDetailPage() {
             <div className={cn(
               'flex items-center gap-3 px-4 py-3 rounded-lg border text-body-sm',
               leadAge >= 14
-                ? 'bg-rose-50 border-rose-200 text-rose-700'
-                : 'bg-amber-50 border-amber-200 text-amber-700',
+                ? 'bg-rose-500/10 border-rose-500/20 text-rose-400'
+                : 'bg-amber-500/10 border-amber-500/20 text-amber-400',
             )}>
               <Clock className="w-4 h-4 flex-shrink-0" />
               <span>
@@ -633,14 +633,14 @@ export default function LeadDetailPage() {
 
           {/* Outreach CTA — promoted above the fold when no messages exist yet */}
           {messages.length === 0 && latestSignal && !isDisqualified && (
-            <div className="bg-white border border-brand/20 rounded-lg p-4">
+            <div className="bg-canvas border border-brand/20 rounded-lg p-4">
               <div className="flex items-start gap-4">
                 <div className="w-10 h-10 rounded-xl bg-brand/10 flex items-center justify-center flex-shrink-0">
                   <MessageSquare className="w-5 h-5 text-brand" />
                 </div>
                 <div className="flex-1">
                   <p className="text-sm font-semibold text-ink mb-1">Ready to reach out?</p>
-                  <p className="text-body-sm text-neutral-500 mb-3 leading-relaxed">
+                  <p className="text-body-sm text-body mb-3 leading-relaxed">
                     Generate a personalized cold email or LinkedIn message based on the analysis below.
                   </p>
                   <div className="flex items-center gap-2">
@@ -657,7 +657,7 @@ export default function LeadDetailPage() {
                     <button
                       onClick={() => outreachMutation.mutate('linkedin')}
                       disabled={outreachMutation.isPending}
-                      className="inline-flex items-center gap-1.5 h-8 px-3 text-body-sm font-medium border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors text-neutral-600 disabled:opacity-50"
+                      className="inline-flex items-center gap-1.5 h-8 px-3 text-body-sm font-medium border border-hairline rounded-lg hover:bg-surface-strong transition-colors text-muted disabled:opacity-50"
                     >
                       <Link2 className="w-3.5 h-3.5" />
                       LinkedIn Message
@@ -670,12 +670,12 @@ export default function LeadDetailPage() {
 
           {/* AI Analysis */}
           {!latestSignal ? (
-            <div className="bg-white border border-neutral-200 rounded-lg p-6 text-center">
-              <div className="w-12 h-12 rounded-xl bg-neutral-50 flex items-center justify-center mx-auto mb-3">
-                <Brain className={cn('w-6 h-6', isAnalyzing ? 'text-brand/40' : 'text-neutral-300')} />
+            <div className="bg-canvas border border-hairline rounded-lg p-6 text-center">
+              <div className="w-12 h-12 rounded-xl bg-surface-strong flex items-center justify-center mx-auto mb-3">
+                <Brain className={cn('w-6 h-6', isAnalyzing ? 'text-brand/40' : 'text-muted/50')} />
               </div>
-              <p className="text-body-sm text-neutral-400 mb-1">This lead hasn&apos;t been analysed yet.</p>
-              <p className="text-xs text-neutral-300 mb-4">Finds tech stack, contacts, pain points and score in one pass.</p>
+              <p className="text-body-sm text-muted mb-1">This lead hasn&apos;t been analysed yet.</p>
+              <p className="text-xs text-muted/60 mb-4">Finds tech stack, contacts, pain points and score in one pass.</p>
               {isAnalyzing && analysisPhase && (
                 <p className="text-xs text-brand/60 italic mb-3">{analysisPhase}</p>
               )}
@@ -691,17 +691,17 @@ export default function LeadDetailPage() {
               </button>
             </div>
           ) : isDisqualified ? (
-            <div className="bg-white border border-neutral-200 border-l-4 border-l-neutral-300 rounded-lg p-4">
+            <div className="bg-canvas border border-hairline border-l-4 border-l-muted rounded-lg p-4">
               <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-lg bg-neutral-50 flex items-center justify-center flex-shrink-0">
-                  <Target className="w-4 h-4 text-neutral-400" />
+                <div className="w-8 h-8 rounded-lg bg-surface-strong flex items-center justify-center flex-shrink-0">
+                  <Target className="w-4 h-4 text-muted" />
                 </div>
                 <div>
                   <p className="text-body-sm font-medium text-ink">Lead Disqualified</p>
-                  <p className="text-body-sm text-neutral-500 mt-1 leading-relaxed">
+                  <p className="text-body-sm text-body mt-1 leading-relaxed">
                     {latestSignal.operational_maturity}
                   </p>
-                  <p className="text-xs text-neutral-400 mt-2">
+                  <p className="text-xs text-muted mt-2">
                     Falls outside ANTA&apos;s SMB target market. No outreach will be generated.
                   </p>
                 </div>
@@ -711,7 +711,7 @@ export default function LeadDetailPage() {
             <div className="space-y-4">
 
               {/* ANTA Recommendation — hero card, full width, visually primary */}
-              <div className="bg-white border border-brand/20 rounded-lg p-4">
+              <div className="bg-canvas border border-brand/20 rounded-lg p-4">
                 <div className="flex items-center gap-2 mb-3">
                   <Brain className="w-4 h-4 text-brand/60" />
                   <h3 className="text-2xs font-semibold text-brand/70 uppercase tracking-wider">ANTA Recommendation</h3>
@@ -722,16 +722,16 @@ export default function LeadDetailPage() {
                   </p>
                 )}
                 {latestSignal.outreach_angle && (
-                  <p className="text-body-sm text-neutral-500 leading-relaxed">
+                  <p className="text-body-sm text-body leading-relaxed">
                     {latestSignal.outreach_angle}
                   </p>
                 )}
                 {latestSignal.operational_maturity && (
-                  <div className="mt-3 pt-3 border-t border-neutral-100 flex items-center gap-2">
-                    <span className="text-2xs font-semibold text-neutral-400 uppercase tracking-wide">
+                  <div className="mt-3 pt-3 border-t border-hairline flex items-center gap-2">
+                    <span className="text-2xs font-semibold text-muted uppercase tracking-wide">
                       Digital Maturity
                     </span>
-                    <span className="text-xs text-neutral-600">{latestSignal.operational_maturity}</span>
+                    <span className="text-xs text-body">{latestSignal.operational_maturity}</span>
                   </div>
                 )}
               </div>
@@ -741,12 +741,12 @@ export default function LeadDetailPage() {
                 <ul className="grid grid-cols-2 gap-x-6 gap-y-2">
                   {(latestSignal.likely_pain_points ?? []).length > 0
                     ? latestSignal.likely_pain_points!.map((pt, i) => (
-                      <li key={i} className="text-body-sm text-neutral-600 flex items-start gap-2">
+                      <li key={i} className="text-body-sm text-body flex items-start gap-2">
                         <span className="w-1.5 h-1.5 rounded-full bg-rose-400 mt-1.5 flex-shrink-0" />
                         {pt}
                       </li>
                     ))
-                    : <li className="text-body-sm text-neutral-400 col-span-2">No pain points identified.</li>
+                    : <li className="text-body-sm text-muted col-span-2">No pain points identified.</li>
                   }
                 </ul>
               </SectionCard>
@@ -758,7 +758,7 @@ export default function LeadDetailPage() {
                     <SectionCard title="Tech Stack" icon={Monitor}>
                       <div className="flex flex-wrap gap-1.5">
                         {latestSignal.tech_stack.map((tech, i) => (
-                          <span key={i} className="inline-flex items-center px-2 py-0.5 text-2xs font-medium rounded-full border bg-blue-50 text-blue-700 border-blue-200">
+                          <span key={i} className="inline-flex items-center px-2 py-0.5 text-2xs font-medium rounded-full border bg-blue-500/10 text-blue-400 border-blue-500/20">
                             {tech}
                           </span>
                         ))}
@@ -769,7 +769,7 @@ export default function LeadDetailPage() {
                     <SectionCard title="Tech Gaps — Opportunity" icon={Zap}>
                       <ul className="space-y-2">
                         {latestSignal.tech_gaps.map((gap, i) => (
-                          <li key={i} className="text-body-sm text-neutral-600 flex items-start gap-2">
+                          <li key={i} className="text-body-sm text-body flex items-start gap-2">
                             <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1.5 flex-shrink-0" />
                             {gap}
                           </li>
@@ -784,7 +784,7 @@ export default function LeadDetailPage() {
                 <SectionCard title="Growth Signals" icon={TrendingUp}>
                   <div className="flex flex-wrap gap-1.5">
                     {latestSignal.growth_indicators.map((indicator, i) => (
-                      <span key={i} className="inline-flex items-center px-2 py-0.5 text-2xs font-medium rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200">
+                      <span key={i} className="inline-flex items-center px-2 py-0.5 text-2xs font-medium rounded-full border bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
                         {indicator}
                       </span>
                     ))}
@@ -799,7 +799,7 @@ export default function LeadDetailPage() {
             <SectionCard title="Point of Contact" icon={User}>
               <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full bg-neutral-100 flex items-center justify-center text-body-sm font-medium text-neutral-500">
+                  <div className="w-9 h-9 rounded-full bg-surface-strong flex items-center justify-center text-body-sm font-medium text-muted">
                     {(lead.contact_name ?? '?')[0].toUpperCase()}
                   </div>
                   <div>
@@ -807,7 +807,7 @@ export default function LeadDetailPage() {
                       <p className="text-body-sm font-medium text-ink">{lead.contact_name}</p>
                     )}
                     {lead.contact_title && (
-                      <p className="text-xs text-neutral-400">{lead.contact_title}</p>
+                      <p className="text-xs text-muted">{lead.contact_title}</p>
                     )}
                     {lead.contact_email && (
                       <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
@@ -816,19 +816,19 @@ export default function LeadDetailPage() {
                           {lead.contact_email}
                         </a>
                         {lead.contact_email_confidence === 'verified' && (
-                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0 text-3xs font-medium rounded-full bg-emerald-50 text-emerald-600 border border-emerald-200">
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0 text-3xs font-medium rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                             <ShieldCheck className="w-2.5 h-2.5" />
                             verified
                           </span>
                         )}
                         {lead.contact_email_confidence === 'catch_all' && (
-                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0 text-3xs font-medium rounded-full bg-amber-50 text-amber-600 border border-amber-200">
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0 text-3xs font-medium rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
                             <ShieldAlert className="w-2.5 h-2.5" />
                             catch-all
                           </span>
                         )}
                         {(lead.contact_email_confidence === 'pattern_inferred' || lead.contact_email_confidence === 'unknown') && (
-                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0 text-3xs font-medium rounded-full bg-neutral-50 text-neutral-400 border border-neutral-200">
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0 text-3xs font-medium rounded-full bg-surface-strong text-muted border border-hairline">
                             <ShieldQuestion className="w-2.5 h-2.5" />
                             unverified
                           </span>
@@ -840,7 +840,7 @@ export default function LeadDetailPage() {
                 {lead.contact_email && (
                   <button
                     onClick={() => copyToClipboard(lead.contact_email!, 'contact_email')}
-                    className="p-1.5 rounded-lg hover:bg-neutral-50 text-neutral-400 hover:text-ink transition-colors"
+                    className="p-1.5 rounded-lg hover:bg-surface-strong text-muted hover:text-ink transition-colors"
                     title="Copy email"
                   >
                     {copied === 'contact_email'
@@ -856,24 +856,24 @@ export default function LeadDetailPage() {
           {messages.length > 0 && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <h3 className="text-2xs font-semibold text-neutral-400 uppercase tracking-wider">
+                <h3 className="text-2xs font-semibold text-muted uppercase tracking-wider">
                   Outreach Messages
                 </h3>
-                <span className="text-xs text-neutral-400">{messages.length} generated</span>
+                <span className="text-xs text-muted">{messages.length} generated</span>
               </div>
               {messages.map((msg: OutreachMessage) => (
-                <div key={msg.id} className="bg-white border border-neutral-200 rounded-lg p-4">
+                <div key={msg.id} className="bg-canvas border border-hairline rounded-lg p-4">
                   <div className="flex items-start justify-between gap-3 mb-3">
                     <div className="flex items-center gap-2">
                       <span className={cn(
                         'inline-flex items-center px-2 py-0.5 text-2xs font-medium rounded-full border capitalize',
                         msg.channel === 'email'
-                          ? 'bg-blue-50 text-blue-700 border-blue-200'
-                          : 'bg-indigo-50 text-indigo-700 border-indigo-200',
+                          ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                          : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
                       )}>
                         {msg.channel}
                       </span>
-                      <span className="text-2xs text-neutral-400">
+                      <span className="text-2xs text-muted">
                         {formatDistanceToNow(new Date(msg.created_at), { addSuffix: true })}
                       </span>
                     </div>
@@ -882,20 +882,20 @@ export default function LeadDetailPage() {
                         const text = msg.subject ? `Subject: ${msg.subject}\n\n${msg.body}` : msg.body;
                         copyToClipboard(text, msg.id);
                       }}
-                      className="p-1.5 rounded-lg hover:bg-neutral-50 text-neutral-400 hover:text-ink transition-colors flex-shrink-0"
+                      className="p-1.5 rounded-lg hover:bg-surface-strong text-muted hover:text-ink transition-colors flex-shrink-0"
                       title="Copy message"
                     >
                       {copied === msg.id
-                        ? <CheckCircle className="w-4 h-4 text-emerald-500" />
+                        ? <CheckCircle className="w-4 h-4 text-emerald-400" />
                         : <Copy className="w-4 h-4" />}
                     </button>
                   </div>
                   {msg.subject && (
-                    <p className="text-body-sm font-medium text-ink mb-2 pb-2 border-b border-neutral-100">
+                    <p className="text-body-sm font-medium text-ink mb-2 pb-2 border-b border-hairline">
                       {msg.subject}
                     </p>
                   )}
-                  <pre className="text-body-sm text-neutral-600 whitespace-pre-wrap font-sans leading-relaxed">
+                  <pre className="text-body-sm text-body whitespace-pre-wrap font-sans leading-relaxed">
                     {msg.body}
                   </pre>
                 </div>
@@ -906,29 +906,29 @@ export default function LeadDetailPage() {
 
         {/* RIGHT COLUMN — sticky sidebar */}
         <div className="sticky top-6">
-          <div className="bg-white border border-neutral-200 rounded-lg divide-y divide-neutral-100 overflow-hidden">
+          <div className="bg-canvas border border-hairline rounded-lg divide-y divide-hairline overflow-hidden">
 
             {/* Score breakdown */}
             {lead.score_detail && (
               <div className="p-4">
-                <h3 className="text-2xs font-semibold text-neutral-400 uppercase tracking-wider mb-3">Score Breakdown</h3>
-                <div className="flex items-center justify-between mb-3 pb-2.5 border-b border-neutral-100">
+                <h3 className="text-2xs font-semibold text-muted uppercase tracking-wider mb-3">Score Breakdown</h3>
+                <div className="flex items-center justify-between mb-3 pb-2.5 border-b border-hairline">
                   <div>
-                    <span className="text-xs text-neutral-400 font-medium block">Lead Score</span>
+                    <span className="text-xs text-muted font-medium block">Lead Score</span>
                     {lead.score_detail.score_percentile !== undefined && (
-                      <span className="text-2xs text-neutral-400 mt-0.5 block">
+                      <span className="text-2xs text-muted mt-0.5 block">
                         Top {100 - lead.score_detail.score_percentile}% of leads
                       </span>
                     )}
                   </div>
                   <span className={cn(
                     'text-[28px] font-bold leading-none',
-                    (lead.lead_score ?? 0) >= 70 ? 'text-emerald-600' :
-                    (lead.lead_score ?? 0) >= 45 ? 'text-amber-600' :
-                    'text-neutral-400',
+                    (lead.lead_score ?? 0) >= 70 ? 'text-emerald-400' :
+                    (lead.lead_score ?? 0) >= 45 ? 'text-amber-400' :
+                    'text-muted',
                   )}>
                     {lead.lead_score ?? 0}
-                    <span className="text-sm font-normal text-neutral-300">/100</span>
+                    <span className="text-sm font-normal text-muted/50">/100</span>
                   </span>
                 </div>
                 <div className="space-y-2.5">
@@ -940,7 +940,7 @@ export default function LeadDetailPage() {
                   ].map(item => <ScoreBar key={item.label} {...item} />)}
                 </div>
                 {lead.score_detail.scoring_rationale && (
-                  <p className="text-2xs text-neutral-400 italic mt-3 leading-relaxed">
+                  <p className="text-2xs text-muted italic mt-3 leading-relaxed">
                     {lead.score_detail.scoring_rationale}
                   </p>
                 )}
@@ -949,7 +949,7 @@ export default function LeadDetailPage() {
 
             {/* Company details */}
             <div className="p-4">
-              <h3 className="text-2xs font-semibold text-neutral-400 uppercase tracking-wider mb-3">Company</h3>
+              <h3 className="text-2xs font-semibold text-muted uppercase tracking-wider mb-3">Company</h3>
               {lead.company_size && <DetailRow label="Size" value={lead.company_size} />}
               {lead.industry && <DetailRow label="Industry" value={lead.industry} />}
               {lead.location && <DetailRow label="Location" value={lead.location} />}
@@ -967,14 +967,14 @@ export default function LeadDetailPage() {
                       {isStale && <Clock className="w-3 h-3 flex-shrink-0" />}
                       {formatDistanceToNow(new Date(lead.scraped_at), { addSuffix: true })}
                     </span>
-                  ) : <span className="text-neutral-300">N/A</span>
+                  ) : <span className="text-muted/50">N/A</span>
                 }
               />
             </div>
 
             {/* Pipeline Stage */}
             <div className="p-4">
-              <h3 className="text-2xs font-semibold text-neutral-400 uppercase tracking-wider mb-3">Pipeline Stage</h3>
+              <h3 className="text-2xs font-semibold text-muted uppercase tracking-wider mb-3">Pipeline Stage</h3>
               <PipelineStepper
                 stages={STATUS_PIPELINE}
                 current={lead.status}
@@ -986,16 +986,16 @@ export default function LeadDetailPage() {
             {/* Signal history */}
             {signals.length > 1 && (
               <div className="p-4">
-                <h3 className="text-2xs font-semibold text-neutral-400 uppercase tracking-wider mb-3">Signal History</h3>
+                <h3 className="text-2xs font-semibold text-muted uppercase tracking-wider mb-3">Signal History</h3>
                 <div className="space-y-2">
                   {signals.slice(0, 5).map((sig, i) => (
-                    <div key={sig.id} className={cn('flex items-start gap-2', i > 0 && 'pt-2 border-t border-neutral-100')}>
+                    <div key={sig.id} className={cn('flex items-start gap-2', i > 0 && 'pt-2 border-t border-hairline')}>
                       <div className="w-1.5 h-1.5 rounded-full bg-brand mt-1.5 flex-shrink-0" />
                       <div>
                         <p className="text-xs font-medium text-ink capitalize">
                           {sig.signal_type?.replace(/_/g, ' ')}
                         </p>
-                        <p className="text-2xs text-neutral-400">
+                        <p className="text-2xs text-muted">
                           {sig.confidence_score
                             ? `${Math.round(sig.confidence_score * 100)}% confidence · `
                             : ''}

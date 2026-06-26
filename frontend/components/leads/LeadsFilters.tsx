@@ -16,11 +16,11 @@ export const TOGGLEABLE_COLS = [
 ] as const;
 
 const selectCn = cn(
-  'h-9 px-3 text-[13px] text-ink bg-white',
-  'border border-neutral-200 rounded-lg',
+  'h-9 px-3 text-[13px] text-ink bg-canvas',
+  'border border-hairline rounded-lg',
   'focus:outline-none focus:border-brand focus:ring-2 focus:ring-brand/10',
   'cursor-pointer appearance-none pr-8',
-  'bg-[url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' fill=\'none\' stroke=\'%236b7280\' stroke-width=\'1.5\' viewBox=\'0 0 24 24\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")] bg-no-repeat bg-[right_8px_center]',
+  'bg-[url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' fill=\'none\' stroke=\'%238b95a8\' stroke-width=\'1.5\' viewBox=\'0 0 24 24\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")] bg-no-repeat bg-[right_8px_center]',
 );
 
 interface LeadsFiltersProps {
@@ -40,24 +40,24 @@ export default function LeadsFilters({
   return (
     <div className="flex items-center gap-2 flex-wrap">
 
-      {/* ── Search ── */}
+      {/* Search */}
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-neutral-400 pointer-events-none" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted pointer-events-none" />
         <input
           type="text"
           placeholder="Search companies…"
           value={filters.search ?? ''}
           onChange={e => onChange({ search: e.target.value || undefined, page: 1 })}
           className={cn(
-            'h-9 pl-9 pr-3 w-60 text-[13px] text-ink bg-white',
-            'border border-neutral-200 rounded-lg',
+            'h-9 pl-9 pr-3 w-60 text-[13px] text-ink bg-canvas',
+            'border border-hairline rounded-lg',
             'focus:outline-none focus:border-brand focus:ring-2 focus:ring-brand/10',
-            'placeholder:text-neutral-400',
+            'placeholder:text-muted',
           )}
         />
       </div>
 
-      {/* ── Status ── */}
+      {/* Status */}
       <select
         value={filters.status ?? ''}
         onChange={e => onChange({ status: (e.target.value as LeadStatus) || undefined, page: 1 })}
@@ -69,7 +69,7 @@ export default function LeadsFilters({
         ))}
       </select>
 
-      {/* ── Source ── */}
+      {/* Source */}
       {!hideSource && (
         <select
           value={filters.source ?? ''}
@@ -85,7 +85,7 @@ export default function LeadsFilters({
         </select>
       )}
 
-      {/* ── Score ── */}
+      {/* Score */}
       <select
         value={filters.min_score ?? ''}
         onChange={e => onChange({ min_score: e.target.value ? Number(e.target.value) : undefined, page: 1 })}
@@ -97,29 +97,28 @@ export default function LeadsFilters({
         <option value="35">Cool (≥ 35)</option>
       </select>
 
-      {/* ── Spacer ── */}
       <div className="flex-1" />
 
-      {/* ── Clear ── */}
+      {/* Clear */}
       {hasFilters && (
         <button
           onClick={() => onChange({ status: undefined, source: undefined, search: undefined, min_score: undefined, page: 1 })}
-          className="flex items-center gap-1.5 text-[12.5px] text-neutral-400 hover:text-neutral-700 transition-colors"
+          className="flex items-center gap-1.5 text-[12.5px] text-muted hover:text-ink transition-colors"
         >
           <X className="w-3.5 h-3.5" />
           Clear filters
         </button>
       )}
 
-      {/* ── Columns ── */}
+      {/* Columns */}
       {onToggleCol && (
         <Popover.Root>
           <Popover.Trigger asChild>
             <button className={cn(
               'relative flex items-center gap-1.5 h-9 px-3 text-[13px] font-medium',
-              'bg-white border border-neutral-200 rounded-lg',
-              'hover:bg-neutral-50 hover:border-neutral-300 transition-colors',
-              'text-neutral-500',
+              'bg-canvas border border-hairline rounded-lg',
+              'hover:bg-surface-strong hover:border-border-strong transition-colors',
+              'text-muted',
             )}>
               <Columns3 className="w-3.5 h-3.5" />
               <span>Columns</span>
@@ -135,11 +134,11 @@ export default function LeadsFilters({
               align="end"
               sideOffset={6}
               className={cn(
-                'w-48 bg-white border border-neutral-200 rounded-xl shadow-card-lg p-2',
+                'w-48 bg-canvas border border-hairline rounded-xl shadow-card-lg p-2',
                 'animate-scale-in z-50',
               )}
             >
-              <p className="text-[10.5px] font-semibold text-neutral-400 uppercase tracking-wider px-2 pb-1.5">
+              <p className="text-[10.5px] font-semibold text-muted uppercase tracking-wider px-2 pb-1.5">
                 Toggle columns
               </p>
               {TOGGLEABLE_COLS.map(col => {
@@ -148,13 +147,13 @@ export default function LeadsFilters({
                   <button
                     key={col.id}
                     onClick={() => onToggleCol(col.id)}
-                    className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-neutral-50 transition-colors"
+                    className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-surface-strong transition-colors"
                   >
                     <span className={cn(
                       'w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors',
                       visible
                         ? 'bg-brand border-brand'
-                        : 'border-neutral-300 bg-white',
+                        : 'border-hairline bg-surface-strong',
                     )}>
                       {visible && (
                         <svg width="8" height="6" viewBox="0 0 8 6" fill="none">
@@ -162,7 +161,7 @@ export default function LeadsFilters({
                         </svg>
                       )}
                     </span>
-                    <span className="text-[13px] text-neutral-700">{col.label}</span>
+                    <span className="text-[13px] text-ink">{col.label}</span>
                   </button>
                 );
               })}

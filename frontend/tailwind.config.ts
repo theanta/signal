@@ -9,20 +9,18 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // ── Semantic aliases (legacy names → neutral/brand values) ──
-        // Keep these names so existing components don't break; values now
-        // match the systematic scale so both namespaces resolve identically.
-        ink:            '#111827', // = neutral-900
-        'ink-active':   '#030712', // = neutral-950
-        body:           '#374151', // = neutral-700
-        muted:          '#4b5563', // = neutral-600
-        hairline:       '#e5e7eb', // = neutral-200
-        'border-strong':'#9ca3af', // = neutral-400
-        canvas:         '#ffffff',
-        'surface-soft': '#f9fafb', // = neutral-50
-        'surface-strong':'#e5e7eb',// = neutral-200
-        'surface-dark': '#111827', // = neutral-900
-        'surface-dark-elevated': '#1f2937', // = neutral-800
+        // ── Semantic aliases — dark intelligence theme ──
+        ink:            '#dde2ea',
+        'ink-active':   '#ffffff',
+        body:           '#8b95a8',
+        muted:          '#5a6275',
+        hairline:       '#1e2332',
+        'border-strong':'#2e3347',
+        canvas:         '#141720',
+        'surface-soft': '#0d0f17',
+        'surface-strong':'#1d2032',
+        'surface-dark': '#090b12',
+        'surface-dark-elevated': '#141720',
 
         // ── Semantic status ──
         link: '#1b61c9',
@@ -80,41 +78,41 @@ const config: Config = {
           accent: '#4f6ef7',
         },
 
-        // ── Semantic status colors ──
+        // ── Semantic status colors — dark ──
         status: {
-          'new-bg':        '#f1f5f9',
-          'new-text':      '#475569',
-          'new-border':    '#cbd5e1',
-          'contacted-bg':  '#eff6ff',
-          'contacted-text':'#1d4ed8',
-          'contacted-border':'#bfdbfe',
-          'replied-bg':    '#f5f3ff',
-          'replied-text':  '#6d28d9',
-          'replied-border':'#ddd6fe',
-          'meeting-bg':    '#fffbeb',
-          'meeting-text':  '#b45309',
-          'meeting-border':'#fde68a',
-          'client-bg':     '#f0fdf4',
-          'client-text':   '#15803d',
-          'client-border': '#bbf7d0',
-          'rejected-bg':   '#fef2f2',
-          'rejected-text': '#b91c1c',
-          'rejected-border':'#fecaca',
-          'active-bg':     '#e8f5ec',
-          'active-border': '#b3dcbe',
+          'new-bg':           '#131822',
+          'new-text':         '#7d8ea8',
+          'new-border':       '#1e2a38',
+          'contacted-bg':     '#0f1a2e',
+          'contacted-text':   '#7ca8f8',
+          'contacted-border': '#1a2a50',
+          'replied-bg':       '#130f28',
+          'replied-text':     '#c084fc',
+          'replied-border':   '#251850',
+          'meeting-bg':       '#1e1808',
+          'meeting-text':     '#fbbf24',
+          'meeting-border':   '#3a2c10',
+          'client-bg':        '#0d2218',
+          'client-text':      '#4ade80',
+          'client-border':    '#1a4432',
+          'rejected-bg':      '#280f0f',
+          'rejected-text':    '#f87171',
+          'rejected-border':  '#501a1a',
+          'active-bg':        '#0d2218',
+          'active-border':    '#1a4432',
         },
 
-        // ── Score badge colors ──
+        // ── Score badge colors — dark ──
         score: {
-          'hot-bg':      '#f0fdf4',
-          'hot-text':    '#15803d',
-          'hot-border':  '#bbf7d0',
-          'warm-bg':     '#fffbeb',
-          'warm-text':   '#b45309',
-          'warm-border': '#fde68a',
-          'cold-bg':     '#f8fafc',
-          'cold-text':   '#64748b',
-          'cold-border': '#e2e8f0',
+          'hot-bg':      '#0d2218',
+          'hot-text':    '#4ade80',
+          'hot-border':  '#1a4432',
+          'warm-bg':     '#221a08',
+          'warm-text':   '#fbbf24',
+          'warm-border': '#3a2c10',
+          'cold-bg':     '#131a24',
+          'cold-text':   '#7d8ea8',
+          'cold-border': '#1e2a38',
         },
       },
 

@@ -33,18 +33,18 @@ export default function TopBar({ onSearchClick }: TopBarProps) {
   const crumbs = useBreadcrumbs();
 
   return (
-    <header className="h-[44px] flex-shrink-0 flex items-center justify-between px-6 bg-white border-b border-hairline z-10">
+    <header className="h-[44px] flex-shrink-0 flex items-center justify-between px-6 bg-canvas border-b border-hairline z-10">
       {/* Breadcrumb */}
       <nav className="flex items-center gap-1.5 text-[13px]">
         {crumbs.map((crumb, i) => (
           <span key={crumb.href} className="flex items-center gap-1.5">
-            {i > 0 && <ChevronRight className="w-3.5 h-3.5 text-neutral-300 flex-shrink-0" />}
+            {i > 0 && <ChevronRight className="w-3.5 h-3.5 text-muted/40 flex-shrink-0" />}
             {i === crumbs.length - 1 ? (
               <span className="font-medium text-ink">{crumb.label}</span>
             ) : (
               <Link
                 href={crumb.href}
-                className="text-neutral-400 hover:text-ink transition-colors"
+                className="text-muted hover:text-ink transition-colors"
               >
                 {crumb.label}
               </Link>
@@ -60,19 +60,19 @@ export default function TopBar({ onSearchClick }: TopBarProps) {
           onClick={onSearchClick}
           className={cn(
             'flex items-center gap-2 px-3 py-1.5 rounded-lg text-[12.5px] font-medium',
-            'text-neutral-400 bg-neutral-50 border border-neutral-200',
-            'hover:bg-neutral-100 hover:text-neutral-600 transition-colors',
+            'text-muted bg-surface-strong border border-hairline',
+            'hover:bg-surface-strong hover:text-ink transition-colors',
           )}
         >
           <Search className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">Search</span>
-          <kbd className="hidden sm:inline-flex items-center gap-0.5 ml-1 text-[11px] text-neutral-400">
+          <kbd className="hidden sm:inline-flex items-center gap-0.5 ml-1 text-[11px] text-muted">
             <span className="font-sans">⌘</span>K
           </kbd>
         </button>
 
         {/* Notification bell (placeholder) */}
-        <button className="w-8 h-8 flex items-center justify-center rounded-lg text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 transition-colors">
+        <button className="w-8 h-8 flex items-center justify-center rounded-lg text-muted hover:bg-surface-strong hover:text-ink transition-colors">
           <Bell className="w-4 h-4" />
         </button>
       </div>

@@ -79,7 +79,7 @@ export default function LeadsPage() {
 
       <div className="px-8 pt-5 pb-0">
         {/* ── Pill tabs ── */}
-        <div className="flex items-center gap-1 p-1 bg-neutral-100 rounded-full w-fit">
+        <div className="flex items-center gap-1 p-1 bg-surface-strong rounded-full w-fit">
           {TABS.map(tab => (
             <button
               key={tab.id}
@@ -88,13 +88,13 @@ export default function LeadsPage() {
               className={cn(
                 'flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[13px] font-medium transition-all duration-150',
                 activeTab === tab.id
-                  ? 'bg-white text-ink shadow-sm'
-                  : 'text-neutral-500 hover:text-neutral-700',
+                  ? 'bg-canvas text-ink shadow-sm'
+                  : 'text-muted hover:text-ink',
               )}
             >
               {tab.label}
               {activeTab === tab.id && data?.total != null && (
-                <span className="text-[11px] bg-brand-50 text-brand-600 px-1.5 py-0.5 rounded-full font-semibold leading-none">
+                <span className="text-[11px] bg-brand-500/10 text-brand-400 px-1.5 py-0.5 rounded-full font-semibold leading-none">
                   {data.total}
                 </span>
               )}
