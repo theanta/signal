@@ -154,6 +154,7 @@ function _buildLeadPayload(lead: Lead, existingSignals: LeadSignal[]) {
     description: lead.description,
     industry: lead.industry,
     company_size: lead.company_size,
+    source_count: lead.source_count ?? 1,
     cached_tech_stack: cachedSignal?.tech_stack?.length ? cachedSignal.tech_stack : undefined,
     cached_tech_gaps: cachedSignal?.tech_gaps?.length ? cachedSignal.tech_gaps : undefined,
     cached_contact: cachedContact,
@@ -307,6 +308,7 @@ export async function generateLeadOutreach(req: Request, res: Response): Promise
         description: lead.description,
         industry: lead.industry,
         company_size: lead.company_size,
+        source_count: lead.source_count ?? 1,
       });
     }
 

@@ -3,10 +3,35 @@
 import os
 import re
 import requests
+from urllib.parse import urlparse
 
 SERPER_API_KEY = os.getenv("SERPER_API_KEY", "")
 _SESSION = requests.Session()
 _SESSION.headers.update({"User-Agent": "Mozilla/5.0 (compatible; ANTALeadRadar/1.0)"})
+
+_STOPWORDS = {"the", "and", "of", "inc", "llc", "corp", "co", "ltd", "plc", "group",
+              "company", "corporation", "incorporated", "limited"}
+
+
+def _name_tokens(company_name: str) -> list[str]:
+    """Meaningful words from the company name, used to check search-result relevance."""
+    words = re.findall(r"[a-z0-9]+", company_name.lower())
+    return [w for w in words if len(w) > 2 and w not in _STOPWORDS]
+
+
+def _is_relevant(company_name: str, link: str, title: str) -> bool:
+    """
+    Guard against Serper returning an unrelated top result (e.g. a generic/garbage
+    company name matching some random business). Require at least half of the
+    company name's meaningful tokens to appear in the result's domain or title.
+    """
+    tokens = _name_tokens(company_name)
+    if not tokens:
+        return False
+    domain = (urlparse(link).netloc or "").lower().removeprefix("www.")
+    haystack = f"{domain} {title.lower()}"
+    hits = sum(1 for t in tokens if re.search(rf"\b{re.escape(t)}\b", haystack))
+    return hits >= max(1, (len(tokens) + 1) // 2)
 
 
 def _is_alive(url: str) -> bool:
@@ -31,7 +56,7 @@ def _serper_search(company_name: str, location: str) -> str | None:
         r = requests.post(
             "https://google.serper.dev/search",
             headers={"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"},
-            json={"q": query, "num": 3},
+            json={"q": query, "num": 5},
             timeout=8,
         )
         data = r.json()
@@ -40,6 +65,9 @@ def _serper_search(company_name: str, location: str) -> str | None:
             # Skip social media / aggregator sites
             if any(skip in link for skip in ["linkedin.com", "facebook.com", "yelp.com",
                                               "yellowpages", "bbb.org", "indeed.com"]):
+                continue
+            # Skip results that don't plausibly refer to this company at all
+            if not _is_relevant(company_name, link, result.get("title", "")):
                 continue
             return link
     except Exception:

@@ -121,6 +121,9 @@ class RawLead(BaseModel):
     description: Optional[str] = None
     industry: Optional[str] = None
     company_size: Optional[str] = None
+    # Number of independent scrapers that found this company (set by lead_merger.py
+    # at scrape time, persisted on the lead row — see leads.source_count)
+    source_count: int = 1
     # Cached enrichment from a prior analysis — skips expensive API calls on re-analysis
     cached_tech_stack: Optional[list[str]] = None
     cached_tech_gaps: Optional[list[str]] = None
@@ -309,7 +312,7 @@ async def _analyze_lead_core(
             industry=industry,
             tech_stack=tech_stack,
             tech_gaps=tech_gaps,
-            source=lead.source or "",
+            source_count=lead.source_count,
         ),
     )
     pain_points, recommended_service, outreach_angle = pain_result
@@ -403,11 +406,12 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
 
     target_locations = cfg.target_locations if cfg else None
     target_industries = cfg.target_industries if cfg else None
+    agency_location = cfg.agency_location if cfg else None
 
     scrapers = {
         "linkedin": LinkedInJobsScraper(target_locations=target_locations),
         "crunchbase": CrunchbaseScraper(),
-        "job_board": JobBoardScraper(target_locations=target_locations),
+        "job_board": JobBoardScraper(target_locations=target_locations, agency_location=agency_location),
         "local_business": LocalBusinessScraper(
             target_locations=target_locations,
             target_industries=target_industries,
@@ -416,6 +420,7 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
 
     any_success = False
     all_raw_leads: list[dict] = []
+    source_log_ids: dict[str, int] = {}
 
     try:
         # ---- Phase 1: Run all scrapers; collect raw leads + write per-source logs ----
@@ -441,11 +446,11 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
 
             duration_ms = int((datetime.utcnow() - source_started).total_seconds() * 1000)
             try:
-                supabase.table("scraping_logs").insert({
+                log_insert = supabase.table("scraping_logs").insert({
                     "source": source,
                     "status": log_status,
                     "leads_found": leads_found,
-                    # leads_new is resolved after the cross-source merge below
+                    # leads_new/leads_updated are patched in after the cross-source merge below
                     "leads_new": 0,
                     "leads_updated": 0,
                     "duration_ms": duration_ms,
@@ -454,27 +459,50 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
                     "error_message": error_msg,
                     "created_at": datetime.utcnow().isoformat(),
                 }).execute()
+                if log_insert.data:
+                    source_log_ids[source] = log_insert.data[0]["id"]
             except Exception as e:
                 logger.error(f"[Scraper] Failed to write log for {source}: {e}")
 
         # ---- Phase 2: Cross-source merge ----
         merged_leads = merge_leads(all_raw_leads)
-        multi_source = sum(1 for l in merged_leads if "," in l.get("source", ""))
+        multi_source = sum(1 for l in merged_leads if l.get("source_count", 1) >= 2)
         logger.info(
             f"[Merger] {len(all_raw_leads)} raw leads → {len(merged_leads)} merged "
             f"({multi_source} cross-source)"
         )
 
-        # ---- Phase 3: Insert merged leads ----
+        # ---- Phase 3: Insert new leads / refresh existing ones ----
         total_new = 0
         failed_inserts = 0
+        per_source_new: dict[str, int] = {}
+        per_source_updated: dict[str, int] = {}
         for lead_data in merged_leads:
+            contributing_sources = lead_data.get("contributing_sources") or [lead_data.get("source", "")]
             try:
                 all_urls = lead_data.pop("_all_source_urls", [lead_data.get("source_url", "")])
                 existing = supabase.table("leads").select("id").in_(
                     "source_url", [u for u in all_urls if u]
                 ).execute()
                 if existing.data:
+                    # Refresh raw-scrape-derived fields only. Analysis-owned fields
+                    # (status, lead_score, contact_*, industry, analyzed_at) belong to
+                    # the separate /analyze flow and must not be clobbered here.
+                    refresh = {
+                        k: v for k, v in {
+                            "hiring_signal": lead_data.get("hiring_signal"),
+                            "description": lead_data.get("description"),
+                            "location": lead_data.get("location"),
+                            "job_title": lead_data.get("job_title"),
+                            "company_size": lead_data.get("company_size"),
+                        }.items() if v
+                    }
+                    refresh["source_count"] = lead_data.get("source_count", 1)
+                    refresh["contributing_sources"] = contributing_sources
+                    refresh["updated_at"] = datetime.utcnow().isoformat()
+                    supabase.table("leads").update(refresh).eq("id", existing.data[0]["id"]).execute()
+                    for s in contributing_sources:
+                        per_source_updated[s] = per_source_updated.get(s, 0) + 1
                     continue
                 supabase.table("leads").insert({
                     **lead_data,
@@ -484,12 +512,24 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
                     "updated_at": datetime.utcnow().isoformat(),
                 }).execute()
                 total_new += 1
+                for s in contributing_sources:
+                    per_source_new[s] = per_source_new.get(s, 0) + 1
             except Exception as e:
                 failed_inserts += 1
-                logger.error(f"[Scraper] Failed to insert '{lead_data.get('company_name', '?')}': {e}")
+                logger.error(f"[Scraper] Failed to insert/update '{lead_data.get('company_name', '?')}': {e}")
 
         if failed_inserts:
             logger.error(f"[Scraper] {failed_inserts} merged lead(s) failed to insert")
+
+        # ---- Phase 4: Patch per-source scraping_logs rows with real new/updated counts ----
+        for source, log_id in source_log_ids.items():
+            try:
+                supabase.table("scraping_logs").update({
+                    "leads_new": per_source_new.get(source, 0),
+                    "leads_updated": per_source_updated.get(source, 0),
+                }).eq("id", log_id).execute()
+            except Exception as e:
+                logger.error(f"[Scraper] Failed to patch log counts for {source}: {e}")
 
         overall_status = "completed" if any_success else "failed"
         scrape_jobs[job_id].update({

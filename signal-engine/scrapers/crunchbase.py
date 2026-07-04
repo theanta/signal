@@ -28,6 +28,7 @@ class CrunchbaseScraper(ApifyBaseScraper):
 
     def scrape(self) -> list[dict]:
         leads = []
+        errors: list[str] = []
         for query in SEARCH_QUERIES:
             try:
                 items = self._run_actor(CRUNCHBASE_ACTOR, {
@@ -40,7 +41,13 @@ class CrunchbaseScraper(ApifyBaseScraper):
                         leads.append(lead)
                 logger.info(f"[Crunchbase] {len(items)} items for '{query}'")
             except Exception as e:
+                errors.append(str(e))
                 logger.warning(f"[Crunchbase] Failed for '{query}': {e}")
+
+        # If every query errored out, this is a real failure (e.g. actor unrentable,
+        # auth broken) — surface it instead of silently reporting "0 leads found".
+        if errors and len(errors) == len(SEARCH_QUERIES):
+            raise RuntimeError(f"All {len(SEARCH_QUERIES)} Crunchbase queries failed: {errors[0]}")
 
         logger.info(f"[Crunchbase] {len(leads)} total leads before dedup")
         return self._deduplicate(leads)

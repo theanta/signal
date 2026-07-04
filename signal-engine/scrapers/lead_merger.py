@@ -3,8 +3,10 @@ Cross-source lead merger.
 
 When the same company appears in multiple scrapers (LinkedIn, Indeed, Crunchbase,
 Google Maps), merge them into one lead with combined signals rather than inserting
-duplicate rows. The merged lead's `source` field becomes a comma-separated list
-(e.g. "linkedin, job_board"), which the scorer uses to apply a multi-source bonus.
+duplicate rows. `source` stays the single highest-priority contributing source
+(leads.source is a Postgres enum — it can't hold a composite value). The full
+multi-source signal is carried separately via `contributing_sources` (list) and
+`source_count` (int), which the scorer uses to apply a multi-source bonus.
 """
 
 import re
@@ -133,7 +135,10 @@ def _merge_group(leads: list[dict]) -> dict:
         if not base.get("industry") and l.get("industry"):
             base["industry"] = l["industry"]
 
-    base["source"] = ", ".join(sources)
+    # base["source"] is left as sorted_leads[0]'s single source (highest priority) —
+    # leads.source is a Postgres enum and cannot hold a composite value.
+    base["contributing_sources"] = sources
+    base["source_count"] = len(sources)
     base["hiring_signal"] = " | ".join(signals)
     base["description"] = best_description
     base["location"] = best_location

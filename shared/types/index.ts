@@ -49,6 +49,8 @@ export interface Lead {
   contact_title?: string;
   contact_linkedin_url?: string;
   contact_email_confidence?: EmailConfidence;
+  source_count?: number;
+  contributing_sources?: string[];
   scraped_at?: string;
   analyzed_at?: string;
   contacted_at?: string;
@@ -145,6 +147,7 @@ export interface ScrapedLeadRaw {
   description?: string;
   industry?: string;
   company_size?: string;
+  source_count?: number;
   // Cached enrichment from a prior analysis — signal engine skips those calls when set
   cached_tech_stack?: string[];
   cached_tech_gaps?: string[];

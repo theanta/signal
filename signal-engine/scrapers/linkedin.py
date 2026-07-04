@@ -32,17 +32,15 @@ class LinkedInJobsScraper(ApifyBaseScraper):
         self.location = locs[0]
 
     def scrape(self) -> list[dict]:
-        items = []
-        try:
-            items = self._run_actor(LINKEDIN_ACTOR, {
-                "keywords": TARGET_ROLES,
-                "location": self.location,
-                # r86400 = LinkedIn's native filter code for "past 24 hours"
-                "datePosted": "r86400",
-                "limit": 50,
-            })
-        except Exception as e:
-            logger.error(f"[LinkedIn] Actor run failed: {e}")
+        # Let actor failures propagate — the caller (main.py) records them as a
+        # real "failed" status instead of us silently reporting "0 leads found".
+        items = self._run_actor(LINKEDIN_ACTOR, {
+            "keywords": TARGET_ROLES,
+            "location": self.location,
+            # r86400 = LinkedIn's native filter code for "past 24 hours"
+            "datePosted": "r86400",
+            "limit": 50,
+        })
 
         leads = []
         for item in items:

@@ -54,21 +54,20 @@ class LocalBusinessScraper(ApifyBaseScraper):
 
         logger.info(f"[LocalBusiness] Running {len(queries)} Google Maps queries across {self.locations}")
 
+        # Let actor failures propagate — the caller (main.py) records them as a
+        # real "failed" status instead of us silently reporting "0 leads found".
         leads = []
-        try:
-            items = self._run_actor(GOOGLE_MAPS_ACTOR, {
-                "searchStringsArray": queries,
-                "maxCrawledPlacesPerSearch": MAX_PLACES_PER_QUERY,
-                "language": "en",
-                "maxReviews": 0,
-            })
-            for item in items:
-                lead = self._map_item(item)
-                if lead:
-                    leads.append(lead)
-            logger.info(f"[LocalBusiness] {len(leads)} leads from Google Maps")
-        except Exception as e:
-            logger.warning(f"[LocalBusiness] Error: {e}")
+        items = self._run_actor(GOOGLE_MAPS_ACTOR, {
+            "searchStringsArray": queries,
+            "maxCrawledPlacesPerSearch": MAX_PLACES_PER_QUERY,
+            "language": "en",
+            "maxReviews": 0,
+        })
+        for item in items:
+            lead = self._map_item(item)
+            if lead:
+                leads.append(lead)
+        logger.info(f"[LocalBusiness] {len(leads)} leads from Google Maps")
 
         return self._deduplicate(leads)
 

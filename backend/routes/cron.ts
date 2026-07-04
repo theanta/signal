@@ -96,6 +96,7 @@ async function runLeadAnalysis(trigger: 'scheduled' | 'manual' = 'scheduled'): P
           description: lead.description,
           industry: lead.industry,
           company_size: lead.company_size,
+          source_count: lead.source_count ?? 1,
         });
 
         const leadUpdate: Record<string, unknown> = {

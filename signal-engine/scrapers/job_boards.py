@@ -30,34 +30,67 @@ class JobBoardScraper(ApifyBaseScraper):
     Operational hiring = manual process pain. Tech hiring = build partner.
     """
 
-    def __init__(self, target_locations: list[str] | None = None, **kwargs):
+    def __init__(
+        self,
+        target_locations: list[str] | None = None,
+        agency_location: str | None = None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
-        locs = target_locations or ["Michigan, USA", "Detroit, MI"]
-        self.broad_location = locs[0]
-        # Prefer a "City, State" entry for the narrow search; fall back to broad
-        self.narrow_location = next(
-            (l for l in locs if "," in l),
-            locs[0],
-        )
+
+        if not target_locations and not agency_location:
+            self.broad_location = "Michigan, USA"
+            self.narrow_location = "Detroit, MI"
+            return
+
+        locs = target_locations or []
+        # target_locations are plain city/state names (e.g. "Detroit", "MI") with no
+        # "City, State" formatting — derive the state from agency_location (e.g.
+        # "Detroit, Michigan") to build proper broad/narrow search strings.
+        state = agency_location.split(",")[-1].strip() if agency_location and "," in agency_location else None
+
+        # Operational-role search: state-wide — casts a wide net for manual-process pain
+        self.broad_location = f"{state}, USA" if state else (locs[0] if locs else "Michigan, USA")
+
+        # Tech-role search: one specific city — Indeed's location filter returns better
+        # matches with a "City, State" string than a bare state name
+        city = next((l for l in locs if len(l) > 3 and l != state), None)
+        if city and state:
+            self.narrow_location = f"{city}, {state}"
+        elif city:
+            self.narrow_location = city
+        else:
+            self.narrow_location = self.broad_location
 
     def scrape(self) -> list[dict]:
         leads = []
+        errors: list[str] = []
+        attempts = 0
 
         for role in OPERATIONAL_ROLES[:3]:
+            attempts += 1
             try:
                 batch = self._scrape_role(role, self.broad_location)
                 leads.extend(batch)
                 logger.info(f"[JobBoard] {len(batch)} leads for '{role}'")
             except Exception as e:
+                errors.append(str(e))
                 logger.warning(f"[JobBoard] Failed for '{role}': {e}")
 
         for role in TECH_ROLES[:2]:
+            attempts += 1
             try:
                 batch = self._scrape_role(role, self.narrow_location)
                 leads.extend(batch)
                 logger.info(f"[JobBoard] {len(batch)} leads for '{role}'")
             except Exception as e:
+                errors.append(str(e))
                 logger.warning(f"[JobBoard] Failed for '{role}': {e}")
+
+        # If every role query errored out, this is a real failure — surface it
+        # instead of silently reporting "0 leads found".
+        if errors and len(errors) == attempts:
+            raise RuntimeError(f"All {attempts} Indeed queries failed: {errors[0]}")
 
         return self._deduplicate(leads)
 

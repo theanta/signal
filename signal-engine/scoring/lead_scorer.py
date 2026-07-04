@@ -57,13 +57,12 @@ class LeadScorer:
         industry: str,
         tech_stack: list[str] | None = None,
         tech_gaps: list[str] | None = None,
-        source: str = "",
+        source_count: int = 1,
     ) -> dict:
         text = f"{hiring_signal} {job_title} {description}".lower()
         location_lower = location.lower()
         tech_stack = tech_stack or []
         tech_gaps = tech_gaps or []
-        source_count = len([s for s in source.split(",") if s.strip()]) if source else 1
 
         # ---- Component 1: Company size (0-25) ----
         size_key = company_size.lower().strip()
