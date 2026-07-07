@@ -19,7 +19,7 @@ _SUFFIX_RE = re.compile(
 _NON_ALPHA = re.compile(r'[^a-z0-9\s]')
 
 # Highest-priority source wins for canonical name, website, source_url
-_SOURCE_PRIORITY = ["linkedin", "crunchbase", "job_board", "local_business", "remote_jobs"]
+_SOURCE_PRIORITY = ["linkedin", "crunchbase", "job_board", "local_business"]
 
 
 def _source_rank(source: str) -> int:

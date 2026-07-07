@@ -115,7 +115,9 @@ class RemoteJobsScraper(ApifyBaseScraper):
         return queries
 
     def scrape(self) -> list[dict]:
-        leads = []
+        """Returns one dict per job posting (see `_map_item`) — these are written
+        directly to the `jobs` table, not merged into the `leads` pipeline."""
+        postings = []
         errors: list[str] = []
         queries = self._build_queries()
 
@@ -128,9 +130,9 @@ class RemoteJobsScraper(ApifyBaseScraper):
                     "maxItems": 20,
                     "saveOnlyUniqueItems": True,
                 })
-                batch = [lead for item in items if (lead := self._map_item(item, query))]
-                leads.extend(batch)
-                logger.info(f"[RemoteJobs] {len(batch)} leads for '{query}' ({len(items)} raw)")
+                batch = [posting for item in items if (posting := self._map_item(item, query))]
+                postings.extend(batch)
+                logger.info(f"[RemoteJobs] {len(batch)} postings for '{query}' ({len(items)} raw)")
             except Exception as e:
                 errors.append(str(e))
                 logger.warning(f"[RemoteJobs] Failed for '{query}': {e}")
@@ -138,7 +140,7 @@ class RemoteJobsScraper(ApifyBaseScraper):
         if errors and len(errors) == len(queries):
             raise RuntimeError(f"All {len(queries)} remote job queries failed: {errors[0]}")
 
-        return self._deduplicate(leads)
+        return self._deduplicate(postings)
 
     def _map_item(self, item: dict, query: str) -> dict | None:
         company = item.get("company") or item.get("companyName") or ""
@@ -150,6 +152,10 @@ class RemoteJobsScraper(ApifyBaseScraper):
         source_url = item.get("url") or item.get("externalApplyLink") or ""
         description = item.get("description") or ""
         posted_at = item.get("postedAt") or item.get("date") or ""
+        external_id = item.get("id") or item.get("positionId") or None
+        salary_text = item.get("salary") or None
+        job_type = item.get("jobType") or []
+        employment_type = ", ".join(job_type) if isinstance(job_type, list) else (job_type or None)
 
         if not _is_recent_enough(posted_at):
             return None
@@ -159,21 +165,26 @@ class RemoteJobsScraper(ApifyBaseScraper):
             return None
 
         return {
+            "external_id": external_id,
             "company_name": company,
             "location": location,
             "job_title": job_title,
-            "hiring_signal": f"Hiring {job_title} (remote) — actively growing distributed team",
+            "employment_type": employment_type,
+            "salary_text": salary_text,
+            "posted_at_raw": posted_at or None,
+            "technologies": [t for t in self.technologies if t],
             "source_url": source_url,
-            "source": "remote_jobs",
-            "description": description[:500],
+            "description": description,
         }
 
-    def _deduplicate(self, leads: list[dict]) -> list[dict]:
+    def _deduplicate(self, postings: list[dict]) -> list[dict]:
+        """Dedup within a single scrape run only — cross-run upsert dedup
+        (by external_id/source_url) happens where postings are persisted."""
         seen: set[str] = set()
         unique = []
-        for lead in leads:
-            key = lead.get("company_name", "").lower().strip()
+        for posting in postings:
+            key = posting.get("external_id") or posting.get("source_url") or ""
             if key and key not in seen:
                 seen.add(key)
-                unique.append(lead)
+                unique.append(posting)
         return unique

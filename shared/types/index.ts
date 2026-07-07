@@ -22,7 +22,7 @@ export type LeadSource =
 
 export type LeadTab = 'all' | 'hiring' | 'discovery';
 
-export const HIRING_SOURCES: LeadSource[] = ['linkedin', 'job_board', 'remote_jobs'];
+export const HIRING_SOURCES: LeadSource[] = ['linkedin', 'job_board'];
 export const DISCOVERY_SOURCES: LeadSource[] = ['crunchbase', 'local_business'];
 
 export type OutreachChannel = 'email' | 'linkedin' | 'phone' | 'other';
@@ -63,6 +63,39 @@ export interface LeadWithSignals extends Lead {
   signals?: LeadSignal[];
   score_detail?: LeadScore;
   outreach_messages?: OutreachMessage[];
+}
+
+// ---- Job (remote job postings — a separate entity from Lead) ----
+
+export type JobStatus = 'new' | 'reviewed' | 'archived' | 'converted';
+
+export interface Job {
+  id: string;
+  external_id?: string;
+  company_name: string;
+  job_title?: string;
+  location?: string;
+  employment_type?: string;
+  salary_text?: string;
+  posted_at_raw?: string;
+  technologies?: string[];
+  source_url?: string;
+  description?: string;
+  status: JobStatus;
+  converted_lead_id?: string;
+  scraped_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface JobFilters {
+  status?: JobStatus;
+  search?: string;
+  location?: string;
+  page?: number;
+  per_page?: number;
+  sort_by?: 'created_at' | 'company_name';
+  sort_order?: 'asc' | 'desc';
 }
 
 // ---- Signal ----

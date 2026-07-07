@@ -1,12 +1,13 @@
 'use client';
 
-import { Search, X, Columns3 } from 'lucide-react';
+import { Search, X, Columns3, ChevronDown } from 'lucide-react';
 import * as Popover from '@radix-ui/react-popover';
+import * as Select from '@radix-ui/react-select';
 import { cn } from '@/lib/utils';
 import type { LeadFilters, LeadStatus } from '../../../shared/types';
 
 const STATUSES: LeadStatus[] = ['new', 'analyzed', 'contacted', 'replied', 'meeting', 'proposal', 'client'];
-const SOURCES = ['linkedin', 'job_board', 'crunchbase', 'local_business', 'remote_jobs', 'manual'];
+const SOURCES = ['linkedin', 'job_board', 'crunchbase', 'local_business', 'manual'];
 
 export const TOGGLEABLE_COLS = [
   { id: 'location',   label: 'Location' },
@@ -15,13 +16,59 @@ export const TOGGLEABLE_COLS = [
   { id: 'discovered', label: 'Discovered' },
 ] as const;
 
-const selectCn = cn(
-  'h-9 px-3 text-[13px] text-ink bg-canvas',
-  'border border-hairline rounded-lg',
-  'focus:outline-none focus:border-brand focus:ring-2 focus:ring-brand/10',
-  'cursor-pointer appearance-none pr-8',
-  'bg-[url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' fill=\'none\' stroke=\'%238b95a8\' stroke-width=\'1.5\' viewBox=\'0 0 24 24\'%3E%3Cpath d=\'M6 9l6 6 6-6\'/%3E%3C/svg%3E")] bg-no-repeat bg-[right_8px_center]',
+const selectTriggerCn = cn(
+  'flex items-center justify-between gap-2 h-9 pl-3 pr-2.5 text-[13px] text-ink bg-canvas',
+  'border border-hairline rounded-lg outline-none',
+  'data-[placeholder]:text-ink',
+  'focus:border-brand focus:ring-2 focus:ring-brand/10',
+  'cursor-pointer whitespace-nowrap',
 );
+
+const selectContentCn = cn(
+  'overflow-hidden bg-canvas border border-hairline rounded-xl shadow-card-lg',
+  'animate-scale-in z-50',
+);
+
+const selectItemCn = cn(
+  'relative flex items-center h-8 px-3 text-[13px] text-ink rounded-lg mx-1',
+  'outline-none cursor-pointer select-none',
+  'data-[highlighted]:bg-surface-strong',
+);
+
+interface FilterSelectProps {
+  value: string;
+  onValueChange: (value: string) => void;
+  placeholder: string;
+  children: React.ReactNode;
+}
+
+function FilterSelect({ value, onValueChange, placeholder, children }: FilterSelectProps) {
+  return (
+    <Select.Root value={value || undefined} onValueChange={onValueChange}>
+      <Select.Trigger className={selectTriggerCn}>
+        <Select.Value placeholder={placeholder} />
+        <Select.Icon>
+          <ChevronDown className="w-3.5 h-3.5 text-muted" />
+        </Select.Icon>
+      </Select.Trigger>
+      <Select.Portal>
+        <Select.Content className={selectContentCn} position="popper" sideOffset={6}>
+          <Select.Viewport className="p-1">
+            {children}
+          </Select.Viewport>
+        </Select.Content>
+      </Select.Portal>
+    </Select.Root>
+  );
+}
+
+function FilterSelectItem({ value, children }: { value: string; children: React.ReactNode }) {
+  return (
+    <Select.Item value={value} className={selectItemCn}>
+      <Select.ItemText>{children}</Select.ItemText>
+    </Select.Item>
+  );
+}
 
 interface LeadsFiltersProps {
   filters: LeadFilters;
@@ -58,44 +105,44 @@ export default function LeadsFilters({
       </div>
 
       {/* Status */}
-      <select
-        value={filters.status ?? ''}
-        onChange={e => onChange({ status: (e.target.value as LeadStatus) || undefined, page: 1 })}
-        className={selectCn}
+      <FilterSelect
+        value={filters.status ?? 'all'}
+        onValueChange={v => onChange({ status: (v === 'all' ? undefined : v as LeadStatus), page: 1 })}
+        placeholder="All statuses"
       >
-        <option value="">All statuses</option>
+        <FilterSelectItem value="all">All statuses</FilterSelectItem>
         {STATUSES.map(s => (
-          <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+          <FilterSelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</FilterSelectItem>
         ))}
-      </select>
+      </FilterSelect>
 
       {/* Source */}
       {!hideSource && (
-        <select
-          value={filters.source ?? ''}
-          onChange={e => onChange({ source: e.target.value as LeadFilters['source'] || undefined, page: 1 })}
-          className={selectCn}
+        <FilterSelect
+          value={filters.source ?? 'all'}
+          onValueChange={v => onChange({ source: (v === 'all' ? undefined : v as LeadFilters['source']), page: 1 })}
+          placeholder="All sources"
         >
-          <option value="">All sources</option>
+          <FilterSelectItem value="all">All sources</FilterSelectItem>
           {SOURCES.map(s => (
-            <option key={s} value={s}>
+            <FilterSelectItem key={s} value={s}>
               {s.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}
-            </option>
+            </FilterSelectItem>
           ))}
-        </select>
+        </FilterSelect>
       )}
 
       {/* Score */}
-      <select
-        value={filters.min_score ?? ''}
-        onChange={e => onChange({ min_score: e.target.value ? Number(e.target.value) : undefined, page: 1 })}
-        className={selectCn}
+      <FilterSelect
+        value={filters.min_score ? String(filters.min_score) : 'all'}
+        onValueChange={v => onChange({ min_score: v === 'all' ? undefined : Number(v), page: 1 })}
+        placeholder="Any score"
       >
-        <option value="">Any score</option>
-        <option value="70">Hot (≥ 70)</option>
-        <option value="55">Warm (≥ 55)</option>
-        <option value="35">Cool (≥ 35)</option>
-      </select>
+        <FilterSelectItem value="all">Any score</FilterSelectItem>
+        <FilterSelectItem value="70">Hot (≥ 70)</FilterSelectItem>
+        <FilterSelectItem value="55">Warm (≥ 55)</FilterSelectItem>
+        <FilterSelectItem value="35">Cool (≥ 35)</FilterSelectItem>
+      </FilterSelect>
 
       <div className="flex-1" />
 

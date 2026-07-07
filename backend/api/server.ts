@@ -11,6 +11,7 @@ import cookieParser from 'cookie-parser';
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 import leadsRouter from '../routes/leads';
+import jobsRouter from '../routes/jobs';
 import outreachRouter from '../routes/outreach';
 import signalsRouter from '../routes/signals';
 import metricsRouter from '../routes/metrics';
@@ -81,6 +82,7 @@ app.use('/api/auth', authRouter);
 
 // ---- Protected API Routes ----
 app.use('/api/leads',    authenticate, leadsRouter);
+app.use('/api/jobs',     authenticate, jobsRouter);
 app.use('/api/outreach', authenticate, outreachRouter);
 app.use('/api/signals',  authenticate, signalsRouter);
 app.use('/api/metrics',  authenticate, metricsRouter);

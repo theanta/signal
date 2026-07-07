@@ -579,12 +579,15 @@ export default function LeadDetailPage() {
                 </div>
                 <div className="flex items-center gap-2 mt-2.5 flex-wrap">
                   <StatusBadge status={lead.status} />
-                  {lead.hiring_signal && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-2xs font-medium rounded-full border bg-amber-500/10 text-amber-400 border-amber-500/20">
+                  {lead.hiring_signal && lead.hiring_signal.split('|').map((s) => s.trim()).filter(Boolean).map((signal, i) => (
+                    <span
+                      key={i}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 text-2xs font-medium rounded-full border bg-amber-500/10 text-amber-400 border-amber-500/20"
+                    >
                       <Zap className="w-3 h-3" />
-                      {lead.hiring_signal}
+                      {signal}
                     </span>
-                  )}
+                  ))}
                 </div>
                 {lead.description && (
                   <p className="text-body-sm text-body mt-3 leading-relaxed border-t border-hairline pt-3">

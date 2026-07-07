@@ -6,6 +6,8 @@
 
 @layer base {
   :root {
+    color-scheme: dark;
+
     /* ── Semantic alias vars — dark intelligence theme ── */
     --ink: #dde2ea;
     --ink-active: #ffffff;

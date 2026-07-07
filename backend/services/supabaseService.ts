@@ -1,7 +1,8 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import type {
   Lead, LeadFilters, LeadSignal, LeadScore,
-  OutreachMessage, ScrapingLog, PaginatedResponse, DashboardMetrics, CronJobLog
+  OutreachMessage, ScrapingLog, PaginatedResponse, DashboardMetrics, CronJobLog,
+  Job, JobFilters,
 } from '../../shared/types';
 
 const supabaseUrl = process.env.SUPABASE_URL!;
@@ -86,6 +87,67 @@ export async function upsertLeadByWebsite(lead: Partial<Lead>): Promise<{ lead: 
   }
   const created = await createLead(lead);
   return { lead: created, isNew: true };
+}
+
+// ============================================================
+// JOBS
+// ============================================================
+
+export async function getJobs(filters: JobFilters = {}): Promise<PaginatedResponse<Job>> {
+  const {
+    status, search, location,
+    page = 1, per_page = 25,
+    sort_by = 'created_at', sort_order = 'desc',
+  } = filters;
+
+  let query = supabase.from('jobs').select('*', { count: 'exact' });
+
+  if (status) query = query.eq('status', status);
+  if (location) query = query.ilike('location', `%${location}%`);
+  if (search) {
+    query = query.or(`company_name.ilike.%${search}%,job_title.ilike.%${search}%,description.ilike.%${search}%`);
+  }
+
+  query = query.order(sort_by, { ascending: sort_order === 'asc' });
+  query = query.range((page - 1) * per_page, page * per_page - 1);
+
+  const { data, error, count } = await query;
+  if (error) throw new Error(`getJobs: ${error.message}`);
+
+  return {
+    data: (data ?? []) as Job[],
+    total: count ?? 0,
+    page,
+    per_page,
+    total_pages: Math.ceil((count ?? 0) / per_page),
+  };
+}
+
+export async function getJobById(id: string): Promise<Job | null> {
+  const { data, error } = await supabase.from('jobs').select('*').eq('id', id).single();
+  if (error) return null;
+  return data as Job;
+}
+
+export async function updateJob(id: string, updates: Partial<Job>): Promise<Job> {
+  const { data, error } = await supabase
+    .from('jobs').update(updates).eq('id', id).select().single();
+  if (error) throw new Error(`updateJob: ${error.message}`);
+  return data as Job;
+}
+
+export async function convertJobToLead(job: Job): Promise<Lead> {
+  const lead = await createLead({
+    company_name: job.company_name,
+    location: job.location,
+    job_title: job.job_title,
+    description: job.description,
+    source_url: job.source_url,
+    source: 'manual',
+    hiring_signal: job.job_title ? `Hiring ${job.job_title} (remote)` : undefined,
+  });
+  await updateJob(job.id, { status: 'converted', converted_lead_id: lead.id });
+  return lead;
 }
 
 // ============================================================

@@ -14,7 +14,7 @@ import Link from 'next/link';
 
 const TABS: { id: LeadTab; label: string; description: string }[] = [
   { id: 'all',       label: 'All Leads',          description: 'Every lead across all sources' },
-  { id: 'hiring',    label: 'Hiring Signals',      description: 'LinkedIn, Job Boards & Remote Jobs — companies actively hiring' },
+  { id: 'hiring',    label: 'Hiring Signals',      description: 'LinkedIn & Job Boards — companies actively hiring' },
   { id: 'discovery', label: 'Company Discovery',   description: 'Crunchbase & Google Maps — local and funded companies' },
 ];
 

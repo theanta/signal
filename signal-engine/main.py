@@ -461,6 +461,51 @@ async def stream_scrape_job(job_id: str):
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
+def _persist_job_postings(supabase, postings: list[dict]) -> tuple[int, int]:
+    """Upsert job postings into the `jobs` table (one row per posting).
+    Returns (new_count, updated_count)."""
+    now = datetime.utcnow().isoformat()
+    with_ext = [p for p in postings if p.get("external_id")]
+    without_ext = [p for p in postings if not p.get("external_id")]
+
+    new_count = 0
+    updated_count = 0
+
+    # Postings with a stable external_id: upsert directly on that column.
+    if with_ext:
+        existing = supabase.table("jobs").select("external_id").in_(
+            "external_id", [p["external_id"] for p in with_ext]
+        ).execute()
+        existing_ids = {row["external_id"] for row in (existing.data or [])}
+        rows = [{**p, "scraped_at": now, "updated_at": now} for p in with_ext]
+        supabase.table("jobs").upsert(rows, on_conflict="external_id").execute()
+        for p in with_ext:
+            if p["external_id"] in existing_ids:
+                updated_count += 1
+            else:
+                new_count += 1
+
+    # Postings without an external_id (actor didn't return one): fall back to
+    # matching by source_url so re-scrapes update rather than duplicate.
+    if without_ext:
+        urls = [p["source_url"] for p in without_ext if p.get("source_url")]
+        existing_by_url: dict[str, str] = {}
+        if urls:
+            existing = supabase.table("jobs").select("id, source_url").in_("source_url", urls).execute()
+            existing_by_url = {row["source_url"]: row["id"] for row in (existing.data or [])}
+        for p in without_ext:
+            url = p.get("source_url")
+            existing_id = existing_by_url.get(url) if url else None
+            if existing_id:
+                supabase.table("jobs").update({**p, "updated_at": now}).eq("id", existing_id).execute()
+                updated_count += 1
+            else:
+                supabase.table("jobs").insert({**p, "scraped_at": now, "created_at": now, "updated_at": now}).execute()
+                new_count += 1
+
+    return new_count, updated_count
+
+
 async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[PlatformConfig] = None):
     """Background task: runs all scrapers, saves leads, and writes scraping_logs rows."""
     from supabase import create_client
@@ -483,6 +528,11 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
             target_locations=target_locations,
             target_industries=target_industries,
         ),
+    }
+
+    # Remote jobs is a separate entity (jobs table), not a lead source — it's
+    # scraped and persisted independently of the leads merge/scoring pipeline below.
+    job_scrapers = {
         "remote_jobs": RemoteJobsScraper(
             job_roles=cfg.remote_job_roles if cfg else None,
             experience_level=cfg.remote_experience_level if cfg else None,
@@ -502,6 +552,59 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
     try:
         # ---- Phase 1: Run all scrapers; collect raw leads + write per-source logs ----
         for source in sources:
+            if source in job_scrapers:
+                # Jobs persist immediately (upserted into `jobs`) rather than flowing
+                # through the leads merge/insert phases below.
+                scraper = job_scrapers[source]
+                source_started = datetime.utcnow()
+                leads_found = 0
+                log_status = "failed"
+                error_msg = None
+                new_count = updated_count = 0
+
+                try:
+                    postings = await asyncio.to_thread(scraper.scrape)
+                    leads_found = len(postings)
+                    new_count, updated_count = await asyncio.to_thread(_persist_job_postings, supabase, postings)
+                    log_status = "completed"
+                    any_success = True
+                except Exception as e:
+                    error_msg = str(e)
+                    logger.error(f"[Scraper] {source} failed: {e}")
+
+                scrape_jobs[job_id]["sources"][source] = {
+                    "status": log_status,
+                    "leads_found": leads_found,
+                    "error": error_msg,
+                }
+                await _emit_scrape_event(job_id, {
+                    "phase": "source",
+                    "source": source,
+                    "status": log_status,
+                    "leads_found": leads_found,
+                    "error": error_msg,
+                })
+
+                duration_ms = int((datetime.utcnow() - source_started).total_seconds() * 1000)
+                try:
+                    supabase.table("scraping_logs").insert({
+                        "job_id": job_id,
+                        "source": source,
+                        "status": log_status,
+                        "leads_found": leads_found,
+                        "leads_new": new_count,
+                        "leads_updated": updated_count,
+                        "duration_ms": duration_ms,
+                        "started_at": source_started.isoformat(),
+                        "completed_at": datetime.utcnow().isoformat(),
+                        "error_message": error_msg,
+                        "created_at": datetime.utcnow().isoformat(),
+                    }).execute()
+                except Exception as e:
+                    logger.error(f"[Scraper] Failed to write log for {source}: {e}")
+
+                continue
+
             scraper = scrapers.get(source)
             if not scraper:
                 continue
