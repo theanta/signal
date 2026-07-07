@@ -16,6 +16,13 @@ const STATUS_STYLES: Record<JobStatus, string> = {
   converted: 'bg-status-client-bg text-status-client-text border-status-client-border',
 };
 
+const SOURCE_LABELS: Record<Job['source'], string> = {
+  indeed:    'Indeed',
+  linkedin:  'LinkedIn',
+  remoteok:  'RemoteOK',
+  remotive:  'Remotive',
+};
+
 interface JobsTableProps {
   jobs: Job[];
   total: number;
@@ -44,7 +51,7 @@ export default function JobsTable({ jobs, total, page, totalPages, isLoading = f
       <div className="card overflow-hidden">
         <table className="w-full">
           <tbody>
-            {Array.from({ length: 8 }).map((_, i) => <TableRowSkeleton key={i} cols={7} />)}
+            {Array.from({ length: 8 }).map((_, i) => <TableRowSkeleton key={i} cols={8} />)}
           </tbody>
         </table>
       </div>
@@ -61,6 +68,7 @@ export default function JobsTable({ jobs, total, page, totalPages, isLoading = f
               <th className={thCn}>Role</th>
               <th className={thCn}>Location</th>
               <th className={thCn}>Salary</th>
+              <th className={thCn}>Source</th>
               <th className={thCn}>Posted</th>
               <th className={thCn}>Status</th>
               <th className={cn(thCn, 'w-10')} />
@@ -70,7 +78,7 @@ export default function JobsTable({ jobs, total, page, totalPages, isLoading = f
           <tbody className="divide-y divide-hairline">
             {jobs.length === 0 ? (
               <tr>
-                <td colSpan={7} className="py-20 text-center">
+                <td colSpan={8} className="py-20 text-center">
                   <div className="flex flex-col items-center gap-3">
                     <div className="w-12 h-12 rounded-full bg-surface-strong flex items-center justify-center">
                       <Briefcase className="w-6 h-6 text-muted/40" />
@@ -108,6 +116,11 @@ export default function JobsTable({ jobs, total, page, totalPages, isLoading = f
                   {/* Salary */}
                   <td className="px-4 py-1.5 text-xs text-body whitespace-nowrap">
                     {job.salary_text ?? '—'}
+                  </td>
+
+                  {/* Source */}
+                  <td className="px-4 py-1.5 text-xs text-muted whitespace-nowrap">
+                    {SOURCE_LABELS[job.source] ?? job.source}
                   </td>
 
                   {/* Posted */}

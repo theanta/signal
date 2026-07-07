@@ -68,6 +68,7 @@ export interface LeadWithSignals extends Lead {
 // ---- Job (remote job postings — a separate entity from Lead) ----
 
 export type JobStatus = 'new' | 'reviewed' | 'archived' | 'converted';
+export type JobSource = 'indeed' | 'linkedin' | 'remoteok' | 'remotive';
 
 export interface Job {
   id: string;
@@ -80,6 +81,7 @@ export interface Job {
   posted_at_raw?: string;
   technologies?: string[];
   source_url?: string;
+  source: JobSource;
   description?: string;
   status: JobStatus;
   converted_lead_id?: string;
