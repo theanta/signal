@@ -23,6 +23,7 @@ from scrapers.linkedin import LinkedInJobsScraper
 from scrapers.crunchbase import CrunchbaseScraper
 from scrapers.job_boards import JobBoardScraper
 from scrapers.local_business import LocalBusinessScraper
+from scrapers.remote_jobs import RemoteJobsScraper
 from analyzers.signal_detector import SignalDetector
 from scoring.lead_scorer import LeadScorer
 from analyzers.pain_point_analyzer import PainPointAnalyzer
@@ -103,6 +104,9 @@ app.add_middleware(
 
 # ---- In-memory job tracker (use Redis in production) ----
 scrape_jobs: dict[str, dict] = {}
+# One condition per active job — lets the SSE generator wait for new events
+# and replay everything already emitted to any (re)connecting client.
+scrape_conditions: dict[str, asyncio.Condition] = {}
 
 
 # ============================================================
@@ -141,7 +145,13 @@ class PlatformConfig(BaseModel):
     target_locations: list[str] = ["Detroit", "Michigan", "MI", "Dearborn", "Warren", "Troy", "Ann Arbor", "Livonia", "Sterling Heights"]
     target_company_sizes: list[str] = ["11-50", "51-200", "201-500"]
     target_industries: list[str] = []
-    active_sources: list[str] = ["linkedin", "crunchbase", "job_board", "local_business"]
+    active_sources: list[str] = ["linkedin", "crunchbase", "job_board", "local_business", "remote_jobs"]
+    # Remote job scraping settings — independent of target_locations, since remote
+    # postings are location-agnostic by definition
+    remote_job_roles: list[str] = ["software engineer", "full stack developer", "product designer"]
+    remote_experience_level: str = ""
+    remote_technologies: list[str] = []
+    remote_regions: list[str] = ["United States"]
 
 
 class AnalysisRequest(BaseModel):
@@ -150,7 +160,7 @@ class AnalysisRequest(BaseModel):
 
 
 class ScrapeRequest(BaseModel):
-    sources: list[str] = ["linkedin", "crunchbase", "job_board", "local_business"]
+    sources: list[str] = ["linkedin", "crunchbase", "job_board", "local_business", "remote_jobs"]
     config: Optional[PlatformConfig] = None
 
 
@@ -244,7 +254,7 @@ async def _analyze_lead_core(
             else _with_timeout(asyncio.to_thread(detect_tech_stack, lead.website or ""), 15),
         _cached(lead.cached_contact) if use_cached_contact
             else _with_timeout(asyncio.to_thread(find_contact, lead.company_name, lead.website, lead.location), 20),
-        _with_timeout(asyncio.to_thread(scrape_website_content, lead.website or ""), 15),
+        _with_timeout(scrape_website_content(lead.website or ""), 20),
         return_exceptions=True,
     )
 
@@ -374,15 +384,37 @@ async def analyze_lead_stream(request: AnalysisRequest):
 async def trigger_scrape(request: ScrapeRequest, background_tasks: BackgroundTasks):
     """Trigger a scraping run in the background."""
     job_id = str(uuid.uuid4())
-    scrape_jobs[job_id] = {"status": "running", "started_at": datetime.utcnow().isoformat(), "results": 0}
 
-    # Config-driven sources override the legacy `sources` field
+    # When a config is supplied, only run sources that are both requested for
+    # this call (e.g. a cron job's cadence-specific list) AND currently toggled
+    # on in Settings — so a per-cadence trigger can't run a source the user disabled.
     cfg = request.config
-    effective_sources = cfg.active_sources if cfg else request.sources
+    effective_sources = (
+        [s for s in request.sources if s in cfg.active_sources] if cfg else request.sources
+    )
+
+    scrape_jobs[job_id] = {
+        "status": "running",
+        "started_at": datetime.utcnow().isoformat(),
+        "results": 0,
+        "sources": {s: {"status": "pending"} for s in effective_sources},
+        "events": [],
+    }
+    scrape_conditions[job_id] = asyncio.Condition()
 
     background_tasks.add_task(run_scrape_job, job_id, effective_sources, cfg)
 
-    return {"job_id": job_id, "status": "running"}
+    return {"job_id": job_id, "status": "running", "sources": effective_sources}
+
+
+async def _emit_scrape_event(job_id: str, event: dict) -> None:
+    """Append an event to the job's history and wake any listening SSE stream."""
+    condition = scrape_conditions.get(job_id)
+    if not condition:
+        return
+    async with condition:
+        scrape_jobs[job_id]["events"].append(event)
+        condition.notify_all()
 
 
 @app.get("/scrape/{job_id}")
@@ -391,7 +423,42 @@ async def get_scrape_job(job_id: str):
     job = scrape_jobs.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    return {"job_id": job_id, **job}
+    return {"job_id": job_id, **{k: v for k, v in job.items() if k != "events"}}
+
+
+@app.get("/scrape/{job_id}/stream")
+async def stream_scrape_job(job_id: str):
+    """Server-sent events: per-source scrape progress, in real time."""
+    job = scrape_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    async def event_stream() -> AsyncGenerator[str, None]:
+        # Always lead with the full current state — covers reconnects and
+        # clients that connect after some (or all) sources already finished.
+        yield f"data: {json.dumps({'phase': 'snapshot', 'sources': job['sources'], 'overall_status': job['status']})}\n\n"
+
+        if job["status"] != "running":
+            return
+
+        condition = scrape_conditions.get(job_id)
+        if not condition:
+            return
+
+        sent = 0
+        while True:
+            async with condition:
+                await condition.wait_for(lambda: len(job["events"]) > sent or job["status"] != "running")
+                pending_events = job["events"][sent:]
+                sent = len(job["events"])
+            for event in pending_events:
+                yield f"data: {json.dumps(event)}\n\n"
+                if event.get("phase") == "complete":
+                    return
+            if job["status"] != "running":
+                return
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[PlatformConfig] = None):
@@ -416,11 +483,21 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
             target_locations=target_locations,
             target_industries=target_industries,
         ),
+        "remote_jobs": RemoteJobsScraper(
+            job_roles=cfg.remote_job_roles if cfg else None,
+            experience_level=cfg.remote_experience_level if cfg else None,
+            technologies=cfg.remote_technologies if cfg else None,
+            regions=cfg.remote_regions if cfg else None,
+        ),
     }
 
     any_success = False
     all_raw_leads: list[dict] = []
     source_log_ids: dict[str, int] = {}
+    # Sources whose own scrape succeeded and are logged as 'finalizing' — Phase 4
+    # promotes exactly these to 'completed' once their leads are actually persisted.
+    # ('failed' sources are already final and shouldn't be touched in Phase 4.)
+    finalizing_sources: set[str] = set()
 
     try:
         # ---- Phase 1: Run all scrapers; collect raw leads + write per-source logs ----
@@ -444,11 +521,34 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
                 error_msg = str(e)
                 logger.error(f"[Scraper] {source} failed: {e}")
 
+            # Report per-source outcome immediately — don't wait on the DB
+            # round-trip below — so the frontend sees it in real time. This is
+            # purely "did the scraper itself finish" progress and is fine as
+            # 'completed'/'failed' — the persisted log row below is different.
+            scrape_jobs[job_id]["sources"][source] = {
+                "status": log_status,
+                "leads_found": leads_found,
+                "error": error_msg,
+            }
+            await _emit_scrape_event(job_id, {
+                "phase": "source",
+                "source": source,
+                "status": log_status,
+                "leads_found": leads_found,
+                "error": error_msg,
+            })
+
             duration_ms = int((datetime.utcnow() - source_started).total_seconds() * 1000)
+            # A successful scrape isn't 'completed' yet from the Activity Log's point of
+            # view — the cross-source merge + lead persistence (Phase 2-4) hasn't run,
+            # so leads_new/leads_updated aren't known. Log it as 'finalizing' and only
+            # promote to 'completed' once Phase 4 has the real counts.
+            persisted_status = "finalizing" if log_status == "completed" else log_status
             try:
                 log_insert = supabase.table("scraping_logs").insert({
+                    "job_id": job_id,
                     "source": source,
-                    "status": log_status,
+                    "status": persisted_status,
                     "leads_found": leads_found,
                     # leads_new/leads_updated are patched in after the cross-source merge below
                     "leads_new": 0,
@@ -461,6 +561,8 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
                 }).execute()
                 if log_insert.data:
                     source_log_ids[source] = log_insert.data[0]["id"]
+                    if persisted_status == "finalizing":
+                        finalizing_sources.add(source)
             except Exception as e:
                 logger.error(f"[Scraper] Failed to write log for {source}: {e}")
 
@@ -473,61 +575,133 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
         )
 
         # ---- Phase 3: Insert new leads / refresh existing ones ----
+        # Previously this did one `select` + one `insert`/`update` round-trip per merged
+        # lead, serially — for a few hundred merged leads that's 500-1000+ sequential
+        # network calls, which is exactly why sources sat in a misleading 'finalizing'-
+        # equivalent state for minutes. Now: one batched pre-fetch, chunked bulk inserts,
+        # and bounded-concurrency updates.
         total_new = 0
         failed_inserts = 0
         per_source_new: dict[str, int] = {}
         per_source_updated: dict[str, int] = {}
+
+        all_urls_flat = list({
+            u
+            for lead_data in merged_leads
+            for u in (lead_data.get("_all_source_urls") or [lead_data.get("source_url", "")])
+            if u
+        })
+        existing_by_url: dict[str, str] = {}
+        URL_LOOKUP_CHUNK = 200  # keep each `.in_()` filter within a safe query-size bound
+        for i in range(0, len(all_urls_flat), URL_LOOKUP_CHUNK):
+            chunk = all_urls_flat[i:i + URL_LOOKUP_CHUNK]
+            try:
+                res = supabase.table("leads").select("id, source_url").in_("source_url", chunk).execute()
+                for row in res.data or []:
+                    existing_by_url[row["source_url"]] = row["id"]
+            except Exception as e:
+                logger.error(f"[Scraper] Existing-lead lookup failed for a chunk of {len(chunk)}: {e}")
+
+        new_rows: list[dict] = []
+        new_rows_sources: list[list[str]] = []
+        update_jobs: list[tuple[str, dict, list[str]]] = []
+
         for lead_data in merged_leads:
             contributing_sources = lead_data.get("contributing_sources") or [lead_data.get("source", "")]
-            try:
-                all_urls = lead_data.pop("_all_source_urls", [lead_data.get("source_url", "")])
-                existing = supabase.table("leads").select("id").in_(
-                    "source_url", [u for u in all_urls if u]
-                ).execute()
-                if existing.data:
-                    # Refresh raw-scrape-derived fields only. Analysis-owned fields
-                    # (status, lead_score, contact_*, industry, analyzed_at) belong to
-                    # the separate /analyze flow and must not be clobbered here.
-                    refresh = {
-                        k: v for k, v in {
-                            "hiring_signal": lead_data.get("hiring_signal"),
-                            "description": lead_data.get("description"),
-                            "location": lead_data.get("location"),
-                            "job_title": lead_data.get("job_title"),
-                            "company_size": lead_data.get("company_size"),
-                        }.items() if v
-                    }
-                    refresh["source_count"] = lead_data.get("source_count", 1)
-                    refresh["contributing_sources"] = contributing_sources
-                    refresh["updated_at"] = datetime.utcnow().isoformat()
-                    supabase.table("leads").update(refresh).eq("id", existing.data[0]["id"]).execute()
-                    for s in contributing_sources:
-                        per_source_updated[s] = per_source_updated.get(s, 0) + 1
-                    continue
-                supabase.table("leads").insert({
+            all_urls = lead_data.pop("_all_source_urls", [lead_data.get("source_url", "")])
+            existing_id = next((existing_by_url[u] for u in all_urls if u in existing_by_url), None)
+
+            if existing_id:
+                # Refresh raw-scrape-derived fields only. Analysis-owned fields
+                # (status, lead_score, contact_*, industry, analyzed_at) belong to
+                # the separate /analyze flow and must not be clobbered here.
+                refresh = {
+                    k: v for k, v in {
+                        "hiring_signal": lead_data.get("hiring_signal"),
+                        "description": lead_data.get("description"),
+                        "location": lead_data.get("location"),
+                        "job_title": lead_data.get("job_title"),
+                        "company_size": lead_data.get("company_size"),
+                    }.items() if v
+                }
+                refresh["source_count"] = lead_data.get("source_count", 1)
+                refresh["contributing_sources"] = contributing_sources
+                refresh["updated_at"] = datetime.utcnow().isoformat()
+                update_jobs.append((existing_id, refresh, contributing_sources))
+            else:
+                new_rows.append({
                     **lead_data,
                     "status": "new",
                     "scraped_at": datetime.utcnow().isoformat(),
                     "created_at": datetime.utcnow().isoformat(),
                     "updated_at": datetime.utcnow().isoformat(),
-                }).execute()
-                total_new += 1
-                for s in contributing_sources:
-                    per_source_new[s] = per_source_new.get(s, 0) + 1
+                })
+                new_rows_sources.append(contributing_sources)
+
+        # Bulk-insert new leads in chunks — one round trip per chunk instead of per lead.
+        # If a chunk fails (e.g. one bad row), fall back to inserting it row-by-row so a
+        # single bad lead can't sink the whole chunk's worth of good ones.
+        INSERT_CHUNK = 50
+        for i in range(0, len(new_rows), INSERT_CHUNK):
+            chunk = new_rows[i:i + INSERT_CHUNK]
+            chunk_sources = new_rows_sources[i:i + INSERT_CHUNK]
+            try:
+                supabase.table("leads").insert(chunk).execute()
+                total_new += len(chunk)
+                for sources in chunk_sources:
+                    for s in sources:
+                        per_source_new[s] = per_source_new.get(s, 0) + 1
             except Exception as e:
+                logger.warning(f"[Scraper] Bulk insert failed for a chunk of {len(chunk)}, retrying individually: {e}")
+                for row, sources in zip(chunk, chunk_sources):
+                    try:
+                        supabase.table("leads").insert(row).execute()
+                        total_new += 1
+                        for s in sources:
+                            per_source_new[s] = per_source_new.get(s, 0) + 1
+                    except Exception as e2:
+                        failed_inserts += 1
+                        logger.error(f"[Scraper] Failed to insert '{row.get('company_name', '?')}': {e2}")
+
+        # Refresh existing leads concurrently (bounded) instead of one-by-one serially —
+        # each has a different payload so it can't collapse into a single bulk call.
+        update_semaphore = asyncio.Semaphore(10)
+
+        async def _apply_update(existing_id: str, refresh: dict) -> bool:
+            async with update_semaphore:
+                try:
+                    await asyncio.to_thread(
+                        lambda: supabase.table("leads").update(refresh).eq("id", existing_id).execute()
+                    )
+                    return True
+                except Exception as e:
+                    logger.error(f"[Scraper] Failed to update lead {existing_id}: {e}")
+                    return False
+
+        update_results = await asyncio.gather(*(
+            _apply_update(existing_id, refresh) for existing_id, refresh, _ in update_jobs
+        ))
+        for (_, _, sources), ok in zip(update_jobs, update_results):
+            if ok:
+                for s in sources:
+                    per_source_updated[s] = per_source_updated.get(s, 0) + 1
+            else:
                 failed_inserts += 1
-                logger.error(f"[Scraper] Failed to insert/update '{lead_data.get('company_name', '?')}': {e}")
 
         if failed_inserts:
-            logger.error(f"[Scraper] {failed_inserts} merged lead(s) failed to insert")
+            logger.error(f"[Scraper] {failed_inserts} merged lead(s) failed to insert/update")
 
-        # ---- Phase 4: Patch per-source scraping_logs rows with real new/updated counts ----
+        # ---- Phase 4: Patch per-source scraping_logs rows with real new/updated counts,
+        # and promote 'finalizing' rows to 'completed' now that persistence is done ----
         for source, log_id in source_log_ids.items():
+            update_payload: dict = {
+                "leads_new": per_source_new.get(source, 0),
+                "leads_updated": per_source_updated.get(source, 0),
+            }
+            if source in finalizing_sources:
+                update_payload["status"] = "completed"
             try:
-                supabase.table("scraping_logs").update({
-                    "leads_new": per_source_new.get(source, 0),
-                    "leads_updated": per_source_updated.get(source, 0),
-                }).eq("id", log_id).execute()
+                supabase.table("scraping_logs").update(update_payload).eq("id", log_id).execute()
             except Exception as e:
                 logger.error(f"[Scraper] Failed to patch log counts for {source}: {e}")
 
@@ -537,7 +711,12 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
             "completed_at": datetime.utcnow().isoformat(),
             "results": total_new,
         })
+        await _emit_scrape_event(job_id, {"phase": "complete", "status": overall_status, "results": total_new})
 
     except Exception as e:
         scrape_jobs[job_id]["status"] = "failed"
         scrape_jobs[job_id]["error"] = str(e)
+        await _emit_scrape_event(job_id, {"phase": "complete", "status": "failed", "results": scrape_jobs[job_id].get("results", 0)})
+
+    finally:
+        scrape_conditions.pop(job_id, None)

@@ -340,7 +340,7 @@ Set in Vercel dashboard:
 ### Signal Engine → Render
 
 1. Create a new Web Service (Python 3.11)
-2. Build command: `cd signal-engine && pip install -r requirements.txt`
+2. Build command: `cd signal-engine && pip install -r requirements.txt && playwright install --with-deps chromium`
 3. Start command: `cd signal-engine && uvicorn main:app --host 0.0.0.0 --port $PORT`
 4. Add `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
 5. Copy the service's public URL and set it as `SIGNAL_ENGINE_URL` on the **backend** Render service

@@ -58,7 +58,9 @@ async function withAudit(
 async function runDailyScrape(trigger: 'scheduled' | 'manual' = 'scheduled'): Promise<void> {
   console.log('[CRON] Starting daily scrape...');
   await withAudit('daily_scrape', trigger, async () => {
-    await triggerScrape(['linkedin', 'job_board']);
+    // remote_jobs is date-filtered to <=3 days old, so it needs the frequent
+    // (daily) cadence rather than the bi-weekly one
+    await triggerScrape(['linkedin', 'job_board', 'remote_jobs']);
     console.log('[CRON] Daily scrape triggered successfully');
   });
 }

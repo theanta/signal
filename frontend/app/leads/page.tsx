@@ -14,7 +14,7 @@ import Link from 'next/link';
 
 const TABS: { id: LeadTab; label: string; description: string }[] = [
   { id: 'all',       label: 'All Leads',          description: 'Every lead across all sources' },
-  { id: 'hiring',    label: 'Hiring Signals',      description: 'LinkedIn & Indeed — companies actively hiring' },
+  { id: 'hiring',    label: 'Hiring Signals',      description: 'LinkedIn, Job Boards & Remote Jobs — companies actively hiring' },
   { id: 'discovery', label: 'Company Discovery',   description: 'Crunchbase & Google Maps — local and funded companies' },
 ];
 
@@ -37,7 +37,9 @@ export default function LeadsPage() {
   const effectiveFilters: LeadFilters = {
     ...filters,
     sources: tabToSources(activeTab),
-    source:  undefined,
+    // The single-source dropdown only applies on the "all" tab — hiring/discovery
+    // tabs drive filtering via the `sources` array above instead.
+    source: activeTab === 'all' ? filters.source : undefined,
   };
 
   const { data, isLoading } = useQuery({

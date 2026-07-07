@@ -21,6 +21,7 @@ const SOURCES = [
   { value: 'job_board', label: 'Job Board' },
   { value: 'crunchbase', label: 'Crunchbase' },
   { value: 'local_business', label: 'Local Business' },
+  { value: 'remote_jobs', label: 'Remote Jobs' },
   { value: 'other', label: 'Other' },
 ] as const;
 

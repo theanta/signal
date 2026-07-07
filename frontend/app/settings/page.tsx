@@ -8,7 +8,7 @@ import { toast } from '@/lib/toast';
 import {
   RefreshCw, CheckCircle, Settings, Zap, Brain,
   Building2, MessageSquare, MapPin, Users, ToggleLeft, ToggleRight, Save, X, Plus,
-  XCircle, Activity, Wifi, WifiOff,
+  XCircle, Activity, Wifi, WifiOff, Globe,
 } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
 import type { PlatformConfig, CronJobLog } from '../../../shared/types';
@@ -20,17 +20,20 @@ const TABS = [
   { id: 'targeting',label: 'Targeting',        icon: MapPin },
   { id: 'icp',      label: 'ICP',              icon: Users },
   { id: 'sources',  label: 'Sources',          icon: Zap },
+  { id: 'remote',   label: 'Remote Jobs',      icon: Globe },
   { id: 'system',   label: 'System',           icon: Settings },
 ] as const;
 
 type TabId = typeof TABS[number]['id'];
 
 const COMPANY_SIZES = ['1-10', '11-50', '51-200', '201-500', '501-1000', '1000+'];
+const EXPERIENCE_LEVELS = ['Entry Level', 'Mid Level', 'Senior', 'Lead / Principal'];
 const ALL_SOURCES = [
   { id: 'linkedin',       label: 'LinkedIn Jobs',    desc: 'Job postings filtered to your target locations — last 24 h' },
   { id: 'job_board',      label: 'Job Boards',       desc: 'Indeed — operational & tech hiring signals' },
   { id: 'crunchbase',     label: 'Crunchbase',       desc: 'Recently funded startups matching your target locations' },
   { id: 'local_business', label: 'Local Business',   desc: 'Google Maps — companies in your target locations & industries' },
+  { id: 'remote_jobs',    label: 'Remote Jobs',      desc: 'Indeed — remote-only postings, ≤3 days old, citizenship/residency-restricted roles excluded' },
 ];
 
 // ---- small reusable input ----
@@ -444,6 +447,65 @@ export default function SettingsPage() {
                 {ALL_SOURCES.filter(s => draft.active_sources.includes(s.id)).length} of {ALL_SOURCES.length} sources active.
                 Changes take effect on the next scrape run.
               </p>
+            </section>
+          )}
+
+          {/* ── REMOTE JOBS ── */}
+          {activeTab === 'remote' && (
+            <section className="space-y-5">
+              <div>
+                <h2 className="text-sm font-medium text-ink mb-0.5">Remote Job Openings</h2>
+                <p className="text-xs text-muted">
+                  Settings for the Remote Jobs source. Postings older than 3 days are skipped, and roles
+                  restricted to a single country&apos;s citizens/residents (e.g. &quot;US citizens only&quot;) are
+                  automatically disqualified since this source targets globally-open remote roles.
+                </p>
+              </div>
+              <div className="card p-5 space-y-5">
+                <TagList
+                  label="Job Roles"
+                  values={draft.remote_job_roles}
+                  onChange={v => patch({ remote_job_roles: v })}
+                  placeholder="e.g. software engineer, product designer"
+                />
+
+                <Field label="Experience Level">
+                  <div className="flex flex-wrap gap-2">
+                    {EXPERIENCE_LEVELS.map(level => {
+                      const on = draft.remote_experience_level === level;
+                      return (
+                        <button
+                          key={level}
+                          onClick={() => patch({ remote_experience_level: on ? '' : level })}
+                          className={cn(
+                            'px-3 py-1.5 text-xs rounded-md border font-medium transition-colors',
+                            on
+                              ? 'bg-ink text-canvas border-ink'
+                              : 'bg-canvas text-muted border-hairline hover:border-border-strong hover:text-ink',
+                          )}
+                        >
+                          {level}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-muted mt-1">Leave unselected to search all experience levels.</p>
+                </Field>
+
+                <TagList
+                  label="Technologies"
+                  values={draft.remote_technologies}
+                  onChange={v => patch({ remote_technologies: v })}
+                  placeholder="e.g. React, Node.js, Python"
+                />
+
+                <TagList
+                  label="Region"
+                  values={draft.remote_regions}
+                  onChange={v => patch({ remote_regions: v })}
+                  placeholder="e.g. United States, United Kingdom, Worldwide"
+                />
+              </div>
             </section>
           )}
 

@@ -3,6 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { fetchAllDashboard } from '@/services/metrics';
 import { useScrapeJob } from '@/hooks/useScrapeJob';
+import ScrapeProgressPanel from '@/components/scrape/ScrapeProgressPanel';
 import MetricCard from '@/components/dashboard/MetricCard';
 import PipelineBar from '@/components/dashboard/PipelineBar';
 import HotLeadsWidget from '@/components/dashboard/HotLeadsWidget';
@@ -19,7 +20,7 @@ export default function DashboardPage() {
     refetchInterval: 60_000,
   });
 
-  const { trigger: handleScrape, running: scraping } = useScrapeJob(refetch);
+  const { trigger: handleScrape, running: scraping, sources: scrapeSources } = useScrapeJob(refetch);
   const metrics = data?.metrics;
 
   return (
@@ -29,10 +30,13 @@ export default function DashboardPage() {
         subtitle="ANTA Lead Radar — AI-powered lead intelligence"
         icon={LayoutDashboard}
         actions={
-          <button onClick={handleScrape} disabled={scraping} className="btn-primary">
-            <RefreshCw className={`w-4 h-4 ${scraping ? 'animate-spin' : ''}`} />
-            {scraping ? 'Scraping…' : 'Run Scrape'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={handleScrape} disabled={scraping} className="btn-primary">
+              <RefreshCw className={`w-4 h-4 ${scraping ? 'animate-spin' : ''}`} />
+              {scraping ? 'Scraping…' : 'Run Scrape'}
+            </button>
+            <ScrapeProgressPanel running={scraping} sources={scrapeSources} />
+          </div>
         }
       />
 

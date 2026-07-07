@@ -28,7 +28,7 @@ export async function logOutreach(payload: {
   await api.post('/outreach/history', payload);
 }
 
-export async function triggerScrape(sources?: string[]): Promise<{ job_id: string }> {
+export async function triggerScrape(sources?: string[]): Promise<{ job_id: string; sources: string[] }> {
   const { data } = await api.post('/signals/scrape', { sources });
   return data.data;
 }

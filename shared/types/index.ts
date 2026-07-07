@@ -16,12 +16,13 @@ export type LeadSource =
   | 'local_business'
   | 'linkedin'
   | 'crunchbase'
+  | 'remote_jobs'
   | 'manual'
   | 'other';
 
 export type LeadTab = 'all' | 'hiring' | 'discovery';
 
-export const HIRING_SOURCES: LeadSource[] = ['linkedin', 'job_board'];
+export const HIRING_SOURCES: LeadSource[] = ['linkedin', 'job_board', 'remote_jobs'];
 export const DISCOVERY_SOURCES: LeadSource[] = ['crunchbase', 'local_business'];
 
 export type OutreachChannel = 'email' | 'linkedin' | 'phone' | 'other';
@@ -158,7 +159,7 @@ export interface ScrapedLeadRaw {
 export interface ScrapingLog {
   id: string;
   source: LeadSource;
-  status: 'running' | 'completed' | 'failed' | 'partial';
+  status: 'running' | 'finalizing' | 'completed' | 'failed' | 'partial';
   leads_found: number;
   leads_new: number;
   leads_updated: number;
@@ -168,7 +169,22 @@ export interface ScrapingLog {
   duration_ms?: number;
   config?: Record<string, unknown>;
   created_at: string;
+  job_id?: string;
 }
+
+// ---- Scrape job progress (SSE) ----
+
+export interface ScrapeSourceState {
+  status: 'pending' | 'completed' | 'failed';
+  leads_found?: number;
+  error?: string | null;
+}
+
+export type ScrapeStreamEvent =
+  | { phase: 'snapshot'; sources: Record<string, ScrapeSourceState>; overall_status: string }
+  | { phase: 'source'; source: string; status: 'completed' | 'failed'; leads_found: number; error: string | null }
+  | { phase: 'complete'; status: 'completed' | 'failed'; results: number }
+  | { phase: 'error'; message: string };
 
 // ---- Signal Engine API ----
 
@@ -281,6 +297,10 @@ export interface PlatformConfig {
   target_company_sizes: string[];
   target_industries: string[];
   active_sources: string[];
+  remote_job_roles: string[];
+  remote_experience_level: string;
+  remote_technologies: string[];
+  remote_regions: string[];
 }
 
 export const DEFAULT_PLATFORM_CONFIG: PlatformConfig = {
@@ -302,7 +322,11 @@ export const DEFAULT_PLATFORM_CONFIG: PlatformConfig = {
   target_locations: ['Detroit', 'Michigan', 'MI', 'Dearborn', 'Warren', 'Troy', 'Ann Arbor', 'Livonia', 'Sterling Heights'],
   target_company_sizes: ['11-50', '51-200', '201-500'],
   target_industries: [],
-  active_sources: ['linkedin', 'crunchbase', 'job_board', 'local_business'],
+  active_sources: ['linkedin', 'crunchbase', 'job_board', 'local_business', 'remote_jobs'],
+  remote_job_roles: ['software engineer', 'full stack developer', 'product designer'],
+  remote_experience_level: '',
+  remote_technologies: [],
+  remote_regions: ['United States'],
 };
 
 // ---- Auth ----

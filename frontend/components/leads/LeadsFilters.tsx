@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import type { LeadFilters, LeadStatus } from '../../../shared/types';
 
 const STATUSES: LeadStatus[] = ['new', 'analyzed', 'contacted', 'replied', 'meeting', 'proposal', 'client'];
-const SOURCES = ['linkedin', 'job_board', 'crunchbase', 'local_business', 'manual'];
+const SOURCES = ['linkedin', 'job_board', 'crunchbase', 'local_business', 'remote_jobs', 'manual'];
 
 export const TOGGLEABLE_COLS = [
   { id: 'location',   label: 'Location' },

@@ -3,6 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useScrapeJob } from '@/hooks/useScrapeJob';
+import ScrapeProgressPanel from '@/components/scrape/ScrapeProgressPanel';
 import PageHeader from '@/components/ui/PageHeader';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import { RefreshCw, Zap, CheckCircle, XCircle, Clock, Activity } from 'lucide-react';
@@ -20,7 +21,7 @@ async function fetchSignalHealth(): Promise<{ signal_engine_online: boolean }> {
   return data.data;
 }
 
-const ACTIVE_SOURCES: LeadSource[] = ['linkedin', 'job_board', 'crunchbase', 'local_business'];
+const ACTIVE_SOURCES: LeadSource[] = ['linkedin', 'job_board', 'crunchbase', 'local_business', 'remote_jobs'];
 
 export default function SignalsPage() {
   const { data: logs = [], isLoading, refetch } = useQuery({
@@ -35,12 +36,15 @@ export default function SignalsPage() {
     refetchInterval: 90_000,
   });
 
-  const { trigger: handleScrape, running: scraping } = useScrapeJob(refetch, refetch);
+  const { trigger: handleScrape, running: scraping, sources: scrapeSources } = useScrapeJob(refetch, refetch);
 
   const statusIcon = (status: string) => {
     if (status === 'completed') return <CheckCircle className="w-4 h-4 text-success" />;
     if (status === 'failed') return <XCircle className="w-4 h-4 text-error" />;
     if (status === 'running') return <RefreshCw className="w-4 h-4 text-info animate-spin" />;
+    // 'finalizing': the scrape itself succeeded, but the cross-source merge + lead
+    // persistence phase is still running, so leads_new/leads_updated aren't final yet.
+    if (status === 'finalizing') return <RefreshCw className="w-4 h-4 text-warning animate-spin" />;
     return <Clock className="w-4 h-4 text-warning" />;
   };
 
@@ -73,6 +77,7 @@ export default function SignalsPage() {
               <RefreshCw className={`w-4 h-4 ${scraping ? 'animate-spin' : ''}`} />
               {scraping ? 'Scraping...' : 'Run Scrape'}
             </button>
+            <ScrapeProgressPanel running={scraping} sources={scrapeSources} />
           </div>
         }
       />
@@ -139,7 +144,7 @@ export default function SignalsPage() {
                             'text-success': log.status === 'completed',
                             'text-error':   log.status === 'failed',
                             'text-info':    log.status === 'running',
-                            'text-warning': log.status === 'partial',
+                            'text-warning': log.status === 'partial' || log.status === 'finalizing',
                           })}>
                             {log.status}
                           </span>

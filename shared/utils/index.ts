@@ -54,6 +54,7 @@ export function getSourceLabel(source: LeadSource): string {
     local_business: 'Local Business',
     linkedin: 'LinkedIn',
     crunchbase: 'Crunchbase',
+    remote_jobs: 'Remote Jobs',
     manual: 'Manual',
     other: 'Other',
   };
