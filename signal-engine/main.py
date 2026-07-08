@@ -461,6 +461,11 @@ async def stream_scrape_job(job_id: str):
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
+def _chunked(items: list, size: int):
+    for i in range(0, len(items), size):
+        yield items[i:i + size]
+
+
 def _persist_job_postings(supabase, postings: list[dict]) -> tuple[int, int]:
     """Upsert job postings into the `jobs` table (one row per posting).
     Returns (new_count, updated_count)."""
@@ -471,14 +476,21 @@ def _persist_job_postings(supabase, postings: list[dict]) -> tuple[int, int]:
     new_count = 0
     updated_count = 0
 
+    # PostgREST `in_` filters are serialized into the request URL, so large runs
+    # (1000+ postings) must be chunked or httpx rejects the URL as too long.
+    # source_url chunks are smaller because job-board URLs run hundreds of chars.
+
     # Postings with a stable external_id: upsert directly on that column.
     if with_ext:
-        existing = supabase.table("jobs").select("external_id").in_(
-            "external_id", [p["external_id"] for p in with_ext]
-        ).execute()
-        existing_ids = {row["external_id"] for row in (existing.data or [])}
+        existing_ids: set[str] = set()
+        for chunk in _chunked([p["external_id"] for p in with_ext], 200):
+            existing = supabase.table("jobs").select("external_id").in_(
+                "external_id", chunk
+            ).execute()
+            existing_ids.update(row["external_id"] for row in (existing.data or []))
         rows = [{**p, "scraped_at": now, "updated_at": now} for p in with_ext]
-        supabase.table("jobs").upsert(rows, on_conflict="external_id").execute()
+        for chunk in _chunked(rows, 500):
+            supabase.table("jobs").upsert(chunk, on_conflict="external_id").execute()
         for p in with_ext:
             if p["external_id"] in existing_ids:
                 updated_count += 1
@@ -490,9 +502,9 @@ def _persist_job_postings(supabase, postings: list[dict]) -> tuple[int, int]:
     if without_ext:
         urls = [p["source_url"] for p in without_ext if p.get("source_url")]
         existing_by_url: dict[str, str] = {}
-        if urls:
-            existing = supabase.table("jobs").select("id, source_url").in_("source_url", urls).execute()
-            existing_by_url = {row["source_url"]: row["id"] for row in (existing.data or [])}
+        for chunk in _chunked(urls, 50):
+            existing = supabase.table("jobs").select("id, source_url").in_("source_url", chunk).execute()
+            existing_by_url.update({row["source_url"]: row["id"] for row in (existing.data or [])})
         for p in without_ext:
             url = p.get("source_url")
             existing_id = existing_by_url.get(url) if url else None
