@@ -2,13 +2,13 @@
 Indeed and LinkedIn (via Apify actors) plus RemoteOK and Remotive (free public
 JSON APIs, no token needed).
 
-One disqualifier applies that doesn't exist on the other job scrapers:
-  - citizenship/residency restriction: a "remote" posting that's actually gated
-    to citizens/residents of one country isn't a fit for a global remote-candidate engine
+Postings are NOT filtered here beyond having a company name — triage
+(citizenship gating, no-agency clauses, etc.) happens at persist time via
+analyzers.job_qualifier, so disqualified postings stay visible with a
+'skip' verdict instead of silently disappearing.
 """
 
 import logging
-import re
 
 import requests
 
@@ -37,31 +37,10 @@ _REGION_TO_COUNTRY = {
     "worldwide": "US",
 }
 
-# Restrictive residency/citizenship phrasing — deliberately narrow (country/demonym +
-# citizen|resident + a restrictive qualifier) to avoid false-positiving on generic
-# "must be authorized to work in the US" boilerplate, which doesn't bar remote applicants.
-_RESTRICTION_RE = re.compile(
-    r"("
-    r"(u\.?s\.?|usa|united states|uk|u\.?k\.?|united kingdom|canada|canadian|australia|australian)"
-    r"\s*(citizens?|residents?)\s*only"
-    r"|must\s+be\s+a\s+(u\.?s\.?|uk|u\.?k\.?|united states|united kingdom|canadian|australian)\s*(citizen|resident)"
-    r"|open\s+only\s+to\s+(u\.?s\.?|uk|u\.?k\.?|united states|united kingdom|canadian|australian)\s*(citizens?|residents?)"
-    r"|restricted\s+to\s+(u\.?s\.?|uk|u\.?k\.?|united states|united kingdom|canadian|australian)\s*(citizens?|residents?)"
-    r"|must\s+(reside|be\s+located|be\s+based)\s+in\s+the\s+(u\.?s\.?|united states|uk|united kingdom)\s*(only)?"
-    r")",
-    re.IGNORECASE,
-)
-
-
-def _is_citizen_restricted(text: str) -> bool:
-    return bool(_RESTRICTION_RE.search(text or ""))
-
 
 class RemoteJobsScraper(ApifyBaseScraper):
     """
     Pulls remote-only job postings from Indeed, LinkedIn, RemoteOK, and Remotive.
-    Excludes postings gated to a single country's citizens/residents — this
-    source is for globally-open remote roles.
     """
 
     def __init__(
@@ -138,10 +117,6 @@ class RemoteJobsScraper(ApifyBaseScraper):
         description = item.get("description") or ""
         posted_at = item.get("postedAt") or item.get("date") or ""
 
-        if _is_citizen_restricted(f"{job_title} {description}"):
-            logger.info(f"[RemoteJobs] Disqualified '{job_title}' at {company} — residency/citizenship restricted")
-            return None
-
         job_type = item.get("jobType") or []
         return {
             "external_id": item.get("id") or item.get("positionId") or None,
@@ -187,10 +162,6 @@ class RemoteJobsScraper(ApifyBaseScraper):
             item.get("postedAt") or item.get("listedAt") or
             item.get("postedDate") or item.get("date") or ""
         )
-
-        if _is_citizen_restricted(f"{job_title} {description}"):
-            logger.info(f"[RemoteJobs] Disqualified '{job_title}' at {company} — residency/citizenship restricted")
-            return None
 
         external_id = item.get("id") or item.get("jobId")
         return {
@@ -251,10 +222,6 @@ class RemoteJobsScraper(ApifyBaseScraper):
         job_title = item.get("position") or ""
         description = item.get("description") or ""
 
-        if _is_citizen_restricted(f"{job_title} {description}"):
-            logger.info(f"[RemoteJobs] Disqualified '{job_title}' at {company} — residency/citizenship restricted")
-            return None
-
         salary_min, salary_max = item.get("salary_min"), item.get("salary_max")
         salary_text = f"${salary_min:,}–${salary_max:,}" if salary_min and salary_max else None
 
@@ -296,10 +263,6 @@ class RemoteJobsScraper(ApifyBaseScraper):
         job_title = item.get("title") or ""
         description = item.get("description") or ""
         location = item.get("candidate_required_location") or "Remote"
-
-        if _is_citizen_restricted(f"{job_title} {location} {description}"):
-            logger.info(f"[RemoteJobs] Disqualified '{job_title}' at {company} — residency/citizenship restricted")
-            return None
 
         external_id = item.get("id")
         return {

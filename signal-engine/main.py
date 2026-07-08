@@ -25,6 +25,7 @@ from scrapers.job_boards import JobBoardScraper
 from scrapers.local_business import LocalBusinessScraper
 from scrapers.remote_jobs import RemoteJobsScraper
 from analyzers.signal_detector import SignalDetector
+from analyzers.job_qualifier import qualify_job
 from scoring.lead_scorer import LeadScorer
 from analyzers.pain_point_analyzer import PainPointAnalyzer
 from classifiers.industry_classifier import IndustryClassifier
@@ -465,6 +466,8 @@ def _persist_job_postings(supabase, postings: list[dict]) -> tuple[int, int]:
     """Upsert job postings into the `jobs` table (one row per posting).
     Returns (new_count, updated_count)."""
     now = datetime.utcnow().isoformat()
+    # Triage every posting at ingest — verdict/reasons/posted_at land on the row.
+    postings = [{**p, **qualify_job(p)} for p in postings]
     with_ext = [p for p in postings if p.get("external_id")]
     without_ext = [p for p in postings if not p.get("external_id")]
 

@@ -1,20 +1,16 @@
 'use client';
 
+import Link from 'next/link';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ExternalLink, ChevronLeft, ChevronRight, Briefcase, UserPlus, CheckCircle2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { TableRowSkeleton } from '@/components/ui/Skeleton';
+import JobStatusBadge from '@/components/jobs/JobStatusBadge';
+import JobVerdictBadge from '@/components/jobs/JobVerdictBadge';
 import { convertJobToLead } from '@/services/jobs';
 import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
-import type { Job, JobStatus } from '../../../shared/types';
-
-const STATUS_STYLES: Record<JobStatus, string> = {
-  new:       'bg-status-new-bg text-status-new-text border-status-new-border',
-  reviewed:  'bg-status-contacted-bg text-status-contacted-text border-status-contacted-border',
-  archived:  'bg-surface-strong text-muted border-hairline',
-  converted: 'bg-status-client-bg text-status-client-text border-status-client-border',
-};
+import type { Job } from '../../../shared/types';
 
 const SOURCE_LABELS: Record<Job['source'], string> = {
   indeed:    'Indeed',
@@ -51,7 +47,7 @@ export default function JobsTable({ jobs, total, page, totalPages, isLoading = f
       <div className="card overflow-hidden">
         <table className="w-full">
           <tbody>
-            {Array.from({ length: 8 }).map((_, i) => <TableRowSkeleton key={i} cols={8} />)}
+            {Array.from({ length: 8 }).map((_, i) => <TableRowSkeleton key={i} cols={9} />)}
           </tbody>
         </table>
       </div>
@@ -66,6 +62,7 @@ export default function JobsTable({ jobs, total, page, totalPages, isLoading = f
             <tr>
               <th className={thCn}>Company</th>
               <th className={thCn}>Role</th>
+              <th className={thCn}>Verdict</th>
               <th className={thCn}>Location</th>
               <th className={thCn}>Salary</th>
               <th className={thCn}>Source</th>
@@ -78,7 +75,7 @@ export default function JobsTable({ jobs, total, page, totalPages, isLoading = f
           <tbody className="divide-y divide-hairline">
             {jobs.length === 0 ? (
               <tr>
-                <td colSpan={8} className="py-20 text-center">
+                <td colSpan={9} className="py-20 text-center">
                   <div className="flex flex-col items-center gap-3">
                     <div className="w-12 h-12 rounded-full bg-surface-strong flex items-center justify-center">
                       <Briefcase className="w-6 h-6 text-muted/40" />
@@ -93,19 +90,28 @@ export default function JobsTable({ jobs, total, page, totalPages, isLoading = f
                 <tr key={job.id} className="group hover:bg-surface-strong transition-colors">
                   {/* Company */}
                   <td className="px-4 py-1.5">
-                    <div className="flex items-center gap-2.5">
+                    <Link href={`/jobs/${job.id}`} className="flex items-center gap-2.5 group/name">
                       <span className="w-7 h-7 rounded-lg bg-surface-strong flex items-center justify-center flex-shrink-0 text-2xs font-semibold text-muted">
                         {job.company_name.charAt(0).toUpperCase()}
                       </span>
-                      <p className="text-body-sm font-medium text-ink truncate max-w-[180px]">
+                      <p className="text-body-sm font-medium text-ink truncate max-w-[180px] group-hover/name:text-brand-400 transition-colors">
                         {job.company_name}
                       </p>
-                    </div>
+                    </Link>
                   </td>
 
                   {/* Role */}
                   <td className="px-4 py-1.5 text-xs text-body max-w-[160px] truncate">
-                    {job.job_title ?? '—'}
+                    <Link href={`/jobs/${job.id}`} className="hover:text-ink transition-colors">
+                      {job.job_title ?? '—'}
+                    </Link>
+                  </td>
+
+                  {/* Verdict */}
+                  <td className="px-4 py-1.5">
+                    {job.verdict
+                      ? <JobVerdictBadge verdict={job.verdict} reasons={job.verdict_reasons} />
+                      : <span className="text-xs text-muted/50">—</span>}
                   </td>
 
                   {/* Location */}
@@ -125,17 +131,14 @@ export default function JobsTable({ jobs, total, page, totalPages, isLoading = f
 
                   {/* Posted */}
                   <td className="px-4 py-1.5 text-xs text-muted whitespace-nowrap">
-                    {job.posted_at_raw ?? formatDistanceToNow(new Date(job.created_at), { addSuffix: true })}
+                    {job.posted_at
+                      ? formatDistanceToNow(new Date(job.posted_at), { addSuffix: true })
+                      : job.posted_at_raw ?? formatDistanceToNow(new Date(job.created_at), { addSuffix: true })}
                   </td>
 
                   {/* Status */}
                   <td className="px-4 py-1.5">
-                    <span className={cn(
-                      'inline-flex items-center rounded-full border font-medium text-xs px-2.5 py-0.5 capitalize',
-                      STATUS_STYLES[job.status],
-                    )}>
-                      {job.status}
-                    </span>
+                    <JobStatusBadge status={job.status} />
                   </td>
 
                   {/* Actions */}

@@ -67,8 +67,20 @@ export interface LeadWithSignals extends Lead {
 
 // ---- Job (remote job postings — a separate entity from Lead) ----
 
-export type JobStatus = 'new' | 'reviewed' | 'archived' | 'converted';
+export type JobStatus =
+  | 'new'
+  | 'reviewed'
+  | 'applied'
+  | 'interviewing'
+  | 'placed'
+  | 'rejected'
+  | 'archived'
+  | 'converted';
+
 export type JobSource = 'indeed' | 'linkedin' | 'remoteok' | 'remotive';
+
+// Rule-based apply-worthiness triage, computed at ingest
+export type JobVerdict = 'apply' | 'caution' | 'skip';
 
 export interface Job {
   id: string;
@@ -79,11 +91,14 @@ export interface Job {
   employment_type?: string;
   salary_text?: string;
   posted_at_raw?: string;
+  posted_at?: string;
   technologies?: string[];
   source_url?: string;
   source: JobSource;
   description?: string;
   status: JobStatus;
+  verdict?: JobVerdict;
+  verdict_reasons?: string[];
   converted_lead_id?: string;
   scraped_at?: string;
   created_at: string;
@@ -92,12 +107,87 @@ export interface Job {
 
 export interface JobFilters {
   status?: JobStatus;
+  verdict?: JobVerdict;
   search?: string;
   location?: string;
   page?: number;
   per_page?: number;
-  sort_by?: 'created_at' | 'company_name';
+  sort_by?: 'created_at' | 'company_name' | 'posted_at';
   sort_order?: 'asc' | 'desc';
+}
+
+// ---- Job analysis (AI decode of a posting — mirrors LeadSignal) ----
+
+export interface SalaryParsed {
+  min?: number;
+  max?: number;
+  currency?: string;
+  period?: 'hour' | 'month' | 'year';
+  normalized_annual_usd?: number;
+}
+
+export interface ResumePlaybook {
+  headline?: string;
+  lead_with?: string[];
+  demote?: string[];
+  keyword_checklist?: string[];
+  framing_tips?: string[];
+  sample_bullets?: string[];
+  screening_risks?: string[];
+}
+
+export interface JobSignal {
+  id: string;
+  job_id: string;
+  seniority?: string;
+  contract_type?: string;
+  contract_duration?: string;
+  must_have_skills?: string[];
+  nice_to_have_skills?: string[];
+  ats_keywords?: string[];
+  salary_parsed?: SalaryParsed;
+  red_flags?: string[];
+  timezone_note?: string;
+  resume_playbook?: ResumePlaybook;
+  summary?: string;
+  model_version?: string;
+  created_at: string;
+}
+
+// ---- Job submissions (multiple resumes per posting) ----
+
+export type SubmissionStatus =
+  | 'submitted'
+  | 'screening'
+  | 'interviewing'
+  | 'offer'
+  | 'placed'
+  | 'rejected'
+  | 'withdrawn';
+
+export interface JobSubmission {
+  id: string;
+  job_id: string;
+  profile_label: string;
+  status: SubmissionStatus;
+  submitted_at: string;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// Cross-references for the job detail page: other postings and past
+// submissions at the same company (dedupe guard), plus an existing lead.
+export interface JobRelated {
+  company_jobs: Job[];
+  company_submissions: JobSubmission[];
+  lead_id?: string;
+}
+
+export interface JobWithIntel extends Job {
+  signals?: JobSignal[];
+  submissions?: JobSubmission[];
+  related?: JobRelated;
 }
 
 // ---- Signal ----

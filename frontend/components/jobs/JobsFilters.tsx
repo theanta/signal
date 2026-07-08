@@ -3,9 +3,10 @@
 import { Search, X, ChevronDown } from 'lucide-react';
 import * as Select from '@radix-ui/react-select';
 import { cn } from '@/lib/utils';
-import type { JobFilters, JobStatus } from '../../../shared/types';
+import type { JobFilters, JobStatus, JobVerdict } from '../../../shared/types';
 
-const STATUSES: JobStatus[] = ['new', 'reviewed', 'archived', 'converted'];
+const STATUSES: JobStatus[] = ['new', 'reviewed', 'applied', 'interviewing', 'placed', 'rejected', 'archived', 'converted'];
+const VERDICTS: JobVerdict[] = ['apply', 'caution', 'skip'];
 
 const selectTriggerCn = cn(
   'flex items-center justify-between gap-2 h-9 pl-3 pr-2.5 text-[13px] text-ink bg-canvas',
@@ -32,7 +33,7 @@ interface JobsFiltersProps {
 }
 
 export default function JobsFilters({ filters, onChange }: JobsFiltersProps) {
-  const hasFilters = !!(filters.status || filters.search);
+  const hasFilters = !!(filters.status || filters.verdict || filters.search);
 
   return (
     <div className="flex items-center gap-2 flex-wrap">
@@ -80,11 +81,38 @@ export default function JobsFilters({ filters, onChange }: JobsFiltersProps) {
         </Select.Portal>
       </Select.Root>
 
+      {/* Verdict */}
+      <Select.Root
+        value={filters.verdict ?? 'all'}
+        onValueChange={v => onChange({ verdict: (v === 'all' ? undefined : v as JobVerdict), page: 1 })}
+      >
+        <Select.Trigger className={selectTriggerCn}>
+          <Select.Value placeholder="All verdicts" />
+          <Select.Icon>
+            <ChevronDown className="w-3.5 h-3.5 text-muted" />
+          </Select.Icon>
+        </Select.Trigger>
+        <Select.Portal>
+          <Select.Content className={selectContentCn} position="popper" sideOffset={6}>
+            <Select.Viewport className="p-1">
+              <Select.Item value="all" className={selectItemCn}>
+                <Select.ItemText>All verdicts</Select.ItemText>
+              </Select.Item>
+              {VERDICTS.map(v => (
+                <Select.Item key={v} value={v} className={selectItemCn}>
+                  <Select.ItemText>{v.charAt(0).toUpperCase() + v.slice(1)}</Select.ItemText>
+                </Select.Item>
+              ))}
+            </Select.Viewport>
+          </Select.Content>
+        </Select.Portal>
+      </Select.Root>
+
       <div className="flex-1" />
 
       {hasFilters && (
         <button
-          onClick={() => onChange({ status: undefined, search: undefined, page: 1 })}
+          onClick={() => onChange({ status: undefined, verdict: undefined, search: undefined, page: 1 })}
           className="flex items-center gap-1.5 text-[12.5px] text-muted hover:text-ink transition-colors"
         >
           <X className="w-3.5 h-3.5" />

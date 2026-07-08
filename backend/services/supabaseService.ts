@@ -2,7 +2,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import type {
   Lead, LeadFilters, LeadSignal, LeadScore,
   OutreachMessage, ScrapingLog, PaginatedResponse, DashboardMetrics, CronJobLog,
-  Job, JobFilters,
+  Job, JobFilters, JobWithIntel, JobSignal, JobSubmission,
 } from '../../shared/types';
 
 const supabaseUrl = process.env.SUPABASE_URL!;
@@ -95,7 +95,7 @@ export async function upsertLeadByWebsite(lead: Partial<Lead>): Promise<{ lead: 
 
 export async function getJobs(filters: JobFilters = {}): Promise<PaginatedResponse<Job>> {
   const {
-    status, search, location,
+    status, verdict, search, location,
     page = 1, per_page = 25,
     sort_by = 'created_at', sort_order = 'desc',
   } = filters;
@@ -103,12 +103,13 @@ export async function getJobs(filters: JobFilters = {}): Promise<PaginatedRespon
   let query = supabase.from('jobs').select('*', { count: 'exact' });
 
   if (status) query = query.eq('status', status);
+  if (verdict) query = query.eq('verdict', verdict);
   if (location) query = query.ilike('location', `%${location}%`);
   if (search) {
     query = query.or(`company_name.ilike.%${search}%,job_title.ilike.%${search}%,description.ilike.%${search}%`);
   }
 
-  query = query.order(sort_by, { ascending: sort_order === 'asc' });
+  query = query.order(sort_by, { ascending: sort_order === 'asc', nullsFirst: false });
   query = query.range((page - 1) * per_page, page * per_page - 1);
 
   const { data, error, count } = await query;
@@ -129,11 +130,72 @@ export async function getJobById(id: string): Promise<Job | null> {
   return data as Job;
 }
 
+// Tolerates the table not existing yet (job_signals / job_submissions
+// migrations pending) — the detail page degrades to empty sections.
+async function safeList<T>(query: PromiseLike<{ data: unknown; error: unknown }>): Promise<T[]> {
+  try {
+    const { data, error } = await query;
+    if (error) return [];
+    return (data ?? []) as T[];
+  } catch {
+    return [];
+  }
+}
+
+export async function getJobWithIntel(id: string): Promise<JobWithIntel | null> {
+  const job = await getJobById(id);
+  if (!job) return null;
+
+  const [signals, submissions, companyJobs] = await Promise.all([
+    safeList<JobSignal>(
+      supabase.from('job_signals').select('*').eq('job_id', id).order('created_at', { ascending: false }),
+    ),
+    safeList<JobSubmission>(
+      supabase.from('job_submissions').select('*').eq('job_id', id).order('submitted_at', { ascending: false }),
+    ),
+    safeList<Job>(
+      supabase.from('jobs').select('*')
+        .eq('company_name', job.company_name).neq('id', id)
+        .order('created_at', { ascending: false }).limit(10),
+    ),
+  ]);
+
+  const companyJobIds = companyJobs.map(j => j.id);
+  const [companySubmissions, leadRows] = await Promise.all([
+    companyJobIds.length
+      ? safeList<JobSubmission>(
+          supabase.from('job_submissions').select('*')
+            .in('job_id', companyJobIds).order('submitted_at', { ascending: false }),
+        )
+      : Promise.resolve([] as JobSubmission[]),
+    safeList<{ id: string }>(
+      supabase.from('leads').select('id').ilike('company_name', job.company_name).limit(1),
+    ),
+  ]);
+
+  return {
+    ...job,
+    signals,
+    submissions,
+    related: {
+      company_jobs: companyJobs,
+      company_submissions: companySubmissions,
+      lead_id: job.converted_lead_id ?? leadRows[0]?.id,
+    },
+  };
+}
+
 export async function updateJob(id: string, updates: Partial<Job>): Promise<Job> {
   const { data, error } = await supabase
     .from('jobs').update(updates).eq('id', id).select().single();
   if (error) throw new Error(`updateJob: ${error.message}`);
   return data as Job;
+}
+
+export async function createJobSignal(signal: Partial<JobSignal>): Promise<JobSignal> {
+  const { data, error } = await supabase.from('job_signals').insert(signal).select().single();
+  if (error) throw new Error(`createJobSignal: ${error.message}`);
+  return data as JobSignal;
 }
 
 export async function convertJobToLead(job: Job): Promise<Lead> {
