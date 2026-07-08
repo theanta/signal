@@ -3,7 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { formatDistanceToNow } from 'date-fns';
-import { CheckCircle, XCircle, Loader, AlertCircle } from 'lucide-react';
+import { CheckCircle, XCircle, Loader, AlertCircle, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ScrapingLog } from '../../../shared/types';
 import { getSourceLabel } from '../../../shared/utils';
@@ -14,10 +14,13 @@ async function fetchRecentLogs(): Promise<ScrapingLog[]> {
 }
 
 const STATUS_CONFIG = {
-  completed: { icon: CheckCircle, cn: 'text-emerald-400', dot: 'bg-emerald-400' },
-  failed:    { icon: XCircle,     cn: 'text-rose-400',    dot: 'bg-rose-400'    },
-  running:   { icon: Loader,      cn: 'text-blue-400 animate-spin', dot: 'bg-blue-400 animate-pulse-dot' },
-  partial:   { icon: AlertCircle, cn: 'text-amber-400',   dot: 'bg-amber-400'   },
+  completed:   { icon: CheckCircle, cn: 'text-emerald-400', dot: 'bg-emerald-400' },
+  failed:      { icon: XCircle,     cn: 'text-rose-400',    dot: 'bg-rose-400'    },
+  running:     { icon: Loader,      cn: 'text-blue-400 animate-spin', dot: 'bg-blue-400 animate-pulse-dot' },
+  partial:     { icon: AlertCircle, cn: 'text-amber-400',   dot: 'bg-amber-400'   },
+  // Scrape itself succeeded but the cross-source merge + lead persistence is
+  // still running — same "in progress, not an error" treatment as `signals/page.tsx`.
+  finalizing:  { icon: RefreshCw,   cn: 'text-warning animate-spin', dot: 'bg-warning' },
 } as const;
 
 export default function ActivityFeed() {
