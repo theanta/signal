@@ -33,7 +33,7 @@ const ALL_SOURCES = [
   { id: 'job_board',      label: 'Job Boards',       desc: 'Indeed — operational & tech hiring signals' },
   { id: 'crunchbase',     label: 'Crunchbase',       desc: 'Recently funded startups matching your target locations' },
   { id: 'local_business', label: 'Local Business',   desc: 'Google Maps — companies in your target locations & industries' },
-  { id: 'remote_jobs',    label: 'Remote Jobs',      desc: 'Indeed, LinkedIn, RemoteOK & Remotive — remote-only postings, ≤3 days old, citizenship/residency-restricted roles excluded' },
+  { id: 'remote_jobs',    label: 'Remote Jobs',      desc: 'Indeed, LinkedIn, RemoteOK & Remotive — remote-only postings, citizenship/residency-restricted roles excluded' },
 ];
 
 // ---- small reusable input ----
@@ -457,9 +457,8 @@ export default function SettingsPage() {
                 <h2 className="text-sm font-medium text-ink mb-0.5">Remote Job Openings</h2>
                 <p className="text-xs text-muted">
                   Settings for the Remote Jobs source, pulled from Indeed, LinkedIn, RemoteOK, and Remotive.
-                  Postings older than 3 days are skipped, and roles restricted to a single country&apos;s
-                  citizens/residents (e.g. &quot;US citizens only&quot;) are automatically disqualified since
-                  this source targets globally-open remote roles.
+                  Roles restricted to a single country&apos;s citizens/residents (e.g. &quot;US citizens only&quot;)
+                  are automatically disqualified since this source targets globally-open remote roles.
                 </p>
               </div>
               <div className="card p-5 space-y-5">

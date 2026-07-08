@@ -2,17 +2,13 @@
 Indeed and LinkedIn (via Apify actors) plus RemoteOK and Remotive (free public
 JSON APIs, no token needed).
 
-Two disqualifiers apply that don't exist on the other job scrapers:
-  - freshness: posting must be <= MAX_POSTING_AGE_DAYS old. None of the four
-    sources expose a native "last 3 days" filter, so we parse whatever date
-    shape each one returns ourselves (relative string, ISO 8601, or epoch).
+One disqualifier applies that doesn't exist on the other job scrapers:
   - citizenship/residency restriction: a "remote" posting that's actually gated
     to citizens/residents of one country isn't a fit for a global remote-candidate engine
 """
 
 import logging
 import re
-from datetime import datetime, timezone
 
 import requests
 
@@ -22,8 +18,6 @@ logger = logging.getLogger(__name__)
 
 INDEED_ACTOR = "misceres/indeed-scraper"
 LINKEDIN_ACTOR = "worldunboxer/rapid-linkedin-scraper"
-
-MAX_POSTING_AGE_DAYS = 3
 
 DEFAULT_ROLES = [
     "software engineer",
@@ -58,53 +52,6 @@ _RESTRICTION_RE = re.compile(
     re.IGNORECASE,
 )
 
-_AGE_RE = re.compile(r"(\d+)\s*\+?\s*(hour|day|week|month|year)", re.IGNORECASE)
-
-
-def _is_recent_enough(posted_at, max_days: int = MAX_POSTING_AGE_DAYS) -> bool:
-    """Parse a posting's date, whatever shape the source gave it — Indeed/LinkedIn's
-    relative strings ("3 days ago"), Remotive's ISO 8601 timestamps, or RemoteOK's
-    unix-epoch seconds. Unparseable/missing values are kept (not silently dropped)
-    so an unexpected field format doesn't zero out an entire scrape run."""
-    if posted_at is None or posted_at == "":
-        return True
-
-    if isinstance(posted_at, (int, float)):
-        try:
-            posted = datetime.fromtimestamp(posted_at, tz=timezone.utc)
-        except (ValueError, OSError, OverflowError):
-            return True
-        return (datetime.now(timezone.utc) - posted).days <= max_days
-
-    s = str(posted_at).strip()
-
-    try:
-        posted = datetime.fromisoformat(s.replace("Z", "+00:00"))
-        if posted.tzinfo is None:
-            posted = posted.replace(tzinfo=timezone.utc)
-        return (datetime.now(timezone.utc) - posted).days <= max_days
-    except ValueError:
-        pass
-
-    s_lower = s.lower()
-    if any(kw in s_lower for kw in ("today", "just posted", "just now", "new")):
-        return True
-
-    match = _AGE_RE.search(s_lower)
-    if not match:
-        return True
-
-    amount, unit = int(match.group(1)), match.group(2)
-    days = {
-        "hour": 0,
-        "day": amount,
-        "week": amount * 7,
-        "month": amount * 30,
-        "year": amount * 365,
-    }[unit]
-
-    return days <= max_days
-
 
 def _is_citizen_restricted(text: str) -> bool:
     return bool(_RESTRICTION_RE.search(text or ""))
@@ -113,8 +60,8 @@ def _is_citizen_restricted(text: str) -> bool:
 class RemoteJobsScraper(ApifyBaseScraper):
     """
     Pulls remote-only job postings from Indeed, LinkedIn, RemoteOK, and Remotive.
-    Filters to postings <= 3 days old and excludes ones gated to a single
-    country's citizens/residents — this source is for globally-open remote roles.
+    Excludes postings gated to a single country's citizens/residents — this
+    source is for globally-open remote roles.
     """
 
     def __init__(
@@ -191,8 +138,6 @@ class RemoteJobsScraper(ApifyBaseScraper):
         description = item.get("description") or ""
         posted_at = item.get("postedAt") or item.get("date") or ""
 
-        if not _is_recent_enough(posted_at):
-            return None
         if _is_citizen_restricted(f"{job_title} {description}"):
             logger.info(f"[RemoteJobs] Disqualified '{job_title}' at {company} — residency/citizenship restricted")
             return None
@@ -218,10 +163,8 @@ class RemoteJobsScraper(ApifyBaseScraper):
         items = self._run_actor(LINKEDIN_ACTOR, {
             "keywords": self.job_roles[:3],
             "location": "Remote",
-            # r604800 = LinkedIn's native "past week" filter code — its date filter
-            # only supports discrete windows (24h/week/month), none of which is an
-            # exact 3-day cutoff, so we take the closest broader one and let
-            # _is_recent_enough() trim it down to MAX_POSTING_AGE_DAYS below.
+            # r604800 = LinkedIn's native "past week" filter code — scope the actor
+            # to recent postings so we don't pull LinkedIn's full backlog.
             "datePosted": "r604800",
             "limit": 30,
         })
@@ -245,8 +188,6 @@ class RemoteJobsScraper(ApifyBaseScraper):
             item.get("postedDate") or item.get("date") or ""
         )
 
-        if not _is_recent_enough(posted_at):
-            return None
         if _is_citizen_restricted(f"{job_title} {description}"):
             logger.info(f"[RemoteJobs] Disqualified '{job_title}' at {company} — residency/citizenship restricted")
             return None
@@ -310,8 +251,6 @@ class RemoteJobsScraper(ApifyBaseScraper):
         job_title = item.get("position") or ""
         description = item.get("description") or ""
 
-        if not _is_recent_enough(item.get("epoch")):
-            return None
         if _is_citizen_restricted(f"{job_title} {description}"):
             logger.info(f"[RemoteJobs] Disqualified '{job_title}' at {company} — residency/citizenship restricted")
             return None
@@ -358,8 +297,6 @@ class RemoteJobsScraper(ApifyBaseScraper):
         description = item.get("description") or ""
         location = item.get("candidate_required_location") or "Remote"
 
-        if not _is_recent_enough(item.get("publication_date")):
-            return None
         if _is_citizen_restricted(f"{job_title} {location} {description}"):
             logger.info(f"[RemoteJobs] Disqualified '{job_title}' at {company} — residency/citizenship restricted")
             return None
