@@ -49,7 +49,7 @@ export default function SignalsPage() {
   };
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen animate-fade-in">
       <PageHeader
         title="Signals"
         subtitle="Scraping activity and signal detection logs"
@@ -84,12 +84,12 @@ export default function SignalsPage() {
 
       <div className="p-8 space-y-5">
         {/* Source stats */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div className="stagger grid grid-cols-2 md:grid-cols-5 gap-3">
           {ACTIVE_SOURCES.map((key) => {
             const sourceLogs = logs.filter((l: ScrapingLog) => l.source === key);
             const lastLog = sourceLogs[0];
             return (
-              <div key={key} className="card p-4">
+              <div key={key} className="card card-hover p-4">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-medium text-ink">{getSourceLabel(key)}</span>
                   <Zap className="w-3.5 h-3.5 text-warning" />

@@ -30,7 +30,11 @@ export default function DashboardPage() {
         subtitle="ANTA Lead Radar — AI-powered lead intelligence"
         icon={LayoutDashboard}
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
+            <span className="live-pill" title={scraping ? 'Radar scanning for signals' : 'Radar online'}>
+              <span className="live-dot" />
+              {scraping ? 'Scanning' : 'Radar live'}
+            </span>
             <button onClick={handleScrape} disabled={scraping} className="btn-primary">
               <RefreshCw className={`w-4 h-4 ${scraping ? 'animate-spin' : ''}`} />
               {scraping ? 'Scraping…' : 'Run Scrape'}
@@ -44,13 +48,13 @@ export default function DashboardPage() {
         <DashboardSkeleton />
       ) : (
         /* ── Split: left bento grid + right AI panel ── */
-        <div className="flex gap-5 px-6 py-5 flex-1 min-h-0">
+        <div className="ambient-signal flex gap-5 px-6 py-5 flex-1 min-h-0">
 
           {/* ── LEFT: Bento grid ── */}
-          <div className="flex-1 min-w-0 space-y-4 overflow-y-auto">
+          <div className="relative z-10 flex-1 min-w-0 space-y-4 overflow-y-auto">
 
             {/* Row 1: Primary KPIs */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="stagger grid grid-cols-2 lg:grid-cols-4 gap-4">
               <MetricCard
                 label="Total Leads"
                 value={metrics?.total_leads ?? 0}
@@ -96,7 +100,7 @@ export default function DashboardPage() {
           </div>
 
           {/* ── RIGHT: AI Intelligence Panel (sticky) ── */}
-          <div className="w-[268px] flex-shrink-0">
+          <div className="relative z-10 w-[268px] flex-shrink-0">
             <div className="sticky top-5">
               <AIInsightsPanel
                 metrics={metrics}

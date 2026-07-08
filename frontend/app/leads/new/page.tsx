@@ -53,7 +53,7 @@ export default function NewLeadPage() {
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen animate-fade-in">
       <PageHeader
         title="Add Lead"
         subtitle="Manually add a company to your pipeline"

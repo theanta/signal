@@ -1,4 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -8,41 +9,43 @@
   :root {
     color-scheme: dark;
 
-    /* ── Semantic alias vars — dark intelligence theme ── */
-    --ink: #dde2ea;
+    /* ── Semantic alias vars — Signal dark intelligence theme ── */
+    --ink: #e6eaf2;
     --ink-active: #ffffff;
     --body: #8b95a8;
     --muted: #5a6275;
-    --hairline: #1e2332;
-    --canvas: #141720;
-    --surface-soft: #0d0f17;
-    --surface-strong: #1d2032;
+    --hairline: #1f232f;
+    --canvas: #0f1117;
+    --surface-soft: #090a0f;
+    --surface-strong: #191c26;
 
     /* ── Design system vars ── */
     --radius: 8px;
-    --brand: #4f6ef7;
-    --brand-light: #eef1fe;
+    --brand: #32d583;              /* electric signal green */
+    --brand-strong: #12b76a;
+    --brand-ink: #04130b;          /* near-black text for on-green surfaces */
+    --brand-light: #ecfdf3;
 
-    /* ── AI accent ── */
-    --ai-accent: #a78bfa;
-    --ai-accent-bg: rgba(167, 139, 250, 0.08);
-    --ai-accent-border: rgba(167, 139, 250, 0.18);
+    /* ── AI accent — scanner teal ── */
+    --ai-accent: #2dd4bf;
+    --ai-accent-bg: rgba(45, 212, 191, 0.08);
+    --ai-accent-border: rgba(45, 212, 191, 0.18);
 
     /* Sidebar */
-    --sidebar-bg:          #0a0c13;
+    --sidebar-bg:          #0a0c11;
     --sidebar-hover:       rgba(255,255,255,0.05);
     --sidebar-active:      rgba(255,255,255,0.09);
     --sidebar-text:        #636d7e;
     --sidebar-text-active: #ffffff;
     --sidebar-border:      rgba(255,255,255,0.06);
-    --sidebar-accent:      #4f6ef7;
+    --sidebar-accent:      #32d583;
 
     /* Elevation shadows — tuned for dark surfaces */
     --shadow-card:    0 1px 3px 0 rgb(0 0 0 / 0.4), 0 1px 2px -1px rgb(0 0 0 / 0.3);
     --shadow-card-md: 0 4px 16px 0 rgb(0 0 0 / 0.5), 0 2px 4px -1px rgb(0 0 0 / 0.3);
     --shadow-card-lg: 0 8px 32px 0 rgb(0 0 0 / 0.6), 0 4px 8px -2px rgb(0 0 0 / 0.4);
     --shadow-cmd:     0 25px 50px -12px rgb(0 0 0 / 0.7), 0 0 0 1px rgba(255,255,255,0.06);
-    --shadow-sidebar-glow: 0 0 12px rgb(79 110 247 / 0.2);
+    --shadow-sidebar-glow: 0 0 12px rgb(50 213 131 / 0.28);
   }
 
   *,
@@ -54,6 +57,12 @@
 
   html {
     text-rendering: optimizeLegibility;
+  }
+
+  /* Display face on heading tags — body/data stays Inter */
+  h1, h2, h3, h4, .font-display {
+    font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    letter-spacing: -0.011em;
   }
 
   body {
@@ -141,42 +150,116 @@
     border: 1px solid var(--hairline);
     border-radius: 14px;
     box-shadow: var(--shadow-card);
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s cubic-bezier(0.16,1,0.3,1);
   }
 
   .card-bento:hover {
-    border-color: rgba(255,255,255,0.1);
-    box-shadow: var(--shadow-card-md);
+    border-color: rgba(50,213,131,0.28);
+    box-shadow: var(--shadow-card-md), 0 0 20px rgba(50,213,131,0.06);
+    transform: translateY(-2px);
   }
 
-  /* ── AI intelligence card — violet-tinted ── */
+  /* ── AI intelligence card — scanner teal ── */
   .card-ai {
+    position: relative;
+    overflow: hidden;
     background: linear-gradient(
       145deg,
-      rgba(167, 139, 250, 0.07) 0%,
-      rgba(79, 110, 247, 0.04) 60%,
+      rgba(45, 212, 191, 0.08) 0%,
+      rgba(50, 213, 131, 0.04) 60%,
       transparent 100%
     );
     border: 1px solid var(--ai-accent-border);
     border-radius: 14px;
-    box-shadow: 0 0 32px rgba(167, 139, 250, 0.06);
+    box-shadow: 0 0 32px rgba(45, 212, 191, 0.06);
+  }
+
+  /* Radar sweep behind the AI card header — a slow rotating conic beam */
+  .radar-sweep::before {
+    content: '';
+    position: absolute;
+    top: -60%;
+    right: -30%;
+    width: 220px;
+    height: 220px;
+    border-radius: 9999px;
+    background: conic-gradient(from 0deg, transparent 0deg, rgba(45,212,191,0.16) 40deg, transparent 90deg);
+    animation: radar-sweep 4s linear infinite;
+    pointer-events: none;
   }
 
   /* ── Gradient text for KPI numbers ── */
   .metric-value {
-    background: linear-gradient(140deg, #ffffff 30%, #8b95a8 100%);
+    background: linear-gradient(140deg, #ffffff 25%, #a6f4c5 130%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
     font-feature-settings: "tnum";
   }
 
+  /* ── Ambient signal glow — page-hero atmosphere ── */
+  .ambient-signal {
+    position: relative;
+  }
+  .ambient-signal::before {
+    content: '';
+    position: absolute;
+    top: -80px;
+    left: 10%;
+    width: 620px;
+    height: 320px;
+    background: radial-gradient(ellipse at center, rgba(50,213,131,0.10) 0%, transparent 70%);
+    filter: blur(20px);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── Live status pill (radar online) ── */
+  .live-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px 3px 8px;
+    border-radius: 9999px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: #6ce9a6;
+    background: rgba(50,213,131,0.08);
+    border: 1px solid rgba(50,213,131,0.20);
+  }
+  .live-dot {
+    position: relative;
+    width: 6px;
+    height: 6px;
+    border-radius: 9999px;
+    background: #32d583;
+    box-shadow: 0 0 8px rgba(50,213,131,0.8);
+  }
+  .live-dot::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 9999px;
+    background: #32d583;
+    animation: signal-ping 2s ease-out infinite;
+  }
+
+  /* Staggered entrance for grids */
+  .stagger > * { animation: rise-in 0.4s cubic-bezier(0.16,1,0.3,1) both; }
+  .stagger > *:nth-child(1) { animation-delay: 0.02s; }
+  .stagger > *:nth-child(2) { animation-delay: 0.07s; }
+  .stagger > *:nth-child(3) { animation-delay: 0.12s; }
+  .stagger > *:nth-child(4) { animation-delay: 0.17s; }
+  .stagger > *:nth-child(5) { animation-delay: 0.22s; }
+  .stagger > *:nth-child(6) { animation-delay: 0.27s; }
+
   /* ── Buttons ── */
   .btn-primary {
     background-color: var(--brand);
-    color: #ffffff;
+    color: var(--brand-ink);
     font-size: 14px;
-    font-weight: 500;
+    font-weight: 600;
     padding: 9px 16px;
     border-radius: var(--radius);
     border: none;
@@ -184,17 +267,19 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    transition: background-color 0.15s, box-shadow 0.15s;
+    transition: background-color 0.15s, box-shadow 0.15s, transform 0.15s;
     white-space: nowrap;
+    box-shadow: 0 0 0 0 rgba(50,213,131,0);
   }
 
   .btn-primary:hover {
-    background-color: #3a57e0;
-    box-shadow: 0 0 0 3px rgba(79,110,247,0.2);
+    background-color: #4be09a;
+    box-shadow: 0 0 20px rgba(50,213,131,0.35);
   }
 
   .btn-primary:active {
-    background-color: #2b42c4;
+    background-color: var(--brand-strong);
+    transform: translateY(0.5px);
   }
 
   .btn-primary:disabled {
@@ -350,8 +435,9 @@
     top: 20%;
     height: 60%;
     width: 2.5px;
-    background: linear-gradient(180deg, #4f6ef7, #a78bfa);
+    background: linear-gradient(180deg, #32d583, #2dd4bf);
     border-radius: 0 2px 2px 0;
+    box-shadow: 0 0 8px rgba(50,213,131,0.5);
   }
 }
 
@@ -367,8 +453,36 @@
 }
 
 @keyframes ai-pulse {
-  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.5); }
-  50%       { opacity: 0.7; box-shadow: 0 0 0 4px rgba(74, 222, 128, 0); }
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(50, 213, 131, 0.5); }
+  50%       { opacity: 0.7; box-shadow: 0 0 0 4px rgba(50, 213, 131, 0); }
+}
+
+@keyframes radar-sweep {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes signal-ping {
+  0%   { transform: scale(1);   opacity: 0.5; }
+  70%  { transform: scale(2.4); opacity: 0; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+
+@keyframes rise-in {
+  from { transform: translateY(10px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+/* ── Respect reduced-motion: kill decorative loops + entrance motion ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .radar-sweep::before,
+  .live-dot::after { animation: none !important; }
+  .card-bento:hover { transform: none; }
 }
 
 .toast-enter {

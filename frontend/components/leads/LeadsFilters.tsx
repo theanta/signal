@@ -170,7 +170,7 @@ export default function LeadsFilters({
               <Columns3 className="w-3.5 h-3.5" />
               <span>Columns</span>
               {hiddenCount > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-brand text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none">
+                <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-brand text-[#04130b] text-[9px] font-bold rounded-full flex items-center justify-center leading-none">
                   {hiddenCount}
                 </span>
               )}

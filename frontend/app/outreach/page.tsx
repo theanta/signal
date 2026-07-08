@@ -105,7 +105,7 @@ export default function OutreachQueuePage() {
   const selectedLead = leads.find(l => l.id === selected);
 
   return (
-    <div className="flex flex-col h-screen">
+    <div className="flex flex-col h-screen animate-fade-in">
       <PageHeader
         title="Outreach Queue"
         subtitle={isLoading ? undefined : `${leads.length} leads ready`}

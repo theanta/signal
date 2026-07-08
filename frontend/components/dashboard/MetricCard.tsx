@@ -1,6 +1,7 @@
 import { cn } from '@/lib/utils';
 import type { LucideIcon } from 'lucide-react';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { useCountUp } from '@/hooks/useCountUp';
 
 interface Trend {
   value: number;
@@ -29,6 +30,8 @@ export default function MetricCard({
   label, value, icon: Icon, color = 'ink', sublabel, trend,
 }: MetricCardProps) {
   const { icon: iconCn, glow } = COLOR_MAP[color];
+  const numeric = typeof value === 'number';
+  const animated = useCountUp(numeric ? value : 0);
 
   return (
     <div className={cn('card-bento p-5 group transition-all duration-200', glow)}>
@@ -37,14 +40,17 @@ export default function MetricCard({
         <p className="text-[11px] font-semibold text-muted uppercase tracking-wider">
           {label}
         </p>
-        <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0', iconCn)}>
+        <div className={cn(
+          'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-transform duration-200 group-hover:scale-110',
+          iconCn,
+        )}>
           <Icon className="w-4 h-4" />
         </div>
       </div>
 
-      {/* Value — gradient text */}
-      <p className="metric-value text-[32px] font-semibold leading-none mt-3 tracking-tight">
-        {value}
+      {/* Value — gradient text, count-up animated */}
+      <p className="metric-value text-[32px] font-semibold leading-none mt-3 tracking-tight tabular-nums">
+        {numeric ? animated.toLocaleString() : value}
       </p>
 
       {/* Bottom row: sublabel + trend */}

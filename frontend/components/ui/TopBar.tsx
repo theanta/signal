@@ -33,7 +33,7 @@ export default function TopBar({ onSearchClick }: TopBarProps) {
   const crumbs = useBreadcrumbs();
 
   return (
-    <header className="h-[44px] flex-shrink-0 flex items-center justify-between px-6 bg-canvas border-b border-hairline z-10">
+    <header className="h-[56px] flex-shrink-0 flex items-center justify-between px-6 bg-canvas border-b border-hairline z-10">
       {/* Breadcrumb */}
       <nav className="flex items-center gap-1.5 text-[13px]">
         {crumbs.map((crumb, i) => (

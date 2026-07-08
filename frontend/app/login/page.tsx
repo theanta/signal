@@ -42,11 +42,17 @@ export default function LoginPage() {
         {/* Background glow */}
         <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-brand/10 blur-3xl pointer-events-none" />
         <div className="absolute bottom-0 right-0 w-64 h-64 rounded-full bg-brand/5 blur-2xl pointer-events-none" />
+        {/* Radar sweep ring */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[520px] h-[520px] rounded-full border border-brand/10 pointer-events-none">
+          <div className="absolute inset-0 rounded-full radar-sweep overflow-hidden" />
+          <div className="absolute inset-[90px] rounded-full border border-brand/[0.06]" />
+          <div className="absolute inset-[180px] rounded-full border border-brand/[0.04]" />
+        </div>
 
         {/* Logo */}
         <div className="flex items-center gap-3 relative">
-          <div className="w-9 h-9 rounded-lg bg-brand flex items-center justify-center shadow-[0_0_16px_rgba(79,110,247,0.5)]">
-            <Radar className="w-5 h-5 text-white" />
+          <div className="w-9 h-9 rounded-lg bg-brand flex items-center justify-center shadow-[0_0_16px_rgba(50,213,131,0.5)]">
+            <Radar className="w-5 h-5 text-[#04130b]" />
           </div>
           <div>
             <div className="text-base font-semibold text-white tracking-wide">Lead Radar</div>
@@ -61,9 +67,9 @@ export default function LoginPage() {
               AI-Powered Lead Intelligence
             </p>
             <h2 className="text-[32px] font-semibold text-white leading-tight tracking-tight">
-              Find the leads that&apos;re<br />
-              ready to buy — before<br />
-              your competitors do.
+              Find the leads,<br /> 
+              <span className="text-brand">Before</span> your<br />
+              <span className="text-amber-400">COMPETITORS</span> do.
             </h2>
           </div>
 
@@ -93,7 +99,7 @@ export default function LoginPage() {
           {/* Mobile logo */}
           <div className="flex lg:hidden items-center gap-3 mb-8">
             <div className="w-8 h-8 rounded-lg bg-brand flex items-center justify-center">
-              <Radar className="w-4 h-4 text-white" />
+              <Radar className="w-4 h-4 text-[#04130b]" />
             </div>
             <span className="text-base font-semibold text-ink">Lead Radar</span>
           </div>
@@ -146,7 +152,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full h-10 px-4 bg-brand text-white text-body-sm font-medium rounded-lg hover:bg-brand/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_1px_4px_rgba(79,110,247,0.3)] mt-2"
+              className="w-full h-10 px-4 bg-brand text-[#04130b] text-body-sm font-semibold rounded-lg hover:bg-[#4be09a] hover:shadow-[0_0_20px_rgba(50,213,131,0.35)] transition-all disabled:opacity-50 disabled:cursor-not-allowed mt-2"
             >
               {isSubmitting ? 'Signing in…' : 'Sign in'}
             </button>

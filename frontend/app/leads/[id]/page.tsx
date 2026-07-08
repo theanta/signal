@@ -93,42 +93,49 @@ function PipelineStepper({ stages, current, onSelect, disabled }: {
 }) {
   const currentIndex = stages.indexOf(current);
   return (
-    <div className="space-y-0.5">
+    <div className="flex items-stretch gap-1 overflow-x-auto">
       {stages.map((stage, i) => {
         const isPast = i < currentIndex;
         const isCurrent = i === currentIndex;
         return (
-          <button
-            key={stage}
-            onClick={() => !isCurrent && onSelect(stage)}
-            disabled={disabled}
-            className={cn(
-              'w-full flex items-center gap-3 px-2 py-1.5 rounded-lg transition-all text-left disabled:opacity-50',
-              isCurrent ? 'bg-brand/5 cursor-default' : 'hover:bg-surface-strong',
-            )}
-          >
-            <div className={cn(
-              'w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-3xs font-bold transition-all',
-              isPast ? 'bg-emerald-500/10 text-emerald-400' :
-              isCurrent ? 'bg-brand text-white' :
-              'bg-surface-strong text-muted',
-            )}>
-              {isPast ? <Check className="w-3 h-3" /> : <span>{i + 1}</span>}
-            </div>
-            <span className={cn(
-              'text-body-sm capitalize flex-1',
-              isCurrent ? 'font-semibold text-ink' :
-              isPast ? 'text-muted' :
-              'text-body',
-            )}>
-              {stage}
-            </span>
-            {isCurrent && (
-              <span className="text-3xs font-semibold text-brand uppercase tracking-wide">
-                Current
+          <div key={stage} className="flex items-center flex-1 min-w-[92px]">
+            <button
+              onClick={() => !isCurrent && onSelect(stage)}
+              disabled={disabled}
+              className={cn(
+                'group flex flex-col items-center gap-1.5 flex-1 px-2 py-2 rounded-lg transition-all disabled:opacity-50',
+                isCurrent ? 'bg-brand/5 cursor-default' : 'hover:bg-surface-strong',
+              )}
+            >
+              <div className={cn(
+                'w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-3xs font-bold transition-all',
+                isPast ? 'bg-emerald-500/10 text-emerald-400' :
+                isCurrent ? 'bg-brand text-[#04130b] shadow-[0_0_10px_rgba(50,213,131,0.4)]' :
+                'bg-surface-strong text-muted',
+              )}>
+                {isPast ? <Check className="w-3.5 h-3.5" /> : <span>{i + 1}</span>}
+              </div>
+              <span className={cn(
+                'text-2xs capitalize text-center leading-tight',
+                isCurrent ? 'font-semibold text-ink' :
+                isPast ? 'text-muted' :
+                'text-body',
+              )}>
+                {stage}
               </span>
+              {isCurrent && (
+                <span className="text-3xs font-semibold text-brand uppercase tracking-wide">
+                  Current
+                </span>
+              )}
+            </button>
+            {i < stages.length - 1 && (
+              <div className={cn(
+                'h-px flex-1 min-w-[8px] -mx-1',
+                i < currentIndex ? 'bg-emerald-500/30' : 'bg-hairline',
+              )} />
             )}
-          </button>
+          </div>
         );
       })}
     </div>
@@ -262,20 +269,10 @@ function buildLeadContext(lead: LeadWithSignals, latestSignal: LeadSignal | unde
     if (latestSignal.recommended_anta_service) lines.push(`**Recommended Service:** ${latestSignal.recommended_anta_service}`);
     if (latestSignal.outreach_angle)           lines.push(`**Outreach Angle:** ${latestSignal.outreach_angle}`);
     if (latestSignal.operational_maturity)     lines.push(`**Digital Maturity:** ${latestSignal.operational_maturity}`);
-    if (latestSignal.likely_pain_points?.length) {
-      lines.push('');
-      lines.push('### Pain Points');
-      latestSignal.likely_pain_points.forEach(pt => lines.push(`- ${pt}`));
-    }
     if (latestSignal.tech_stack?.length) {
       lines.push('');
       lines.push('### Tech Stack');
       lines.push(latestSignal.tech_stack.join(', '));
-    }
-    if (latestSignal.tech_gaps?.length) {
-      lines.push('');
-      lines.push('### Tech Gaps / Opportunities');
-      latestSignal.tech_gaps.forEach(g => lines.push(`- ${g}`));
     }
     if (latestSignal.growth_indicators?.length) {
       lines.push('');
@@ -549,6 +546,25 @@ export default function LeadDetailPage() {
         }
       />
 
+      {/* Pipeline Stage — top container */}
+      <div className="px-6 pt-4">
+        <div className="bg-canvas border border-hairline rounded-lg px-4 py-3">
+          <div className="flex items-center gap-4">
+            <h3 className="text-2xs font-semibold text-muted uppercase tracking-wider whitespace-nowrap">
+              Pipeline Stage
+            </h3>
+            <div className="flex-1 min-w-0">
+              <PipelineStepper
+                stages={STATUS_PIPELINE}
+                current={lead.status}
+                onSelect={(s) => statusMutation.mutate(s)}
+                disabled={statusMutation.isPending}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="px-6 py-4 grid grid-cols-3 gap-5 items-start">
 
         {/* LEFT COLUMN */}
@@ -650,7 +666,7 @@ export default function LeadDetailPage() {
                     <button
                       onClick={() => outreachMutation.mutate('email')}
                       disabled={outreachMutation.isPending}
-                      className="inline-flex items-center gap-1.5 h-8 px-4 text-body-sm font-medium bg-brand text-white rounded-lg hover:bg-brand/90 transition-colors disabled:opacity-50"
+                      className="inline-flex items-center gap-1.5 h-8 px-4 text-body-sm font-semibold bg-brand text-[#04130b] rounded-lg hover:bg-[#4be09a] hover:shadow-[0_0_16px_rgba(50,213,131,0.3)] transition-all disabled:opacity-50"
                     >
                       {outreachMutation.isPending
                         ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -685,7 +701,7 @@ export default function LeadDetailPage() {
               <button
                 onClick={startAnalysis}
                 disabled={isAnalyzing}
-                className="inline-flex items-center gap-2 h-9 px-5 text-body-sm font-medium bg-brand text-white rounded-lg hover:bg-brand/90 transition-colors mx-auto disabled:opacity-50"
+                className="inline-flex items-center gap-2 h-9 px-5 text-body-sm font-semibold bg-brand text-[#04130b] rounded-lg hover:bg-[#4be09a] hover:shadow-[0_0_16px_rgba(50,213,131,0.3)] transition-all mx-auto disabled:opacity-50"
               >
                 {isAnalyzing
                   ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -711,16 +727,38 @@ export default function LeadDetailPage() {
               </div>
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="bg-canvas border border-hairline rounded-lg overflow-hidden">
+              {/* radar accent line */}
+              <div className="h-0.5 bg-gradient-to-r from-brand/70 via-brand/20 to-transparent" />
 
-              {/* ANTA Recommendation — hero card, full width, visually primary */}
-              <div className="bg-canvas border border-brand/20 rounded-lg p-4">
-                <div className="flex items-center gap-2 mb-3">
+              {/* Report header — label + one-glance maturity verdict */}
+              <div className="flex items-center justify-between gap-4 px-4 py-3 border-b border-hairline">
+                <div className="flex items-center gap-2 flex-shrink-0">
                   <Brain className="w-4 h-4 text-brand/60" />
-                  <h3 className="text-2xs font-semibold text-brand/70 uppercase tracking-wider">ANTA Recommendation</h3>
+                  <h3 className="text-2xs font-semibold text-brand/70 uppercase tracking-wider">
+                    Signal Intelligence
+                  </h3>
                 </div>
+                {latestSignal.operational_maturity && (
+                  <div className="flex items-center gap-2 min-w-0 justify-end">
+                    <span className="text-3xs font-semibold text-muted uppercase tracking-wide flex-shrink-0">
+                      Digital Maturity
+                    </span>
+                    <span className="inline-flex items-center gap-1.5 text-xs text-body min-w-0">
+                      <span className="w-1.5 h-1.5 rounded-full bg-brand shadow-[0_0_8px_rgba(50,213,131,0.55)] flex-shrink-0" />
+                      <span className="truncate">{latestSignal.operational_maturity}</span>
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Recommended play — the visual anchor of the report */}
+              <div className="px-4 py-4">
+                <p className="text-3xs font-semibold text-brand/70 uppercase tracking-[0.14em] mb-1.5">
+                  Recommended Play
+                </p>
                 {latestSignal.recommended_anta_service && (
-                  <p className="text-base font-semibold text-ink mb-2">
+                  <p className="text-lg font-semibold text-ink leading-snug mb-2">
                     {latestSignal.recommended_anta_service}
                   </p>
                 )}
@@ -729,36 +767,17 @@ export default function LeadDetailPage() {
                     {latestSignal.outreach_angle}
                   </p>
                 )}
-                {latestSignal.operational_maturity && (
-                  <div className="mt-3 pt-3 border-t border-hairline flex items-center gap-2">
-                    <span className="text-2xs font-semibold text-muted uppercase tracking-wide">
-                      Digital Maturity
-                    </span>
-                    <span className="text-xs text-body">{latestSignal.operational_maturity}</span>
-                  </div>
-                )}
               </div>
 
-              {/* Pain Points — full width, secondary priority */}
-              <SectionCard title="Pain Points" icon={Target}>
-                <ul className="grid grid-cols-2 gap-x-6 gap-y-2">
-                  {(latestSignal.likely_pain_points ?? []).length > 0
-                    ? latestSignal.likely_pain_points!.map((pt, i) => (
-                      <li key={i} className="text-body-sm text-body flex items-start gap-2">
-                        <span className="w-1.5 h-1.5 rounded-full bg-rose-400 mt-1.5 flex-shrink-0" />
-                        {pt}
-                      </li>
-                    ))
-                    : <li className="text-body-sm text-muted col-span-2">No pain points identified.</li>
-                  }
-                </ul>
-              </SectionCard>
-
-              {/* Tech Stack + Gaps — tertiary, 2-col detail row */}
-              {(latestSignal.tech_stack?.length || latestSignal.tech_gaps?.length) ? (
-                <div className="grid grid-cols-2 gap-4">
-                  {latestSignal.tech_stack && latestSignal.tech_stack.length > 0 && (
-                    <SectionCard title="Tech Stack" icon={Monitor}>
+              {/* Footer — tech stack + growth signals share one calm row */}
+              {(latestSignal.tech_stack?.length || latestSignal.growth_indicators?.length) ? (
+                <div className="grid grid-cols-2 divide-x divide-hairline border-t border-hairline">
+                  <div className="px-4 py-3.5">
+                    <div className="flex items-center gap-2 mb-2.5">
+                      <Monitor className="w-3.5 h-3.5 text-muted" />
+                      <h4 className="text-3xs font-semibold text-muted uppercase tracking-wider">Tech Stack</h4>
+                    </div>
+                    {latestSignal.tech_stack && latestSignal.tech_stack.length > 0 ? (
                       <div className="flex flex-wrap gap-1.5">
                         {latestSignal.tech_stack.map((tech, i) => (
                           <span key={i} className="inline-flex items-center px-2 py-0.5 text-2xs font-medium rounded-full border bg-blue-500/10 text-blue-400 border-blue-500/20">
@@ -766,34 +785,29 @@ export default function LeadDetailPage() {
                           </span>
                         ))}
                       </div>
-                    </SectionCard>
-                  )}
-                  {latestSignal.tech_gaps && latestSignal.tech_gaps.length > 0 && (
-                    <SectionCard title="Tech Gaps — Opportunity" icon={Zap}>
-                      <ul className="space-y-2">
-                        {latestSignal.tech_gaps.map((gap, i) => (
-                          <li key={i} className="text-body-sm text-body flex items-start gap-2">
-                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1.5 flex-shrink-0" />
-                            {gap}
-                          </li>
+                    ) : (
+                      <p className="text-2xs text-muted/60">None detected</p>
+                    )}
+                  </div>
+                  <div className="px-4 py-3.5">
+                    <div className="flex items-center gap-2 mb-2.5">
+                      <TrendingUp className="w-3.5 h-3.5 text-muted" />
+                      <h4 className="text-3xs font-semibold text-muted uppercase tracking-wider">Growth Signals</h4>
+                    </div>
+                    {latestSignal.growth_indicators && latestSignal.growth_indicators.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {latestSignal.growth_indicators.map((indicator, i) => (
+                          <span key={i} className="inline-flex items-center px-2 py-0.5 text-2xs font-medium rounded-full border bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
+                            {indicator}
+                          </span>
                         ))}
-                      </ul>
-                    </SectionCard>
-                  )}
+                      </div>
+                    ) : (
+                      <p className="text-2xs text-muted/60">None detected</p>
+                    )}
+                  </div>
                 </div>
               ) : null}
-
-              {latestSignal.growth_indicators && latestSignal.growth_indicators.length > 0 && (
-                <SectionCard title="Growth Signals" icon={TrendingUp}>
-                  <div className="flex flex-wrap gap-1.5">
-                    {latestSignal.growth_indicators.map((indicator, i) => (
-                      <span key={i} className="inline-flex items-center px-2 py-0.5 text-2xs font-medium rounded-full border bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
-                        {indicator}
-                      </span>
-                    ))}
-                  </div>
-                </SectionCard>
-              )}
             </div>
           )}
 
@@ -972,17 +986,6 @@ export default function LeadDetailPage() {
                     </span>
                   ) : <span className="text-muted/50">N/A</span>
                 }
-              />
-            </div>
-
-            {/* Pipeline Stage */}
-            <div className="p-4">
-              <h3 className="text-2xs font-semibold text-muted uppercase tracking-wider mb-3">Pipeline Stage</h3>
-              <PipelineStepper
-                stages={STATUS_PIPELINE}
-                current={lead.status}
-                onSelect={(s) => statusMutation.mutate(s)}
-                disabled={statusMutation.isPending}
               />
             </div>
 

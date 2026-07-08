@@ -14,12 +14,12 @@ const STATUS_ORDER = ['new', 'analyzed', 'contacted', 'replied', 'meeting', 'pro
 
 const STAGE_CONFIG: Record<string, { label: string; color: string }> = {
   new:       { label: 'New',       color: '#3a4258' },
-  analyzed:  { label: 'Analyzed',  color: '#4f6ef7' },
-  contacted: { label: 'Contacted', color: '#6b82f8' },
-  replied:   { label: 'Replied',   color: '#a78bfa' },
+  analyzed:  { label: 'Analyzed',  color: '#38bdf8' },
+  contacted: { label: 'Contacted', color: '#2dd4bf' },
+  replied:   { label: 'Replied',   color: '#34d399' },
   meeting:   { label: 'Meeting',   color: '#fbbf24' },
   proposal:  { label: 'Proposal',  color: '#fb923c' },
-  client:    { label: 'Client',    color: '#4ade80' },
+  client:    { label: 'Client',    color: '#32d583' },
 };
 
 interface Props {

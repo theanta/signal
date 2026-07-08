@@ -34,7 +34,7 @@ interface QuickAction {
 const INSIGHT_ICON_STYLES: Record<Insight['type'], string> = {
   opportunity: 'text-brand-400 bg-brand-500/10',
   warning:     'text-amber-400 bg-amber-500/10',
-  info:        'text-sky-400   bg-sky-500/10',
+  info:        'text-ai-400    bg-ai-500/10',
   success:     'text-emerald-400 bg-emerald-500/10',
 };
 
@@ -147,20 +147,20 @@ export default function AIInsightsPanel({ metrics, pipeline, hotLeads = [] }: Pr
     <div className="flex flex-col gap-3">
 
       {/* ── Signal AI header card ── */}
-      <div className="card-ai p-4">
-        <div className="flex items-center justify-between mb-3">
+      <div className="card-ai radar-sweep p-4">
+        <div className="relative flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-md bg-violet-500/10 flex items-center justify-center">
-              <Sparkles className="w-3.5 h-3.5 text-violet-400" />
+            <div className="w-6 h-6 rounded-md bg-ai-500/10 border border-ai-400/20 flex items-center justify-center">
+              <Sparkles className="w-3.5 h-3.5 text-ai-400" />
             </div>
             <span className="text-[13px] font-semibold text-ink">Signal AI</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 ai-pulse inline-block" />
+            <span className="w-1.5 h-1.5 rounded-full bg-brand-400 ai-pulse inline-block" />
             <span className="text-[11px] text-muted">Live</span>
           </div>
         </div>
-        <p className="text-[12.5px] text-body leading-relaxed">
+        <p className="relative text-[12.5px] text-body leading-relaxed">
           {narrative}
         </p>
       </div>

@@ -9,18 +9,18 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // ── Semantic aliases — dark intelligence theme ──
-        ink:            '#dde2ea',
+        // ── Semantic aliases — Signal dark intelligence theme ──
+        ink:            '#e6eaf2',
         'ink-active':   '#ffffff',
         body:           '#8b95a8',
         muted:          '#5a6275',
-        hairline:       '#1e2332',
+        hairline:       '#1f232f',
         'border-strong':'#2e3347',
-        canvas:         '#141720',
-        'surface-soft': '#0d0f17',
-        'surface-strong':'#1d2032',
-        'surface-dark': '#090b12',
-        'surface-dark-elevated': '#141720',
+        canvas:         '#0f1117',
+        'surface-soft': '#090a0f',
+        'surface-strong':'#191c26',
+        'surface-dark': '#06070b',
+        'surface-dark-elevated': '#0f1117',
 
         // ── Semantic status ──
         link: '#1b61c9',
@@ -36,20 +36,28 @@ const config: Config = {
         'error-border': '#f5c9b8',
         warning:        '#d9a441',
 
-        // ── Brand ──
+        // ── Brand — electric signal green ──
         brand: {
-          DEFAULT: '#4f6ef7',
-          50:  '#eef1fe',
-          100: '#dde4fd',
-          200: '#bbc9fb',
-          300: '#99aef9',
-          400: '#7793f8',
-          500: '#4f6ef7',
-          600: '#3a57e0',
-          700: '#2b42c4',
-          800: '#1e2f9e',
-          900: '#131f6b',
-          950: '#0b1245',
+          DEFAULT: '#32d583',
+          50:  '#ecfdf3',
+          100: '#d1fadf',
+          200: '#a6f4c5',
+          300: '#6ce9a6',
+          400: '#32d583',
+          500: '#12b76a',
+          600: '#039855',
+          700: '#027a48',
+          800: '#05603a',
+          900: '#054f31',
+          950: '#032b1c',
+        },
+
+        // ── AI intelligence secondary — scanner teal ──
+        ai: {
+          DEFAULT: '#2dd4bf',
+          400: '#2dd4bf',
+          500: '#14b8a6',
+          600: '#0d9488',
         },
 
         // ── Neutral gray scale ──
@@ -69,13 +77,13 @@ const config: Config = {
 
         // ── Sidebar ──
         sidebar: {
-          bg:     '#0f1117',
+          bg:     '#0a0c11',
           hover:  '#ffffff0d',
           active: '#ffffff1a',
           text:   '#a0a8b4',
           'text-active': '#ffffff',
           border: '#ffffff14',
-          accent: '#4f6ef7',
+          accent: '#32d583',
         },
 
         // ── Semantic status colors — dark ──
@@ -126,6 +134,15 @@ const config: Config = {
           'Roboto',
           'sans-serif',
         ],
+        // Display / heading face — adds "2026 SaaS" personality to titles.
+        display: [
+          '"Plus Jakarta Sans"',
+          'Inter',
+          '-apple-system',
+          'BlinkMacSystemFont',
+          '"Segoe UI"',
+          'sans-serif',
+        ],
         mono: ['JetBrains Mono', '"Fira Code"', 'monospace'],
       },
 
@@ -166,8 +183,9 @@ const config: Config = {
         'card':    '0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.04)',
         'card-md': '0 4px 12px 0 rgb(0 0 0 / 0.08), 0 2px 4px -1px rgb(0 0 0 / 0.04)',
         'card-lg': '0 8px 24px 0 rgb(0 0 0 / 0.10), 0 4px 8px -2px rgb(0 0 0 / 0.06)',
-        'brand':   '0 0 0 3px rgb(79 110 247 / 0.15)',
-        'sidebar-glow': '0 0 8px rgb(79 110 247 / 0.08)',
+        'brand':   '0 0 0 3px rgb(50 213 131 / 0.18)',
+        'signal-glow': '0 0 24px rgb(50 213 131 / 0.16)',
+        'sidebar-glow': '0 0 10px rgb(50 213 131 / 0.14)',
         'cmd':     '0 25px 50px -12px rgb(0 0 0 / 0.35), 0 0 0 1px rgb(0 0 0 / 0.08)',
       },
 
@@ -204,6 +222,19 @@ const config: Config = {
           '0%, 100%': { opacity: '1' },
           '50%':      { opacity: '0.4' },
         },
+        'radar-sweep': {
+          from: { transform: 'rotate(0deg)' },
+          to:   { transform: 'rotate(360deg)' },
+        },
+        'signal-ping': {
+          '0%':   { transform: 'scale(1)',   opacity: '0.5' },
+          '70%':  { transform: 'scale(2.4)', opacity: '0' },
+          '100%': { transform: 'scale(2.4)', opacity: '0' },
+        },
+        'rise-in': {
+          from: { transform: 'translateY(10px)', opacity: '0' },
+          to:   { transform: 'translateY(0)',    opacity: '1' },
+        },
       },
 
       animation: {
@@ -215,6 +246,9 @@ const config: Config = {
         'scale-in':            'scale-in 0.15s ease-out',
         'shimmer':             'shimmer 1.6s linear infinite',
         'pulse-dot':           'pulse-dot 2s ease-in-out infinite',
+        'radar-sweep':         'radar-sweep 4s linear infinite',
+        'signal-ping':         'signal-ping 2s ease-out infinite',
+        'rise-in':             'rise-in 0.4s cubic-bezier(0.16,1,0.3,1) both',
       },
 
       transitionTimingFunction: {

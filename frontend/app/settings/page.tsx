@@ -224,7 +224,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen animate-fade-in">
       <PageHeader title="Settings" icon={Settings} />
 
       <div className="flex min-h-[calc(100vh-120px)]">
