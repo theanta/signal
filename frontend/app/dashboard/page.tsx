@@ -7,6 +7,7 @@ import ScrapeProgressPanel from '@/components/scrape/ScrapeProgressPanel';
 import MetricCard from '@/components/dashboard/MetricCard';
 import PipelineBar from '@/components/dashboard/PipelineBar';
 import HotLeadsWidget from '@/components/dashboard/HotLeadsWidget';
+import ApplyWorthyJobsWidget from '@/components/dashboard/ApplyWorthyJobsWidget';
 import ActivityFeed from '@/components/dashboard/ActivityFeed';
 import AIInsightsPanel from '@/components/dashboard/AIInsightsPanel';
 import PageHeader from '@/components/ui/PageHeader';
@@ -95,8 +96,15 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Row 3: Activity feed */}
-            <ActivityFeed />
+            {/* Row 3: Activity feed (3/5) + Apply-worthy jobs (2/5) */}
+            <div className="grid grid-cols-5 gap-4">
+              <div className="col-span-3">
+                <ActivityFeed />
+              </div>
+              <div className="col-span-2">
+                <ApplyWorthyJobsWidget />
+              </div>
+            </div>
           </div>
 
           {/* ── RIGHT: AI Intelligence Panel (sticky) ── */}

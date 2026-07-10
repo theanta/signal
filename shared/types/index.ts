@@ -110,9 +110,14 @@ export interface JobFilters {
   verdict?: JobVerdict;
   search?: string;
   location?: string;
+  source?: JobSource;
+  /** Only jobs posted (or, lacking posted_at, scraped) within the last N days */
+  posted_within_days?: number;
+  /** Matches against the scraped technologies/tags array, case-tolerant */
+  technology?: string;
   page?: number;
   per_page?: number;
-  sort_by?: 'created_at' | 'company_name' | 'posted_at';
+  sort_by?: 'created_at' | 'company_name' | 'job_title' | 'location' | 'source' | 'posted_at' | 'status' | 'verdict';
   sort_order?: 'asc' | 'desc';
 }
 

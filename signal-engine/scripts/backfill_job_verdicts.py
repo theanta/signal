@@ -14,6 +14,7 @@ overwrites the triage fields, nothing else.
 import os
 import sys
 from collections import Counter
+from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -39,7 +40,7 @@ def main() -> None:
     while True:
         rows = (
             sb.table("jobs")
-            .select("id, job_title, location, description, posted_at_raw")
+            .select("id, job_title, location, description, posted_at_raw, scraped_at, created_at")
             .order("created_at", desc=True)
             .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
             .execute()
@@ -50,7 +51,11 @@ def main() -> None:
             break
 
         for row in rows:
-            triage = qualify_job(row)
+            # Relative posted_at_raw ("3 days ago") is relative to when the
+            # row was scraped, not to when this backfill runs.
+            anchor_raw = row.get("scraped_at") or row.get("created_at")
+            anchor = datetime.fromisoformat(anchor_raw.replace("Z", "+00:00")) if anchor_raw else None
+            triage = qualify_job(row, posted_anchor=anchor)
             verdicts[triage["verdict"]] += 1
             if not dry_run:
                 sb.table("jobs").update(triage).eq("id", row["id"]).execute()

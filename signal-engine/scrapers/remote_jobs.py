@@ -2,15 +2,20 @@
 Indeed and LinkedIn (via Apify actors) plus RemoteOK and Remotive (free public
 JSON APIs, no token needed).
 
-Postings are NOT filtered here beyond having a company name — triage
-(citizenship gating, no-agency clauses, etc.) happens at persist time via
-analyzers.job_qualifier, so disqualified postings stay visible with a
-'skip' verdict instead of silently disappearing.
+Postings are NOT filtered here beyond having a company name and being at most
+MAX_POSTING_AGE_DAYS old — content triage (citizenship gating, no-agency
+clauses, etc.) happens at persist time via analyzers.job_qualifier, so
+disqualified postings stay visible with a 'skip' verdict instead of silently
+disappearing. Stale postings are the exception: past a week the role is
+usually filled or ghosted, so they're dropped at scrape time.
 """
 
 import logging
+from datetime import datetime, timedelta, timezone
 
 import requests
+
+from analyzers.job_qualifier import parse_posted_at
 
 from .apify_base import ApifyBaseScraper
 
@@ -18,6 +23,8 @@ logger = logging.getLogger(__name__)
 
 INDEED_ACTOR = "misceres/indeed-scraper"
 LINKEDIN_ACTOR = "worldunboxer/rapid-linkedin-scraper"
+
+MAX_POSTING_AGE_DAYS = 7
 
 DEFAULT_ROLES = [
     "software engineer",
@@ -93,6 +100,19 @@ class RemoteJobsScraper(ApifyBaseScraper):
 
         return self._deduplicate(postings)
 
+    def _is_fresh(self, posted_at_raw: str | None) -> bool:
+        """True when the posting is at most MAX_POSTING_AGE_DAYS old. Undated
+        postings are kept — the qualifier surfaces missing dates downstream
+        rather than us guessing here. LinkedIn skips this check: its actor is
+        already scoped server-side via the datePosted filter."""
+        parsed = parse_posted_at(posted_at_raw)
+        if not parsed:
+            return True
+        posted = datetime.fromisoformat(parsed)
+        if posted.tzinfo is None:  # Remotive dates come through naive; treat as UTC
+            posted = posted.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) - posted <= timedelta(days=MAX_POSTING_AGE_DAYS)
+
     # ---- Indeed (Apify) ----
 
     def _scrape_indeed(self) -> list[dict]:
@@ -105,7 +125,10 @@ class RemoteJobsScraper(ApifyBaseScraper):
                 "maxItems": 20,
                 "saveOnlyUniqueItems": True,
             })
-            postings.extend(p for item in items if (p := self._map_indeed_item(item, query)))
+            postings.extend(
+                p for item in items
+                if (p := self._map_indeed_item(item, query)) and self._is_fresh(p["posted_at_raw"])
+            )
         return postings
 
     def _map_indeed_item(self, item: dict, query: str) -> dict | None:
@@ -199,7 +222,7 @@ class RemoteJobsScraper(ApifyBaseScraper):
             if not self._matches_target_roles(item.get("position", ""), item.get("tags") or []):
                 continue
             posting = self._map_remoteok_item(item)
-            if posting:
+            if posting and self._is_fresh(posting["posted_at_raw"]):
                 postings.append(posting)
         return postings
 
@@ -252,7 +275,10 @@ class RemoteJobsScraper(ApifyBaseScraper):
             resp.raise_for_status()
             items = (resp.json() or {}).get("jobs") or []
             relevant = (item for item in items if self._matches_target_roles(item.get("title", ""), item.get("tags") or []))
-            postings.extend(p for item in relevant if (p := self._map_remotive_item(item)))
+            postings.extend(
+                p for item in relevant
+                if (p := self._map_remotive_item(item)) and self._is_fresh(p["posted_at_raw"])
+            )
         return postings
 
     def _map_remotive_item(self, item: dict) -> dict | None:

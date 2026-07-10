@@ -189,10 +189,12 @@ def _timezone_reason(text: str) -> str | None:
     return None
 
 
-def parse_posted_at(raw: str | None) -> str | None:
+def parse_posted_at(raw: str | None, anchor: datetime | None = None) -> str | None:
     """Parse posted_at_raw — ISO dates (RemoteOK/Remotive) or relative strings
     like '3 days ago' / '30+ days ago' / 'Just posted' (Indeed/LinkedIn) —
-    into an ISO timestamp. Returns None when unparseable."""
+    into an ISO timestamp. Relative strings resolve against `anchor` (the
+    scrape time; defaults to now, which is correct at ingest but not when
+    backfilling old rows). Returns None when unparseable."""
     if not raw:
         return None
     text = raw.strip()
@@ -203,7 +205,7 @@ def parse_posted_at(raw: str | None) -> str | None:
     except ValueError:
         pass
 
-    now = datetime.now(timezone.utc)
+    now = anchor or datetime.now(timezone.utc)
     lowered = text.lower()
     if re.search(r"just\s+posted|today|just\s+now", lowered):
         return now.isoformat()
@@ -220,9 +222,10 @@ def parse_posted_at(raw: str | None) -> str | None:
     return None
 
 
-def qualify_job(posting: dict) -> dict:
+def qualify_job(posting: dict, posted_anchor: datetime | None = None) -> dict:
     """Compute triage fields for a job posting dict. Returns a partial row:
-    {verdict, verdict_reasons, posted_at} — merge into the posting before upsert."""
+    {verdict, verdict_reasons, posted_at} — merge into the posting before upsert.
+    `posted_anchor` resolves relative posted_at_raw strings (see parse_posted_at)."""
     text = _clean_text(posting)
     skip_reasons: list[str] = []
     caution_reasons: list[str] = []
@@ -256,5 +259,5 @@ def qualify_job(posting: dict) -> dict:
     return {
         "verdict": verdict,
         "verdict_reasons": skip_reasons + caution_reasons,
-        "posted_at": parse_posted_at(posting.get("posted_at_raw")),
+        "posted_at": parse_posted_at(posting.get("posted_at_raw"), posted_anchor),
     }

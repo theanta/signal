@@ -1,8 +1,9 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ExternalLink, ChevronLeft, ChevronRight, Briefcase, UserPlus, CheckCircle2 } from 'lucide-react';
+import { ExternalLink, ChevronLeft, ChevronRight, Briefcase, UserPlus, CheckCircle2, ArrowUp, ArrowDown, ChevronsUpDown } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { TableRowSkeleton } from '@/components/ui/Skeleton';
 import JobStatusBadge from '@/components/jobs/JobStatusBadge';
@@ -10,7 +11,10 @@ import JobVerdictBadge from '@/components/jobs/JobVerdictBadge';
 import { convertJobToLead } from '@/services/jobs';
 import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
-import type { Job } from '../../../shared/types';
+import type { Job, JobFilters } from '../../../shared/types';
+
+type SortField = NonNullable<JobFilters['sort_by']>;
+type SortOrder = NonNullable<JobFilters['sort_order']>;
 
 const SOURCE_LABELS: Record<Job['source'], string> = {
   indeed:    'Indeed',
@@ -25,10 +29,13 @@ interface JobsTableProps {
   page: number;
   totalPages: number;
   isLoading?: boolean;
+  sortBy: SortField;
+  sortOrder: SortOrder;
   onPageChange: (p: number) => void;
+  onSortChange: (sortBy: SortField, sortOrder: SortOrder) => void;
 }
 
-export default function JobsTable({ jobs, total, page, totalPages, isLoading = false, onPageChange }: JobsTableProps) {
+export default function JobsTable({ jobs, total, page, totalPages, isLoading = false, sortBy, sortOrder, onPageChange, onSortChange }: JobsTableProps) {
   const qc = useQueryClient();
 
   const convertMutation = useMutation({
@@ -41,6 +48,35 @@ export default function JobsTable({ jobs, total, page, totalPages, isLoading = f
   });
 
   const thCn = 'sticky top-0 bg-canvas z-10 border-b border-hairline px-4 py-2 text-left text-2xs font-semibold text-muted uppercase tracking-wider whitespace-nowrap';
+
+  function handleSort(field: SortField) {
+    if (sortBy === field) {
+      onSortChange(field, sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      // Dates read best newest-first; text columns A→Z
+      onSortChange(field, field === 'posted_at' || field === 'created_at' ? 'desc' : 'asc');
+    }
+  }
+
+  function SortableTh({ field, children }: { field: SortField; children: ReactNode }) {
+    const active = sortBy === field;
+    return (
+      <th className={cn(thCn, 'p-0')} aria-sort={active ? (sortOrder === 'asc' ? 'ascending' : 'descending') : undefined}>
+        <button
+          onClick={() => handleSort(field)}
+          className={cn(
+            'group/sort flex items-center gap-1 px-4 py-2 w-full uppercase tracking-wider text-2xs font-semibold transition-colors hover:text-ink',
+            active ? 'text-ink' : 'text-muted',
+          )}
+        >
+          {children}
+          {active
+            ? (sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-brand-400" /> : <ArrowDown className="w-3 h-3 text-brand-400" />)
+            : <ChevronsUpDown className="w-3 h-3 opacity-0 group-hover/sort:opacity-100 transition-opacity" />}
+        </button>
+      </th>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -60,14 +96,14 @@ export default function JobsTable({ jobs, total, page, totalPages, isLoading = f
         <table className="w-full text-sm">
           <thead>
             <tr>
-              <th className={thCn}>Company</th>
-              <th className={thCn}>Role</th>
-              <th className={thCn}>Verdict</th>
-              <th className={thCn}>Location</th>
+              <SortableTh field="company_name">Company</SortableTh>
+              <SortableTh field="job_title">Role</SortableTh>
+              <SortableTh field="verdict">Verdict</SortableTh>
+              <SortableTh field="location">Location</SortableTh>
               <th className={thCn}>Salary</th>
-              <th className={thCn}>Source</th>
-              <th className={thCn}>Posted</th>
-              <th className={thCn}>Status</th>
+              <SortableTh field="source">Source</SortableTh>
+              <SortableTh field="posted_at">Posted</SortableTh>
+              <SortableTh field="status">Status</SortableTh>
               <th className={cn(thCn, 'w-10')} />
             </tr>
           </thead>

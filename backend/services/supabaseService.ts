@@ -95,7 +95,7 @@ export async function upsertLeadByWebsite(lead: Partial<Lead>): Promise<{ lead: 
 
 export async function getJobs(filters: JobFilters = {}): Promise<PaginatedResponse<Job>> {
   const {
-    status, verdict, search, location,
+    status, verdict, search, location, source, posted_within_days, technology,
     page = 1, per_page = 25,
     sort_by = 'created_at', sort_order = 'desc',
   } = filters;
@@ -104,9 +104,24 @@ export async function getJobs(filters: JobFilters = {}): Promise<PaginatedRespon
 
   if (status) query = query.eq('status', status);
   if (verdict) query = query.eq('verdict', verdict);
+  if (source) query = query.eq('source', source);
   if (location) query = query.ilike('location', `%${location}%`);
   if (search) {
     query = query.or(`company_name.ilike.%${search}%,job_title.ilike.%${search}%,description.ilike.%${search}%`);
+  }
+  if (posted_within_days) {
+    const cutoff = new Date(Date.now() - posted_within_days * 86_400_000).toISOString();
+    // Jobs without a parsed posted_at fall back to when we scraped them
+    query = query.or(`posted_at.gte.${cutoff},and(posted_at.is.null,created_at.gte.${cutoff})`);
+  }
+  if (technology) {
+    // Tags arrive lowercase from remoteok/remotive but arbitrary-case from
+    // config, and Postgres array contains is case-sensitive — try variants.
+    const t = technology.trim().replace(/["{},]/g, '');
+    if (t) {
+      const variants = [...new Set([t, t.toLowerCase(), t.toUpperCase(), t[0].toUpperCase() + t.slice(1).toLowerCase()])];
+      query = query.or(variants.map(v => `technologies.cs.{"${v}"}`).join(','));
+    }
   }
 
   query = query.order(sort_by, { ascending: sort_order === 'asc', nullsFirst: false });
@@ -196,6 +211,24 @@ export async function createJobSignal(signal: Partial<JobSignal>): Promise<JobSi
   const { data, error } = await supabase.from('job_signals').insert(signal).select().single();
   if (error) throw new Error(`createJobSignal: ${error.message}`);
   return data as JobSignal;
+}
+
+export async function createJobSubmission(sub: Partial<JobSubmission>): Promise<JobSubmission> {
+  const { data, error } = await supabase.from('job_submissions').insert(sub).select().single();
+  if (error) throw new Error(`createJobSubmission: ${error.message}`);
+  return data as JobSubmission;
+}
+
+export async function updateJobSubmission(id: string, updates: Partial<JobSubmission>): Promise<JobSubmission> {
+  const { data, error } = await supabase
+    .from('job_submissions').update(updates).eq('id', id).select().single();
+  if (error) throw new Error(`updateJobSubmission: ${error.message}`);
+  return data as JobSubmission;
+}
+
+export async function deleteJobSubmission(id: string): Promise<void> {
+  const { error } = await supabase.from('job_submissions').delete().eq('id', id);
+  if (error) throw new Error(`deleteJobSubmission: ${error.message}`);
 }
 
 export async function convertJobToLead(job: Job): Promise<Lead> {

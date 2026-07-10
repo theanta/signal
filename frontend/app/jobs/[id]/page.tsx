@@ -6,6 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchJob, analyzeJob, updateJobStatus, convertJobToLead } from '@/services/jobs';
 import PageHeader from '@/components/ui/PageHeader';
 import JobStatusBadge from '@/components/jobs/JobStatusBadge';
+import SubmissionsCard from '@/components/jobs/SubmissionsCard';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { toast } from '@/lib/toast';
 import { cn } from '@/lib/utils';
@@ -14,8 +15,9 @@ import {
   AlertTriangle, XCircle, Clock, DollarSign, UserPlus, Archive,
   RotateCcw, ChevronDown, Ban, Users, ArrowUpRight,
   Brain, RefreshCw, Copy, FileText, ListChecks, Lightbulb, ShieldAlert,
+  Clipboard, Mail,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import type { JobStatus, JobVerdict, Job, JobSignal, SalaryParsed } from '../../../../shared/types';
 
@@ -179,6 +181,193 @@ function DescriptionCard({ description }: { description: string }) {
           <ChevronDown className={cn('w-3.5 h-3.5 transition-transform', expanded && 'rotate-180')} />
           {expanded ? 'Show less' : 'Show full description'}
         </button>
+      )}
+    </div>
+  );
+}
+
+function buildJobContext(job: Job, signal: JobSignal | undefined): string {
+  const lines: string[] = [];
+  lines.push(`# Job Context: ${job.job_title ?? 'Untitled role'} @ ${job.company_name}`);
+  lines.push('');
+  lines.push('## Posting');
+  lines.push(`- **Company:** ${job.company_name}`);
+  if (job.job_title)        lines.push(`- **Role:** ${job.job_title}`);
+  if (job.location)         lines.push(`- **Location:** ${job.location}`);
+  if (job.employment_type)  lines.push(`- **Type:** ${job.employment_type}`);
+  if (job.salary_text)      lines.push(`- **Salary:** ${job.salary_text}`);
+  if (job.source_url)       lines.push(`- **Posting URL:** ${job.source_url}`);
+  if (job.technologies?.length) lines.push(`- **Tech tags:** ${job.technologies.join(', ')}`);
+
+  if (job.verdict) {
+    lines.push('');
+    lines.push(`## Triage Verdict: ${job.verdict.toUpperCase()}`);
+    (job.verdict_reasons ?? []).forEach(r => lines.push(`- ${r}`));
+  }
+
+  if (signal) {
+    lines.push('');
+    lines.push('## Decoded Requirements');
+    if (signal.summary)   lines.push(signal.summary);
+    if (signal.seniority && signal.seniority !== 'unclear') lines.push(`- **Level:** ${signal.seniority}`);
+    if (signal.contract_type && signal.contract_type !== 'unclear') lines.push(`- **Contract:** ${signal.contract_type}`);
+    if (signal.must_have_skills?.length)    lines.push(`- **Must have:** ${signal.must_have_skills.join(', ')}`);
+    if (signal.nice_to_have_skills?.length) lines.push(`- **Nice to have:** ${signal.nice_to_have_skills.join(', ')}`);
+    if (signal.ats_keywords?.length)        lines.push(`- **ATS keywords (exact phrasing):** ${signal.ats_keywords.join(', ')}`);
+    if (signal.timezone_note)               lines.push(`- **Timezone:** ${signal.timezone_note}`);
+    if (signal.red_flags?.length)           lines.push(`- **Red flags:** ${signal.red_flags.join(' | ')}`);
+
+    const pb = signal.resume_playbook;
+    if (pb) {
+      lines.push('');
+      lines.push('## Resume Playbook');
+      if (pb.headline)                  lines.push(`- **Headline:** ${pb.headline}`);
+      if (pb.lead_with?.length)         lines.push(`- **Lead with:** ${pb.lead_with.join(', ')}`);
+      if (pb.demote?.length)            lines.push(`- **Demote/drop:** ${pb.demote.join(', ')}`);
+      if (pb.keyword_checklist?.length) lines.push(`- **Keyword checklist:** ${pb.keyword_checklist.join(', ')}`);
+      if (pb.framing_tips?.length) {
+        lines.push('- **Framing tips:**');
+        pb.framing_tips.forEach(t => lines.push(`  - ${t}`));
+      }
+      if (pb.sample_bullets?.length) {
+        lines.push('- **Sample bullet patterns:**');
+        pb.sample_bullets.forEach(b => lines.push(`  - ${b}`));
+      }
+      if (pb.screening_risks?.length)   lines.push(`- **Screening risks:** ${pb.screening_risks.join(' | ')}`);
+    }
+  }
+
+  if (job.description) {
+    lines.push('');
+    lines.push('## Full Description');
+    const text = descriptionToText(job.description);
+    lines.push(text.length > 4000 ? `${text.slice(0, 4000)}\n[…truncated]` : text);
+  }
+
+  return lines.join('\n');
+}
+
+function resumePromptSuffix(): string {
+  return `
+
+---
+
+**Task: tailor a resume for this job.**
+
+I will paste a candidate's current resume after this message. Rewrite it to target the posting above:
+
+1. **Headline/title:** match the posting's role naming (use the playbook headline if present).
+2. **Keywords:** work every ATS keyword into the resume naturally, using the posting's EXACT spelling and casing. Skills the candidate genuinely has go in the skills section AND inside experience bullets; never keyword-stuff.
+3. **Reorder, don't invent:** lead with the skills/experience this posting values most, demote or drop what's irrelevant. Do NOT fabricate employers, titles, dates, or experience the candidate doesn't have — reframe only.
+4. **Bullets:** rewrite experience bullets to mirror the posting's emphasis (follow the framing tips and sample bullet patterns above). Each bullet: action verb, specific tech, measurable outcome.
+5. **Screening safety:** anything the resume claims must survive a live technical screen — flag any claim you consider risky for this candidate rather than including it silently.
+6. **Output:** the full tailored resume in clean plain text, then a short list of the changes you made and why.
+
+Reply "ready" and I'll paste the resume.`;
+}
+
+function outreachPromptSuffix(job: Job): string {
+  return `
+
+---
+
+**Task: write a direct application email for this job.**
+
+You are writing on behalf of a software staffing agency that has strong candidates for the role above. The email goes to the hiring manager or recruiter at **${job.company_name}** (find the right contact from the posting/company if possible; otherwise write it to "Hiring Team").
+
+Requirements — strictly under 130 words:
+- **Subject:** the exact role name + one concrete hook (e.g. availability or a headline skill match). No "Application for…" boilerplate.
+- **Opening line:** reference something specific from the posting itself — a named responsibility, the stack, the stated challenge. It must prove the email isn't a blast.
+- **Body (2-3 sentences):** present the candidate profile in terms of the posting's top must-have skills. Mention immediate availability and full IST-flexibility for overlap hours if the posting cares about timezones.
+- **CTA:** one sentence — offer to send the resume or book a 15-minute screen this week.
+- **Tone rules:** direct, competent, zero recruiter-spam energy. Ban: *rockstar, ninja, perfect fit, honed, seasoned professional, I hope this email finds you well*.
+- Do not fabricate candidate details — use placeholders like [Candidate Name] and [X years] where specifics belong.`;
+}
+
+function CopyContextDropdown({ job, latestSignal }: {
+  job: Job;
+  latestSignal: JobSignal | undefined;
+}) {
+  const [open, setOpen] = useState(false);
+  const [copiedVariant, setCopiedVariant] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, [open]);
+
+  async function handleCopy(variant: 'context' | 'resume' | 'outreach') {
+    const base = buildJobContext(job, latestSignal);
+    const text =
+      variant === 'resume'   ? base + resumePromptSuffix() :
+      variant === 'outreach' ? base + outreachPromptSuffix(job) :
+      base;
+    await navigator.clipboard.writeText(text);
+    setCopiedVariant(variant);
+    setOpen(false);
+    setTimeout(() => setCopiedVariant(null), 2500);
+  }
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <button
+        onClick={() => setOpen(prev => !prev)}
+        className={cn(
+          'flex items-center gap-1.5 h-8 px-3 text-body-sm font-medium border rounded-lg transition-colors',
+          copiedVariant
+            ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+            : 'border-hairline hover:bg-surface-strong text-muted',
+        )}
+        title="Copy job context for an AI assistant"
+      >
+        {copiedVariant
+          ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+          : <Clipboard className="w-3.5 h-3.5" />}
+        <span>{copiedVariant ? 'Copied!' : 'Copy Context'}</span>
+        <ChevronDown className={cn('w-3 h-3 text-muted transition-transform', open && 'rotate-180')} />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-50 bg-canvas border border-hairline rounded-lg shadow-lg overflow-hidden w-56">
+          <button
+            onClick={() => handleCopy('context')}
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body-sm text-ink hover:bg-surface-strong transition-colors text-left"
+          >
+            <Copy className="w-3.5 h-3.5 text-muted flex-shrink-0" />
+            <div>
+              <p className="font-medium leading-tight">Copy Context</p>
+              <p className="text-2xs text-muted mt-0.5">Job data + analysis only</p>
+            </div>
+          </button>
+          <div className="border-t border-hairline" />
+          <button
+            onClick={() => handleCopy('resume')}
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body-sm text-ink hover:bg-surface-strong transition-colors text-left"
+          >
+            <FileText className="w-3.5 h-3.5 text-muted flex-shrink-0" />
+            <div>
+              <p className="font-medium leading-tight">Copy + Resume Prompt</p>
+              <p className="text-2xs text-muted mt-0.5">Paste a resume to tailor it</p>
+            </div>
+          </button>
+          <button
+            onClick={() => handleCopy('outreach')}
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-body-sm text-ink hover:bg-surface-strong transition-colors text-left"
+          >
+            <Mail className="w-3.5 h-3.5 text-muted flex-shrink-0" />
+            <div>
+              <p className="font-medium leading-tight">Copy + Outreach Prompt</p>
+              <p className="text-2xs text-muted mt-0.5">Direct application email task</p>
+            </div>
+          </button>
+        </div>
       )}
     </div>
   );
@@ -627,6 +816,7 @@ export default function JobDetailPage() {
                 Convert to Lead
               </button>
             )}
+            <CopyContextDropdown job={job} latestSignal={latestSignal} />
           </div>
         }
       />
@@ -805,6 +995,9 @@ export default function JobDetailPage() {
             </div>
           )}
 
+          {/* Submissions — one row per resume sent to this posting */}
+          <SubmissionsCard jobId={job.id} submissions={job.submissions ?? []} />
+
           {/* Description */}
           {job.description ? (
             <DescriptionCard description={job.description} />
@@ -883,10 +1076,15 @@ export default function JobDetailPage() {
                 {companySubmissionCount > 0 && (
                   <div className="flex items-start gap-2 px-3 py-2 mb-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
                     <Users className="w-3.5 h-3.5 text-amber-400 mt-0.5 flex-shrink-0" />
-                    <p className="text-xs text-amber-400 leading-relaxed">
-                      {companySubmissionCount} profile{companySubmissionCount > 1 ? 's' : ''} already submitted to{' '}
-                      other {job.company_name} postings — check before submitting again.
-                    </p>
+                    <div className="min-w-0">
+                      <p className="text-xs text-amber-400 leading-relaxed">
+                        {companySubmissionCount} profile{companySubmissionCount > 1 ? 's' : ''} already submitted to{' '}
+                        other {job.company_name} postings — check before submitting again.
+                      </p>
+                      <p className="text-2xs text-amber-400/70 mt-1 truncate">
+                        {Array.from(new Set((related?.company_submissions ?? []).map(s => s.profile_label))).join(' · ')}
+                      </p>
+                    </div>
                   </div>
                 )}
 

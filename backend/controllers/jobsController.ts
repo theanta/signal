@@ -9,9 +9,12 @@ const JobFilterSchema = z.object({
   verdict: z.enum(['apply', 'caution', 'skip']).optional(),
   search: z.string().optional(),
   location: z.string().optional(),
+  source: z.enum(['indeed', 'linkedin', 'remoteok', 'remotive']).optional(),
+  posted_within_days: z.coerce.number().int().positive().optional(),
+  technology: z.string().optional(),
   page: z.coerce.number().default(1),
   per_page: z.coerce.number().default(25),
-  sort_by: z.enum(['created_at', 'company_name', 'posted_at']).default('created_at'),
+  sort_by: z.enum(['created_at', 'company_name', 'job_title', 'location', 'source', 'posted_at', 'status', 'verdict']).default('created_at'),
   sort_order: z.enum(['asc', 'desc']).default('desc'),
 });
 
@@ -68,6 +71,75 @@ export async function analyzeJob(req: Request, res: Response): Promise<void> {
     }
 
     res.json({ success: true, data: signal });
+  } catch (err) {
+    res.status(500).json({ success: false, error: (err as Error).message });
+  }
+}
+
+const SubmissionCreateSchema = z.object({
+  profile_label: z.string().min(1),
+  notes: z.string().optional(),
+});
+
+const SUBMISSION_STATUSES = ['submitted', 'screening', 'interviewing', 'offer', 'placed', 'rejected', 'withdrawn'] as const;
+
+const SubmissionUpdateSchema = z.object({
+  profile_label: z.string().min(1).optional(),
+  status: z.enum(SUBMISSION_STATUSES).optional(),
+  notes: z.string().nullable().optional(),
+});
+
+export async function createSubmission(req: Request, res: Response): Promise<void> {
+  try {
+    const job = await db.getJobById(req.params.id);
+    if (!job) {
+      res.status(404).json({ success: false, error: 'Job not found' });
+      return;
+    }
+    const payload = SubmissionCreateSchema.parse(req.body);
+    const submission = await db.createJobSubmission({ job_id: job.id, ...payload });
+
+    // Submitting a profile means the job has been applied to.
+    if (job.status === 'new' || job.status === 'reviewed') {
+      await db.updateJob(job.id, { status: 'applied' });
+    }
+
+    res.json({ success: true, data: submission });
+  } catch (err) {
+    res.status(400).json({ success: false, error: (err as Error).message });
+  }
+}
+
+export async function updateSubmission(req: Request, res: Response): Promise<void> {
+  try {
+    const updates = SubmissionUpdateSchema.parse(req.body);
+    const submission = await db.updateJobSubmission(req.params.sid, updates as never);
+
+    // A submission advancing pulls the job's pipeline stage along with it.
+    if (updates.status) {
+      const job = await db.getJobById(req.params.id);
+      if (job) {
+        const bump =
+          updates.status === 'placed' ? 'placed' :
+          ['screening', 'interviewing', 'offer'].includes(updates.status) &&
+            ['new', 'reviewed', 'applied'].includes(job.status) ? 'interviewing' :
+          null;
+        if (bump && job.status !== bump) {
+          await db.updateJob(job.id, { status: bump });
+        }
+      }
+    }
+
+    res.json({ success: true, data: submission });
+  } catch (err) {
+    res.status(400).json({ success: false, error: (err as Error).message });
+  }
+}
+
+export async function deleteSubmission(req: Request, res: Response): Promise<void> {
+  try {
+    await db.deleteJobSubmission(req.params.sid);
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ success: false, error: (err as Error).message });
   }

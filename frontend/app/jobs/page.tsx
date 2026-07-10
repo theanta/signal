@@ -44,7 +44,10 @@ export default function JobsPage() {
           page={filters.page ?? 1}
           totalPages={data?.total_pages ?? 1}
           isLoading={isLoading}
+          sortBy={filters.sort_by ?? 'created_at'}
+          sortOrder={filters.sort_order ?? 'desc'}
           onPageChange={p => updateFilters({ page: p })}
+          onSortChange={(sort_by, sort_order) => updateFilters({ sort_by, sort_order, page: 1 })}
         />
       </div>
     </div>
