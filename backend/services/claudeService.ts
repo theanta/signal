@@ -1,5 +1,6 @@
 import Groq from 'groq-sdk';
-import type { Lead, SignalAnalysisResult, OutreachChannel, PlatformConfig } from '../../shared/types';
+import { z } from 'zod';
+import type { Job, JobSignal, Lead, SignalAnalysisResult, OutreachChannel, PlatformConfig } from '../../shared/types';
 import { DEFAULT_PLATFORM_CONFIG } from '../../shared/types';
 import { getConfig } from './configService';
 
@@ -241,6 +242,164 @@ Respond ONLY with valid JSON:
     opportunity_quality: 'high' | 'medium' | 'low';
     reasoning: string;
   }>(text, 'opportunity analysis');
+}
+
+// ============================================================
+// JOB INTEL — JD decode + resume playbook for agency applications
+// ============================================================
+
+const _HTML_TAG_RE = /<[^>]+>/g;
+
+function jdToPlainText(raw: string, maxChars = 7000): string {
+  const text = raw
+    .replace(/<\/(p|div|li|h[1-6]|ul|ol|tr)>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(_HTML_TAG_RE, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return text.length > maxChars ? `${text.slice(0, maxChars)}\n[…description truncated]` : text;
+}
+
+// Groq output is untrusted — validate shape before it reaches the DB.
+// JSON-mode models sometimes emit null where an array belongs, hence the catches.
+const strArr = (max: number) => z.array(z.string()).max(max).nullish().catch([]).transform(v => v ?? []);
+
+export const JobIntelSchema = z.object({
+  summary: z.string(),
+  seniority: z.enum(['junior', 'mid', 'senior', 'lead', 'unclear']).catch('unclear'),
+  contract_type: z.enum(['full-time', 'contract', 'c2c', 'unclear']).catch('unclear'),
+  contract_duration: z.string().nullish().catch(null),
+  must_have_skills: strArr(15),
+  nice_to_have_skills: strArr(15),
+  ats_keywords: strArr(20),
+  salary_parsed: z.object({
+    min: z.number().nullish(),
+    max: z.number().nullish(),
+    currency: z.string().nullish(),
+    period: z.enum(['hour', 'month', 'year']).nullish().catch(null),
+    normalized_annual_usd: z.number().nullish(),
+  }).nullish().catch(null),
+  red_flags: strArr(8),
+  timezone_note: z.string().nullish().catch(null),
+  resume_playbook: z.object({
+    headline: z.string().nullish().catch(null),
+    lead_with: strArr(8),
+    demote: strArr(8),
+    keyword_checklist: strArr(15),
+    framing_tips: strArr(6),
+    sample_bullets: strArr(5),
+    screening_risks: strArr(6),
+  }),
+});
+
+export type JobIntelResult = z.infer<typeof JobIntelSchema> & { model_version: string };
+
+export async function generateJobIntel(job: Job): Promise<JobIntelResult> {
+  const { config } = await loadConfig();
+
+  const agencyStack = config.remote_technologies.filter(Boolean);
+  const agencyRoles = config.remote_job_roles.filter(Boolean);
+  const description = job.description ? jdToPlainText(job.description) : 'N/A';
+
+  const prompt = `You are a senior recruiting analyst at an offshore software staffing agency based in India.
+The agency submits multiple candidate resumes to remote job postings daily. Your job: decode this posting
+so the recruiter can (a) tailor resumes to pass ATS screening and (b) prep candidates for screening calls.
+All candidates work from India (IST, UTC+5:30).
+
+${agencyRoles.length ? `The agency typically staffs: ${agencyRoles.join(', ')}.` : ''}
+${agencyStack.length ? `The agency's strongest technologies: ${agencyStack.join(', ')}.` : ''}
+
+JOB POSTING:
+- Title: ${job.job_title ?? 'Unknown'}
+- Company: ${job.company_name}
+- Location: ${job.location ?? 'Remote'}
+- Employment type: ${job.employment_type ?? 'Not stated'}
+- Salary text: ${job.salary_text ?? 'Not stated'}
+- Tags: ${job.technologies?.join(', ') || 'None'}
+- Description:
+${description}
+
+ANALYZE AND RESPOND. Rules:
+1. "ats_keywords": the exact phrases from the posting an ATS will scan for, ranked by prominence/frequency.
+   Use the posting's exact spelling ("React.js" vs "ReactJS" matters).
+2. "must_have_skills" vs "nice_to_have_skills": split strictly by how the posting phrases requirements.
+3. "salary_parsed": parse the salary text if present; normalize to annual USD (hourly × 2080, monthly × 12).
+   null if no salary is stated — do not invent numbers.
+4. "red_flags": anything that hurts an offshore agency submission — timezone demands, agency-hostile language,
+   unrealistic skill grab-bags, signs of a ghost posting. Empty array if none.
+5. "timezone_note": if the posting requires specific working hours, translate them to IST. null otherwise.
+6. "resume_playbook": guidance for whoever tailors the resumes —
+   - "headline": resume title matching this posting's role naming
+   - "lead_with": skills to put first (prefer overlap between the posting and the agency's strengths)
+   - "demote": skills a candidate might have that are irrelevant here
+   - "keyword_checklist": exact keywords the resume must contain
+   - "framing_tips": how to angle experience bullets for THIS posting's emphasis
+   - "sample_bullets": 3-4 resume bullet patterns aligned to the top responsibilities (use X/Y placeholders for metrics)
+   - "screening_risks": skills the client will likely test live — anything claimed on the resume must survive this
+7. "summary": 2 sentences — what this role actually is and how strong a target it is for the agency.
+
+Respond ONLY with valid JSON:
+{
+  "summary": "...",
+  "seniority": "junior|mid|senior|lead|unclear",
+  "contract_type": "full-time|contract|c2c|unclear",
+  "contract_duration": "..." or null,
+  "must_have_skills": ["..."],
+  "nice_to_have_skills": ["..."],
+  "ats_keywords": ["..."],
+  "salary_parsed": { "min": 0, "max": 0, "currency": "USD", "period": "hour|month|year", "normalized_annual_usd": 0 } or null,
+  "red_flags": ["..."],
+  "timezone_note": "..." or null,
+  "resume_playbook": {
+    "headline": "...",
+    "lead_with": ["..."],
+    "demote": ["..."],
+    "keyword_checklist": ["..."],
+    "framing_tips": ["..."],
+    "sample_bullets": ["..."],
+    "screening_risks": ["..."]
+  }
+}`;
+
+  const text = await callGroq(prompt, 2000);
+  const parsed = JobIntelSchema.parse(extractJson<unknown>(text, 'job intel'));
+  return { ...parsed, model_version: MODEL };
+}
+
+export function jobIntelToSignal(jobId: string, intel: JobIntelResult): Partial<JobSignal> {
+  return {
+    job_id: jobId,
+    summary: intel.summary,
+    seniority: intel.seniority,
+    contract_type: intel.contract_type,
+    contract_duration: intel.contract_duration ?? undefined,
+    must_have_skills: intel.must_have_skills,
+    nice_to_have_skills: intel.nice_to_have_skills,
+    ats_keywords: intel.ats_keywords,
+    salary_parsed: intel.salary_parsed
+      ? {
+          min: intel.salary_parsed.min ?? undefined,
+          max: intel.salary_parsed.max ?? undefined,
+          currency: intel.salary_parsed.currency ?? undefined,
+          period: intel.salary_parsed.period ?? undefined,
+          normalized_annual_usd: intel.salary_parsed.normalized_annual_usd ?? undefined,
+        }
+      : undefined,
+    red_flags: intel.red_flags,
+    timezone_note: intel.timezone_note ?? undefined,
+    resume_playbook: {
+      headline: intel.resume_playbook.headline ?? undefined,
+      lead_with: intel.resume_playbook.lead_with,
+      demote: intel.resume_playbook.demote,
+      keyword_checklist: intel.resume_playbook.keyword_checklist,
+      framing_tips: intel.resume_playbook.framing_tips,
+      sample_bullets: intel.resume_playbook.sample_bullets,
+      screening_risks: intel.resume_playbook.screening_risks,
+    },
+    model_version: intel.model_version,
+  };
 }
 
 // ============================================================
