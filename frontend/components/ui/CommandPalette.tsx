@@ -6,7 +6,7 @@ import { Command } from 'cmdk';
 import * as Dialog from '@radix-ui/react-dialog';
 import { useQuery } from '@tanstack/react-query';
 import {
-  LayoutDashboard, Users, Send, Zap, Settings,
+  LayoutDashboard, Users, Send, Zap, Activity, Settings,
   Plus, RefreshCw, Brain, Search, ArrowRight,
   Building2,
 } from 'lucide-react';
@@ -25,6 +25,7 @@ const NAV_ITEMS = [
   { href: '/leads',     icon: Users,           label: 'Leads',          value: 'leads' },
   { href: '/outreach',  icon: Send,            label: 'Outreach Queue', value: 'outreach queue' },
   { href: '/signals',   icon: Zap,             label: 'Signals',        value: 'signals' },
+  { href: '/system',    icon: Activity,        label: 'System',         value: 'system' },
   { href: '/settings',  icon: Settings,        label: 'Settings',       value: 'settings' },
 ];
 

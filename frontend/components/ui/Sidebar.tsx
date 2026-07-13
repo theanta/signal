@@ -8,6 +8,7 @@ import {
   Briefcase,
   Send,
   Zap,
+  Activity,
   Settings,
   Radar,
   LogOut,
@@ -24,6 +25,11 @@ const MAIN_NAV = [
   { href: '/jobs',      icon: Briefcase,       label: 'Jobs' },
   { href: '/outreach',  icon: Send,            label: 'Outreach' },
   { href: '/signals',   icon: Zap,             label: 'Signals' },
+];
+
+const SECONDARY_NAV = [
+  { href: '/system',   icon: Activity, label: 'System' },
+  { href: '/settings', icon: Settings, label: 'Settings' },
 ];
 
 function getInitials(name: string) {
@@ -123,19 +129,25 @@ export default function Sidebar() {
         {/* Divider */}
         <div className="my-2 border-t border-[rgba(255,255,255,0.06)]" />
 
-        {/* Settings */}
-        <Link
-          href="/settings"
-          title={collapsed ? 'Settings' : undefined}
-          className={cn(
-            'sidebar-item',
-            collapsed && 'justify-center px-0 w-full',
-            isActive('/settings') && 'active',
-          )}
-        >
-          <Settings className="w-[17px] h-[17px] flex-shrink-0" />
-          {!collapsed && <span className="truncate">Settings</span>}
-        </Link>
+        {/* Secondary nav */}
+        {SECONDARY_NAV.map(({ href, icon: Icon, label }) => {
+          const active = isActive(href);
+          return (
+            <Link
+              key={href}
+              href={href}
+              title={collapsed ? label : undefined}
+              className={cn(
+                'sidebar-item',
+                collapsed && 'justify-center px-0 w-full',
+                active && 'active',
+              )}
+            >
+              <Icon className="w-[17px] h-[17px] flex-shrink-0" />
+              {!collapsed && <span className="truncate">{label}</span>}
+            </Link>
+          );
+        })}
       </nav>
 
       {/* ── Collapse toggle ── */}
