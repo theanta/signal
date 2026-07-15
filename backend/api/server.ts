@@ -101,9 +101,16 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
   res.status(500).json({ success: false, error: 'Internal server error' });
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`ANTA Lead Radar API running on http://localhost:${PORT}`);
   initCronJobs();
 });
+
+// Keep idle keep-alive sockets open longer than any upstream proxy's reuse
+// window (Next.js dev rewrites, Render's load balancer). With Node's 5s
+// default, the proxy can reuse a socket at the exact moment we close it,
+// surfacing as intermittent ECONNRESET / "socket hang up" on the frontend.
+server.keepAliveTimeout = 65_000;
+server.headersTimeout = 66_000;
 
 export default app;

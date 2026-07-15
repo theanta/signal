@@ -5,6 +5,8 @@ import re
 import requests
 from urllib.parse import urljoin, urlparse
 
+from .url_utils import clean_company_website
+
 APOLLO_API_KEY = os.getenv("APOLLO_API_KEY", "")
 
 _DECISION_MAKER_TITLES = [
@@ -169,7 +171,7 @@ def _scrape_site_emails(website: str) -> list[tuple[str, str]]:
     for path in _CONTACT_PATHS:
         url = f"https://{domain_host}{path}"
         try:
-            resp = _SESSION.get(url, timeout=4, allow_redirects=True)
+            resp = _SESSION.get(url, timeout=3, allow_redirects=True)
             if resp.status_code >= 400:
                 continue
             emails = _EMAIL_RE.findall(resp.text)
@@ -184,6 +186,10 @@ def _scrape_site_emails(website: str) -> list[tuple[str, str]]:
                 found[email_lower] = path
         except Exception:
             continue
+        # A personal (non-generic) address is the best this stage can produce —
+        # stop early instead of burning the remaining paths' timeout budget.
+        if any(e.split("@")[0] not in _GENERIC_PREFIXES for e in found):
+            break
 
     if not found:
         return []
@@ -233,6 +239,10 @@ def find_contact(
           "catch_all"        domain accepts all mail, or only generic addresses found on site
           "unknown"          email present but verification status unavailable
     """
+    # A social URL here would make Apollo search the wrong company entirely
+    # (organization_domains=["linkedin.com"]) and site scraping hit blocked
+    # pages — fall back to name-based lookup instead.
+    website = clean_company_website(website)
     domain = _extract_domain(website)
 
     # ---- Stage 1: Apollo people search ----

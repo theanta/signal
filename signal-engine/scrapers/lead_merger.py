@@ -12,6 +12,8 @@ multi-source signal is carried separately via `contributing_sources` (list) and
 import re
 from urllib.parse import urlparse
 
+from enrichment.url_utils import is_social_url
+
 _SUFFIX_RE = re.compile(
     r'\s*(inc\.?|llc\.?|corp\.?|co\.?|ltd\.?|plc\.?|group|company|corporation|incorporated|limited)\s*$',
     re.IGNORECASE,
@@ -92,6 +94,8 @@ def _merge_group(leads: list[dict]) -> dict:
     # Sort so the highest-priority source provides canonical base fields
     sorted_leads = sorted(leads, key=lambda l: _source_rank(l.get("source", "")))
     base = dict(sorted_leads[0])
+    if is_social_url(base.get("website")):
+        base["website"] = None
 
     # Collect unique sources in priority order
     seen_sources: set[str] = set()
@@ -128,8 +132,12 @@ def _merge_group(leads: list[dict]) -> dict:
 
     # Fill in missing scalar fields from lower-priority sources
     for l in sorted_leads[1:]:
-        if not base.get("website") and l.get("website"):
+        # Never let a social/aggregator URL (e.g. a LinkedIn company page)
+        # become the merged lead's website — those belong in linkedin_url.
+        if not base.get("website") and l.get("website") and not is_social_url(l["website"]):
             base["website"] = l["website"]
+        if not base.get("linkedin_url") and l.get("linkedin_url"):
+            base["linkedin_url"] = l["linkedin_url"]
         if not base.get("company_size") and l.get("company_size"):
             base["company_size"] = l["company_size"]
         if not base.get("industry") and l.get("industry"):

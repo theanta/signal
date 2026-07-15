@@ -5,6 +5,8 @@ import re
 import requests
 from urllib.parse import urlparse
 
+from .url_utils import clean_company_website
+
 SERPER_API_KEY = os.getenv("SERPER_API_KEY", "")
 _SESSION = requests.Session()
 _SESSION.headers.update({"User-Agent": "Mozilla/5.0 (compatible; ANTALeadRadar/1.0)"})
@@ -82,6 +84,11 @@ def verify_website(website: str | None, company_name: str, location: str) -> str
     2. If dead/missing → try Serper search → return found URL.
     3. If nothing found → return None.
     """
+    # Social/aggregator pages (LinkedIn company profiles etc.) are alive but
+    # are never the company's own site — treat them as "no website" so the
+    # Serper fallback runs and a bad URL is never echoed back to the caller.
+    website = clean_company_website(website)
+
     if website:
         url = website if website.startswith("http") else "https://" + website
         if _is_alive(url):

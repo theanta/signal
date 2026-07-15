@@ -33,6 +33,7 @@ from enrichment.website_verifier import verify_website
 from enrichment.tech_stack_detector import detect_tech_stack, infer_gaps
 from enrichment.contact_finder import find_contact
 from enrichment.website_content_scraper import scrape_website_content
+from enrichment.url_utils import clean_company_website
 from scrapers.lead_merger import merge_leads
 
 # ============================================================
@@ -190,6 +191,14 @@ async def _analyze_lead_core(
       - ("analyzing",   message_str)   — before pain-point analysis + scoring (run in parallel)
       - ("complete",    result_dict)   — final yield with the full analysis result
     """
+    # A LinkedIn/Facebook/etc. page in the website field is worse than no
+    # website: enrichment scrapes blocked pages and Apollo gets queried with
+    # the wrong domain. Drop such URLs up front so every consumer below
+    # (verifier, tech stack, contact finder, content scraper) sees None and
+    # falls back to name/location-based discovery instead.
+    lead.website = clean_company_website(lead.website)
+    lead.cached_verified_website = clean_company_website(lead.cached_verified_website)
+
     # ---- Enterprise disqualification ----
     is_enterprise, disqualify_reason = _is_enterprise_company(lead.company_name, lead.company_size)
     if is_enterprise:
@@ -253,8 +262,10 @@ async def _analyze_lead_core(
             else _with_timeout(asyncio.to_thread(verify_website, lead.website, lead.company_name, lead.location or ""), 15),
         _cached(lead.cached_tech_stack) if use_cached_tech
             else _with_timeout(asyncio.to_thread(detect_tech_stack, lead.website or ""), 15),
+        # 40s budget: find_contact's worst case (three Apollo calls + contact-page
+        # scraping) exceeds 20s, which was cancelling contacts Apollo had already found.
         _cached(lead.cached_contact) if use_cached_contact
-            else _with_timeout(asyncio.to_thread(find_contact, lead.company_name, lead.website, lead.location), 20),
+            else _with_timeout(asyncio.to_thread(find_contact, lead.company_name, lead.website, lead.location), 40),
         _with_timeout(scrape_website_content(lead.website or ""), 20),
         return_exceptions=True,
     )
@@ -368,7 +379,29 @@ async def analyze_lead(request: AnalysisRequest):
 async def analyze_lead_stream(request: AnalysisRequest):
     """Same as /analyze but streams SSE progress events as each phase completes."""
     async def event_stream():
-        async for phase, payload in _analyze_lead_core(request.lead, request.config):
+        gen = _analyze_lead_core(request.lead, request.config)
+        while True:
+            next_event = asyncio.ensure_future(anext(gen))
+            # Long quiet gaps (the Groq phase can run 30s+) get idle-killed by
+            # intermediary proxies (Vercel rewrite, Render). SSE comment lines
+            # are ignored by clients but keep the connection alive.
+            while True:
+                done, _ = await asyncio.wait({next_event}, timeout=10)
+                if done:
+                    break
+                yield ": ping\n\n"
+
+            try:
+                phase, payload = next_event.result()
+            except StopAsyncIteration:
+                return
+            except Exception as e:
+                # Surface failures as a terminal SSE event — a silently dropped
+                # stream leaves the frontend spinner hanging with no explanation.
+                logger.error(f"[analyze/stream] analysis failed: {e}")
+                yield f"data: {json.dumps({'phase': 'error', 'message': str(e)})}\n\n"
+                return
+
             if phase == "complete":
                 yield f"data: {json.dumps({'phase': 'complete', 'result': payload})}\n\n"
             else:
@@ -740,6 +773,7 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
                         "location": lead_data.get("location"),
                         "job_title": lead_data.get("job_title"),
                         "company_size": lead_data.get("company_size"),
+                        "linkedin_url": lead_data.get("linkedin_url"),
                     }.items() if v
                 }
                 refresh["source_count"] = lead_data.get("source_count", 1)

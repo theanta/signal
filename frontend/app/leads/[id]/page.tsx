@@ -204,8 +204,14 @@ function useAnalysisStream(id: string) {
         const pump = (): Promise<void> =>
           reader.read().then(({ done, value }) => {
             if (done) {
+              // Stream ended without a 'complete' or 'error' event — a proxy
+              // or timeout dropped the connection mid-analysis. The backend
+              // may still have finished and persisted, so refetch the lead;
+              // either the report appears or the user knows to retry.
               setIsStreaming(false);
               setPhase(null);
+              qc.invalidateQueries({ queryKey: ['lead', id] });
+              toast.error('Analysis connection lost — results may still appear shortly');
               return;
             }
             buffer += decoder.decode(value, { stream: true });

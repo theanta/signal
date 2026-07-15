@@ -7,6 +7,25 @@ import type { Lead, LeadFilters, LeadSignal, LeadSource, OutreachChannel, Signal
 
 const SIGNAL_ENGINE_URL = process.env.SIGNAL_ENGINE_URL ?? 'http://localhost:8001';
 
+// Mirrors signal-engine/enrichment/url_utils.py — a social/aggregator page is
+// never a company's own website, so it must not be treated as verified.
+const SOCIAL_DOMAINS = [
+  'linkedin.com', 'facebook.com', 'instagram.com', 'twitter.com', 'x.com',
+  'yelp.com', 'indeed.com', 'glassdoor.com', 'crunchbase.com', 'yellowpages.com', 'bbb.org',
+];
+
+function isSocialUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  try {
+    const host = new URL(url.includes('://') ? url : `https://${url}`).hostname
+      .toLowerCase()
+      .replace(/^www\./, '');
+    return SOCIAL_DOMAINS.some(d => host === d || host.endsWith(`.${d}`));
+  } catch {
+    return false;
+  }
+}
+
 const LeadFilterSchema = z.object({
   status: z.string().optional(),
   source: z.string().optional(),
@@ -158,7 +177,11 @@ function _buildLeadPayload(lead: Lead, existingSignals: LeadSignal[]) {
     cached_tech_stack: cachedSignal?.tech_stack?.length ? cachedSignal.tech_stack : undefined,
     cached_tech_gaps: cachedSignal?.tech_gaps?.length ? cachedSignal.tech_gaps : undefined,
     cached_contact: cachedContact,
-    cached_verified_website: cachedSignal ? (lead.website ?? undefined) : undefined,
+    // A social URL (legacy leads scraped before the linkedin_url split) must
+    // not be pinned as "verified" — leaving it undefined makes the engine
+    // re-run website verification, which is how old bad rows self-heal.
+    cached_verified_website:
+      cachedSignal && lead.website && !isSocialUrl(lead.website) ? lead.website : undefined,
   };
 }
 
@@ -200,7 +223,9 @@ export async function streamAnalyzeLead(req: Request, res: Response): Promise<vo
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ lead: leadPayload }),
-      signal: AbortSignal.timeout(90_000),
+      // Generous: must cover a Render free-tier cold start (~50s) plus the
+      // full enrichment + Groq analysis pipeline.
+      signal: AbortSignal.timeout(180_000),
     });
 
     if (!pyResponse.ok || !pyResponse.body) {
@@ -226,20 +251,32 @@ export async function streamAnalyzeLead(req: Request, res: Response): Promise<vo
 
         for (const event of events) {
           if (!event.trim()) continue;
-          res.write(event + '\n\n');
 
+          let completeResult: SignalAnalysisResult | null = null;
           for (const line of event.split('\n')) {
             if (!line.startsWith('data: ')) continue;
             try {
               const parsed = JSON.parse(line.slice(6)) as { phase: string; result?: SignalAnalysisResult };
               if (parsed.phase === 'complete' && parsed.result) {
-                // Non-blocking DB write — don't delay the stream closing
-                _persistAnalysisResult(lead, existingSignals, parsed.result).catch(err =>
-                  console.error('[streamAnalyzeLead] DB persist failed:', err)
-                );
+                completeResult = parsed.result;
               }
             } catch { /* malformed JSON — skip */ }
           }
+
+          if (completeResult) {
+            // Persist BEFORE forwarding 'complete' — the frontend refetches the
+            // lead the moment it sees this event, so the signal/score rows must
+            // already be committed or the UI shows "not analysed yet".
+            try {
+              await _persistAnalysisResult(lead, existingSignals, completeResult);
+            } catch (persistErr) {
+              console.error('[streamAnalyzeLead] DB persist failed:', persistErr);
+              res.write(`data: ${JSON.stringify({ phase: 'error', message: 'Analysis finished but saving failed' })}\n\n`);
+              continue;
+            }
+          }
+
+          res.write(event + '\n\n');
         }
       }
     } finally {

@@ -80,7 +80,11 @@ class LinkedInJobsScraper(ApifyBaseScraper):
 
         return {
             "company_name": company,
-            "website": item.get("company_url") or item.get("companyUrl") or None,
+            # The actor's company_url is the LinkedIn company page, NOT the
+            # company's own site — storing it as website poisons every
+            # downstream enrichment step (verify, tech stack, contact search).
+            "website": None,
+            "linkedin_url": item.get("company_url") or item.get("companyUrl") or None,
             "location": location,
             "job_title": job_title,
             "hiring_signal": signal,
