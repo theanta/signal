@@ -301,7 +301,8 @@ function buildLeadContext(lead: LeadWithSignals, latestSignal: LeadSignal | unde
     if (lead.contact_email) {
       const badge =
         lead.contact_email_confidence === 'verified'   ? ' (verified)' :
-        lead.contact_email_confidence === 'catch_all'  ? ' (catch-all)' : '';
+        lead.contact_email_confidence === 'catch_all'  ? ' (catch-all)' :
+        lead.contact_email_confidence === 'generic'    ? ' (generic inbox)' : '';
       lines.push(`**Email:** ${lead.contact_email}${badge}`);
     }
   }
@@ -848,6 +849,12 @@ export default function LeadDetailPage() {
                           <span className="inline-flex items-center gap-0.5 px-1.5 py-0 text-3xs font-medium rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
                             <ShieldAlert className="w-2.5 h-2.5" />
                             catch-all
+                          </span>
+                        )}
+                        {lead.contact_email_confidence === 'generic' && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0 text-3xs font-medium rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                            <ShieldAlert className="w-2.5 h-2.5" />
+                            generic inbox
                           </span>
                         )}
                         {(lead.contact_email_confidence === 'pattern_inferred' || lead.contact_email_confidence === 'unknown') && (

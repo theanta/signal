@@ -4,7 +4,7 @@ from urllib.parse import urlparse
 
 # Domains that scrapers sometimes emit in the website field (e.g. a LinkedIn
 # company page) but which are never a company's own site. Enrichment against
-# them is wasted or actively wrong (Apollo searching linkedin.com employees).
+# them is wasted or actively wrong (deriving contact emails @linkedin.com).
 SOCIAL_DOMAINS = frozenset({
     "linkedin.com",
     "facebook.com",

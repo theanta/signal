@@ -322,13 +322,17 @@ export interface SignalAnalysisRequest {
   lead: ScrapedLeadRaw;
 }
 
-export type EmailConfidence = 'verified' | 'pattern_inferred' | 'catch_all' | 'unknown';
+// 'generic' — a shared inbox (info@ …) stored as contact_email when no personal
+// address was found; kept distinct so refreshes can still upgrade to a real person.
+export type EmailConfidence = 'verified' | 'pattern_inferred' | 'catch_all' | 'unknown' | 'generic';
 
 export interface LeadContact {
   name: string;
   title: string;
   email: string;
   linkedin_url: string;
+  // Generic inbox (info@ etc.) if that's all the company site exposes
+  fallback_generic_email?: string;
   email_confidence: EmailConfidence;
 }
 

@@ -109,10 +109,17 @@ async function runLeadAnalysis(trigger: 'scheduled' | 'manual' = 'scheduled'): P
         if (signals.industry)                  leadUpdate.industry                 = signals.industry;
         if (signals.verified_website)          leadUpdate.website                  = signals.verified_website;
         if (signals.contact?.name)             leadUpdate.contact_name             = signals.contact.name;
-        if (signals.contact?.email)            leadUpdate.contact_email            = signals.contact.email;
         if (signals.contact?.title)            leadUpdate.contact_title            = signals.contact.title;
         if (signals.contact?.linkedin_url)     leadUpdate.contact_linkedin_url     = signals.contact.linkedin_url;
-        if (signals.contact?.email_confidence) leadUpdate.contact_email_confidence = signals.contact.email_confidence;
+        if (signals.contact?.email) {
+          leadUpdate.contact_email            = signals.contact.email;
+          leadUpdate.contact_email_confidence = signals.contact.email_confidence ?? 'unknown';
+        } else if (signals.contact?.fallback_generic_email) {
+          // No personal inbox found — a generic one (info@ …) is still a usable
+          // point of contact for small businesses that expose nothing else.
+          leadUpdate.contact_email            = signals.contact.fallback_generic_email;
+          leadUpdate.contact_email_confidence = 'generic';
+        }
 
         // Signal/score writes are best-effort — failures must not block the status update.
         // A plain INSERT in createLeadSignal would throw on duplicate if a prior run

@@ -113,10 +113,17 @@ async function _persistAnalysisResult(
   if (signals.industry)                  leadUpdate.industry                 = signals.industry;
   if (signals.verified_website)          leadUpdate.website                  = signals.verified_website;
   if (signals.contact?.name)             leadUpdate.contact_name             = signals.contact.name;
-  if (signals.contact?.email)            leadUpdate.contact_email            = signals.contact.email;
   if (signals.contact?.title)            leadUpdate.contact_title            = signals.contact.title;
   if (signals.contact?.linkedin_url)     leadUpdate.contact_linkedin_url     = signals.contact.linkedin_url;
-  if (signals.contact?.email_confidence) leadUpdate.contact_email_confidence = signals.contact.email_confidence;
+  if (signals.contact?.email) {
+    leadUpdate.contact_email            = signals.contact.email;
+    leadUpdate.contact_email_confidence = signals.contact.email_confidence ?? 'unknown';
+  } else if (signals.contact?.fallback_generic_email) {
+    // No personal inbox found — a generic one (info@ …) is still a usable
+    // point of contact for small businesses that expose nothing else.
+    leadUpdate.contact_email            = signals.contact.fallback_generic_email;
+    leadUpdate.contact_email_confidence = 'generic';
+  }
 
   const latestSignal = existingSignals[0];
   const signalPayload = {
@@ -153,7 +160,9 @@ async function _persistAnalysisResult(
 // Build the ScrapedLeadRaw payload for the signal engine from a stored lead + existing signals.
 function _buildLeadPayload(lead: Lead, existingSignals: LeadSignal[]) {
   const cachedSignal = existingSignals[0];
-  const cachedContact = lead.contact_email ? {
+  // A generic inbox is not cache-worthy: skipping find_contact for it would
+  // permanently block the upgrade to a real decision-maker on refresh.
+  const cachedContact = lead.contact_email && lead.contact_email_confidence !== 'generic' ? {
     name: lead.contact_name ?? '',
     title: lead.contact_title ?? '',
     email: lead.contact_email,

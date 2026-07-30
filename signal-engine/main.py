@@ -192,8 +192,8 @@ async def _analyze_lead_core(
       - ("complete",    result_dict)   — final yield with the full analysis result
     """
     # A LinkedIn/Facebook/etc. page in the website field is worse than no
-    # website: enrichment scrapes blocked pages and Apollo gets queried with
-    # the wrong domain. Drop such URLs up front so every consumer below
+    # website: enrichment scrapes blocked pages and email domains get derived
+    # from the wrong host. Drop such URLs up front so every consumer below
     # (verifier, tech stack, contact finder, content scraper) sees None and
     # falls back to name/location-based discovery instead.
     lead.website = clean_company_website(lead.website)
@@ -262,10 +262,10 @@ async def _analyze_lead_core(
             else _with_timeout(asyncio.to_thread(verify_website, lead.website, lead.company_name, lead.location or ""), 15),
         _cached(lead.cached_tech_stack) if use_cached_tech
             else _with_timeout(asyncio.to_thread(detect_tech_stack, lead.website or ""), 15),
-        # 40s budget: find_contact's worst case (three Apollo calls + contact-page
-        # scraping) exceeds 20s, which was cancelling contacts Apollo had already found.
+        # 45s budget: find_contact's worst case (SERP lookup + seven contact-page
+        # fetches + several email verification calls) can exceed 40s.
         _cached(lead.cached_contact) if use_cached_contact
-            else _with_timeout(asyncio.to_thread(find_contact, lead.company_name, lead.website, lead.location), 40),
+            else _with_timeout(asyncio.to_thread(find_contact, lead.company_name, lead.website, lead.location), 45),
         _with_timeout(scrape_website_content(lead.website or ""), 20),
         return_exceptions=True,
     )
