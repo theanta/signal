@@ -1,7 +1,7 @@
 # Signal Repo — Session Handoff
 
-**Last updated:** 2026-08-26
-**Branch:** `feat/multi-tenant-saas` (6 commits, unpushed, clean tree)
+**Last updated:** 2026-08-27
+**Branch:** `feat/multi-tenant-saas` (16 commits, unpushed, clean tree)
 
 ## What changed direction
 
@@ -37,7 +37,7 @@ migration so RAG is purely additive later. No speculative empty tables.
 | Plan | Deliverable | Days | Status |
 |---|---|---|---|
 | 1. Signal engine authentication | Engine rejects unauthenticated calls | 2 | **Complete** |
-| 2. Tenancy foundation | `org_id`, composite FKs, `TenantContext`, RLS, isolation suites | 18 | **Planned, not started** |
+| 2. Tenancy foundation | `org_id`, composite FKs, `TenantContext`, RLS, isolation suites | 18 | **In progress — 4 of 15 tasks** |
 | 3. Job durability + metering | Postgres job store, reaper, usage events, scrape cap | 9 | Not written |
 
 ## Key architectural decisions (locked)
@@ -121,9 +121,61 @@ Reviewed but NOT fixed, except where noted:
 - God files: `frontend/app/jobs/[id]/page.tsx` (1127 lines),
   `frontend/app/leads/[id]/page.tsx` (1034), `signal-engine/main.py` (874).
 
-## Next step
+## Plan 2 execution state (2026-08-27)
 
-Execute Plan 2 (`docs/superpowers/plans/2026-08-26-tenancy-foundation.md`). It
-is the 18-day one and the piece everything else waits on. Task 1 needs a second
-Supabase project (`anta-lead-radar-test`) created by hand before anything else
-can run — do that first.
+Being executed task-by-task with fresh subagents and a review after each. The
+ledger — completed tasks with commit ranges, every ruling, every deferred
+finding — is `.superpowers/sdd/2026-08-26-tenancy-foundation/progress.md`
+(git-ignored). **Read it before resuming; trust it and `git log` over memory,
+and do not re-run tasks it marks complete.**
+
+- **Tasks 1-3 complete.** Vitest + `pg` harness against a dedicated test
+  project, with a guard that refuses to run when the test project ref matches
+  production's. The tenancy migration (`organizations`, `org_id` on all 12
+  tables, backfill, `pgvector`). Composite foreign keys making org drift
+  unrepresentable, plus `backend/tests/reset-test-db.sh`.
+- **Task 4 implemented (`dd6f19f`) but its fix round is unfinished.** See below.
+- **Tasks 5-15 not started.** Next after Task 4: Task 5, the `supabaseAdmin`
+  split and the ESLint import fence.
+- 68 tests passing at the stopping point; `npx tsc --noEmit` reports exactly 4
+  errors, all object literals missing `org_id` in `authController.ts` and
+  `routes/cron.ts`, which Tasks 7-11 fix.
+
+### Open: `schema.sql` was never complete
+
+Task 4 found that `supabase/schema.sql` only ever defined **7 of the 12**
+org-scoped tables — `users`, `jobs`, `cron_job_logs`, `job_signals` and
+`job_submissions` live only in migrations. Pre-existing drift, months old.
+
+The committed state works around it by having `reset-test-db.sh` backfill those
+five tables itself, which left `schema.sql` worse as a standalone artifact:
+applied alone it now yields a database with `org_id NOT NULL` everywhere, an
+empty `organizations` table so nothing can be inserted, and five tables missing.
+
+**The decided fix, dispatched but not completed:** fold the five tables into
+`schema.sql` with `org_id` from the start, then make `reset-test-db.sh` apply
+`schema.sql` alone and stop replaying migrations — `schema.sql` builds a fresh
+database, migrations upgrade an existing one. The acceptance gate is a
+`pg_dump --schema-only` diff between a replay-built database and a
+`schema.sql`-built one, driven to nothing but `org_id`'s column position. Also
+pending: recreating the `hot_leads` view in the migration's Section F, since a
+migration-upgraded database's copy lacks `org_id` while `schema.sql`'s has it.
+Full instruction is in the ledger under the Task 4 ruling.
+
+## Environment: the app's Supabase project was deleted
+
+On 2026-08-26 the app's Supabase project (`lgendecyizgfyajaooud`) was deleted
+and its data lost. `anta-signal-test` (`yvukeeszxokhrkjcstds`) is the **test**
+database only, named by `.env.test`.
+
+`.env`, `signal-engine/.env` and `frontend/.env.local` deliberately still hold
+the deleted project's credentials, each marked with a header comment. They give
+`backend/tests/setup.ts`'s guard a production reference to compare against, and
+they differ from the test project's, so the guard stays armed. Do **not** copy
+the test project's credentials into `.env` — that makes the refs identical and
+the guard correctly refuses to run anything.
+
+Still to do when convenient: recreate the app's Supabase project and rebuild it
+from `schema.sql`; `SUPABASE_JWT_SECRET` is not set in `.env` and Task 6 needs
+it; `.env.test`'s DB password contains a literal `@`, which `psql` mis-parses
+(node-postgres is fine) and which `reset-test-db.sh` works around.
