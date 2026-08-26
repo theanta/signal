@@ -8,7 +8,9 @@
     "dev": "DOTENV_CONFIG_PATH=../.env ts-node-dev --respawn --transpile-only api/server.ts",
     "build": "tsc",
     "start": "node dist/backend/api/server.js",
-    "lint": "eslint . --ext .ts"
+    "lint": "eslint . --ext .ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
@@ -16,7 +18,7 @@
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
+    "dotenv": "^16.6.1",
     "express": "^4.21.0",
     "express-rate-limit": "^7.4.1",
     "groq-sdk": "^0.7.0",
@@ -35,7 +37,10 @@
     "@types/morgan": "^1.9.9",
     "@types/node": "^22.7.5",
     "@types/node-cron": "^3.0.11",
+    "@types/pg": "^8.23.1",
+    "pg": "^8.23.0",
     "ts-node-dev": "^2.0.0",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.9"
   }
 }
