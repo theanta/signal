@@ -1,6 +1,7 @@
 """ANTA Lead Radar - Signal Engine (FastAPI)"""
 
 import asyncio
+from contextlib import asynccontextmanager
 import json
 import logging
 import re
@@ -9,8 +10,7 @@ from datetime import datetime
 from typing import AsyncGenerator, Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, BackgroundTasks, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -35,6 +35,7 @@ from enrichment.contact_finder import find_contact
 from enrichment.website_content_scraper import scrape_website_content
 from enrichment.url_utils import clean_company_website
 from scrapers.lead_merger import merge_leads
+from auth import require_engine_key, verify_engine_key_configured
 
 # ============================================================
 # ENTERPRISE DISQUALIFICATION
@@ -91,18 +92,23 @@ def _is_enterprise_company(company_name: str, company_size: str | None) -> tuple
     return False, ""
 
 
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Surface a missing shared secret on boot rather than on the first request.
+    verify_engine_key_configured()
+    yield
+
+
 app = FastAPI(
     title="ANTA Lead Radar Signal Engine",
     description="Python signal detection and lead analysis microservice",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# No CORSMiddleware. This service is called server-to-server by the Express
+# backend only; the browser reaches its SSE stream proxied through Express.
+# A browser-facing CORS policy would only widen the attack surface.
 
 # ---- In-memory job tracker (use Redis in production) ----
 scrape_jobs: dict[str, dict] = {}
@@ -365,7 +371,7 @@ async def _analyze_lead_core(
     })
 
 
-@app.post("/analyze")
+@app.post("/analyze", dependencies=[Depends(require_engine_key)])
 async def analyze_lead(request: AnalysisRequest):
     """Analyze a raw lead and return signals, score, pain points, tech stack, and contact."""
     result = None
@@ -375,7 +381,7 @@ async def analyze_lead(request: AnalysisRequest):
     return result
 
 
-@app.post("/analyze/stream")
+@app.post("/analyze/stream", dependencies=[Depends(require_engine_key)])
 async def analyze_lead_stream(request: AnalysisRequest):
     """Same as /analyze but streams SSE progress events as each phase completes."""
     async def event_stream():
@@ -414,7 +420,7 @@ async def analyze_lead_stream(request: AnalysisRequest):
 # SCRAPING
 # ============================================================
 
-@app.post("/scrape")
+@app.post("/scrape", dependencies=[Depends(require_engine_key)])
 async def trigger_scrape(request: ScrapeRequest, background_tasks: BackgroundTasks):
     """Trigger a scraping run in the background."""
     job_id = str(uuid.uuid4())
@@ -451,7 +457,7 @@ async def _emit_scrape_event(job_id: str, event: dict) -> None:
         condition.notify_all()
 
 
-@app.get("/scrape/{job_id}")
+@app.get("/scrape/{job_id}", dependencies=[Depends(require_engine_key)])
 async def get_scrape_job(job_id: str):
     """Get the status of a scraping job."""
     job = scrape_jobs.get(job_id)
@@ -460,7 +466,7 @@ async def get_scrape_job(job_id: str):
     return {"job_id": job_id, **{k: v for k, v in job.items() if k != "events"}}
 
 
-@app.get("/scrape/{job_id}/stream")
+@app.get("/scrape/{job_id}/stream", dependencies=[Depends(require_engine_key)])
 async def stream_scrape_job(job_id: str):
     """Server-sent events: per-source scrape progress, in real time."""
     job = scrape_jobs.get(job_id)

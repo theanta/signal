@@ -33,3 +33,43 @@ def test_rejection_body_does_not_leak_the_key(client):
     r = client.post("/analyze", json=ANALYZE_BODY,
                     headers={"X-Engine-Key": "wrong-key"})
     assert VALID_KEY not in r.text
+
+
+import pytest
+
+PROTECTED = [
+    ("post", "/analyze", ANALYZE_BODY),
+    ("post", "/analyze/stream", ANALYZE_BODY),
+    ("post", "/scrape", {"sources": ["job_board"]}),
+    ("get", "/scrape/00000000-0000-0000-0000-000000000000", None),
+    ("get", "/scrape/00000000-0000-0000-0000-000000000000/stream", None),
+]
+
+
+@pytest.mark.parametrize("method,path,body", PROTECTED)
+def test_every_mutating_route_requires_the_key(client, method, path, body):
+    r = getattr(client, method)(path, **({"json": body} if body else {}))
+    assert r.status_code == 401, f"{method.upper()} {path} is unauthenticated"
+
+
+# Only the GET routes are exercised on the positive path. A valid key on
+# POST /analyze or POST /scrape would run a real analysis against live Groq
+# and Apify calls; the GET routes short-circuit on an unknown job id, so they
+# prove the gate opens without doing any work.
+POSITIVE_PATH = [
+    ("get", "/scrape/00000000-0000-0000-0000-000000000000"),
+    ("get", "/scrape/00000000-0000-0000-0000-000000000000/stream"),
+]
+
+
+@pytest.mark.parametrize("method,path", POSITIVE_PATH)
+def test_valid_key_is_not_rejected(client, method, path):
+    """A correct key must get past auth. Downstream returns 404 for the unknown
+    job id — anything but 401 proves the gate opened."""
+    r = getattr(client, method)(path, headers={"X-Engine-Key": VALID_KEY})
+    assert r.status_code == 404
+
+
+def test_cors_is_not_wide_open(client):
+    r = client.get("/health", headers={"Origin": "https://evil.test"})
+    assert r.headers.get("access-control-allow-origin") != "*"
