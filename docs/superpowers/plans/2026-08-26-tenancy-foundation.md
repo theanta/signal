@@ -238,10 +238,12 @@ migration so the tenancy migration has something to alter:
 ```bash
 cd /Users/anadithakur/Documents/Claude/Projects/ANTA/signal
 psql "$(grep SUPABASE_TEST_DB_URL .env.test | cut -d= -f2-)" -v ON_ERROR_STOP=1 -f supabase/schema.sql
-for f in supabase/migrations/*.sql; do
-  echo "--- $f"
-  psql "$(grep SUPABASE_TEST_DB_URL .env.test | cut -d= -f2-)" -v ON_ERROR_STOP=1 -f "$f"
-done
+# SUPERSEDED — see supabase/migrations/README.md. This glob replays in
+# alphabetical order, which fails: migrations depending on `jobs` sort before
+# the migration that creates it. Use the README's chronological list.
+while read -r f; do
+  [ -n "$f" ] && psql "$DBURL" -f "supabase/migrations/$f"
+done < <(grep -oE '^[A-Za-z0-9_.-]+\.sql$' supabase/migrations/README.md)
 ```
 
 Some migrations are already folded into `schema.sql` and will fail on
@@ -741,7 +743,21 @@ cd /Users/anadithakur/Documents/Claude/Projects/ANTA/signal
 DBURL="$(grep SUPABASE_TEST_DB_URL .env.test | cut -d= -f2-)"
 psql "$DBURL" -v ON_ERROR_STOP=1 -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
 psql "$DBURL" -v ON_ERROR_STOP=1 -f supabase/schema.sql
-for f in supabase/migrations/*.sql; do psql "$DBURL" -f "$f"; done
+# Replay order is CHRONOLOGICAL, not alphabetical, and the difference is not
+# cosmetic: migrations that depend on `jobs` sort before the migration that
+# creates it. The authoritative ordered list, and the reasoning, are in
+# supabase/migrations/README.md — keep this array in sync with it.
+while read -r f; do
+  [ -n "$f" ] && psql "$DBURL" -f "supabase/migrations/$f"
+done < <(grep -oE '^[A-Za-z0-9_.-]+\.sql$' supabase/migrations/README.md)
+
+# schema.sql and add_platform_config.sql both seed platform_config, and the
+# pre-tenancy table has no unique constraint for their ON CONFLICT to match —
+# so a replay leaves two rows and the tenancy migration's UNIQUE (org_id) then
+# fails. Drop the duplicate before migrating. See README.md.
+psql "$DBURL" -v ON_ERROR_STOP=1 -c \
+  "DELETE FROM platform_config a USING platform_config b
+   WHERE a.ctid < b.ctid;"
 psql "$DBURL" -v ON_ERROR_STOP=1 -f supabase/migrations/2026-08-26_tenancy_foundation.sql
 ```
 
@@ -789,7 +805,17 @@ db_ref="$(ref_of "${SUPABASE_TEST_DB_URL:-}")"
 echo "About to DROP SCHEMA public CASCADE on project: $api_ref"
 psql "$SUPABASE_TEST_DB_URL" -v ON_ERROR_STOP=1 -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
 psql "$SUPABASE_TEST_DB_URL" -v ON_ERROR_STOP=1 -f supabase/schema.sql
-for f in supabase/migrations/*.sql; do psql "$SUPABASE_TEST_DB_URL" -f "$f"; done
+# Chronological order, per supabase/migrations/README.md — NOT alphabetical:
+# jobs-dependent migrations sort before the one that creates `jobs`.
+while read -r f; do
+  [ -n "$f" ] && psql "$SUPABASE_TEST_DB_URL" -f "supabase/migrations/$f"
+done < <(grep -oE '^[A-Za-z0-9_.-]+\.sql$' supabase/migrations/README.md)
+
+# Both schema.sql and add_platform_config.sql seed platform_config, and the
+# pre-tenancy table has no unique constraint for ON CONFLICT to bite on, so a
+# replay leaves two rows and UNIQUE (org_id) below fails. See README.md.
+psql "$SUPABASE_TEST_DB_URL" -v ON_ERROR_STOP=1 -c \
+  "DELETE FROM platform_config a USING platform_config b WHERE a.ctid < b.ctid;"
 psql "$SUPABASE_TEST_DB_URL" -v ON_ERROR_STOP=1 \
   -f supabase/migrations/2026-08-26_tenancy_foundation.sql
 ```
@@ -992,7 +1018,21 @@ psql "$DBURL" -v ON_ERROR_STOP=1 -c "DROP SCHEMA public CASCADE; CREATE SCHEMA p
 psql "$DBURL" -v ON_ERROR_STOP=1 -f supabase/schema.sql
 psql "$DBURL" -v ON_ERROR_STOP=1 -c \
   "INSERT INTO organizations (name, slug) VALUES ('ANTA', 'anta');"
-for f in supabase/migrations/*.sql; do psql "$DBURL" -f "$f"; done
+# Replay order is CHRONOLOGICAL, not alphabetical, and the difference is not
+# cosmetic: migrations that depend on `jobs` sort before the migration that
+# creates it. The authoritative ordered list, and the reasoning, are in
+# supabase/migrations/README.md — keep this array in sync with it.
+while read -r f; do
+  [ -n "$f" ] && psql "$DBURL" -f "supabase/migrations/$f"
+done < <(grep -oE '^[A-Za-z0-9_.-]+\.sql$' supabase/migrations/README.md)
+
+# schema.sql and add_platform_config.sql both seed platform_config, and the
+# pre-tenancy table has no unique constraint for their ON CONFLICT to match —
+# so a replay leaves two rows and the tenancy migration's UNIQUE (org_id) then
+# fails. Drop the duplicate before migrating. See README.md.
+psql "$DBURL" -v ON_ERROR_STOP=1 -c \
+  "DELETE FROM platform_config a USING platform_config b
+   WHERE a.ctid < b.ctid;"
 cd backend && npx vitest run tests/schema/
 ```
 
