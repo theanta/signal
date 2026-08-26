@@ -8,6 +8,10 @@
 -- to be compatible with.
 --
 -- Run inside a transaction. See docs/runbooks/tenancy-cutover.md.
+--
+-- Replaying this file against a database bootstrapped from schema.sql plus
+-- the rest of this directory? See ./README.md first — migration order and
+-- a platform_config double-seed both bite before this file even runs.
 -- ============================================================
 
 BEGIN;
