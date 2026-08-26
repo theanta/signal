@@ -746,8 +746,63 @@ psql "$DBURL" -v ON_ERROR_STOP=1 -f supabase/migrations/2026-08-26_tenancy_found
 ```
 
 Record this reset sequence — Tasks 4 and 14 reuse it. Save it as
-`backend/tests/reset-test-db.sh` (mode `+x`) with the same contents so it stops
-being retyped.
+`backend/tests/reset-test-db.sh` (mode `+x`) so it stops being retyped.
+
+**This script is the only destructive operation in the plan, so it verifies its
+own target before dropping anything.** Task 1's guard in `tests/setup.ts`
+compares the test project against production, but it can only do that when a
+repo-root `.env` exists to compare against — on a fresh checkout with no `.env`
+there is no production reference and the guard skips. That is exactly the state
+in which a mispasted connection string does damage here. The check below needs
+no production reference at all: it refuses unless the DB URL and the API URL
+name the *same* project, which a production connection string pasted beside a
+test API URL cannot satisfy.
+
+```bash
+#!/usr/bin/env bash
+# Resets the Supabase TEST project to a clean schema. Destructive by design.
+#
+# It cannot rely on tests/setup.ts's production guard: that guard compares
+# against the repo-root .env, which need not exist. Instead this asserts the
+# two test variables describe one and the same project — a production
+# connection string beside a test API URL fails that, with no knowledge of
+# what production is.
+set -euo pipefail
+
+cd "$(dirname "$0")/../.."
+[ -f .env.test ] || { echo "No .env.test — see .env.test.example" >&2; exit 1; }
+set -a; . ./.env.test; set +a
+
+ref_of() { printf '%s' "$1" | sed -nE 's#.*[/@](db\.)?([a-z0-9]{16,})\.supabase\.(co|com).*#\2#p'; }
+
+api_ref="$(ref_of "${SUPABASE_TEST_URL:-}")"
+db_ref="$(ref_of "${SUPABASE_TEST_DB_URL:-}")"
+
+[ -n "$api_ref" ] || { echo "Cannot parse a project ref from SUPABASE_TEST_URL" >&2; exit 1; }
+[ -n "$db_ref" ]  || { echo "Cannot parse a project ref from SUPABASE_TEST_DB_URL" >&2; exit 1; }
+[ "$api_ref" = "$db_ref" ] || {
+  echo "REFUSING TO DROP: SUPABASE_TEST_DB_URL is project '$db_ref' but" >&2
+  echo "SUPABASE_TEST_URL is project '$api_ref'. They must be the same project." >&2
+  exit 1
+}
+
+echo "About to DROP SCHEMA public CASCADE on project: $api_ref"
+psql "$SUPABASE_TEST_DB_URL" -v ON_ERROR_STOP=1 -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+psql "$SUPABASE_TEST_DB_URL" -v ON_ERROR_STOP=1 -f supabase/schema.sql
+for f in supabase/migrations/*.sql; do psql "$SUPABASE_TEST_DB_URL" -f "$f"; done
+psql "$SUPABASE_TEST_DB_URL" -v ON_ERROR_STOP=1 \
+  -f supabase/migrations/2026-08-26_tenancy_foundation.sql
+```
+
+Prove the refusal works before trusting it: run it once with
+`SUPABASE_TEST_DB_URL` temporarily pointed at a different project ref and
+confirm it exits non-zero having dropped nothing.
+
+While in this area, close the matching gap in `backend/tests/setup.ts`: when the
+repo-root `.env` yields no `SUPABASE_URL`, fall back to the ambient
+`process.env.SUPABASE_URL` before concluding there is no production reference,
+so the guard still works in CI where secrets arrive as environment variables
+rather than files.
 
 - [ ] **Step 6: Run the tests to verify they pass**
 
