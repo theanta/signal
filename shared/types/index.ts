@@ -31,6 +31,7 @@ export type OutreachStatus = 'draft' | 'sent' | 'opened' | 'replied' | 'bounced'
 // ---- Core Lead ----
 
 export interface Lead {
+  org_id: string;
   id: string;
   company_name: string;
   website?: string;
@@ -83,6 +84,7 @@ export type JobSource = 'indeed' | 'linkedin' | 'remoteok' | 'remotive';
 export type JobVerdict = 'apply' | 'caution' | 'skip';
 
 export interface Job {
+  org_id: string;
   id: string;
   external_id?: string;
   company_name: string;
@@ -142,6 +144,7 @@ export interface ResumePlaybook {
 }
 
 export interface JobSignal {
+  org_id: string;
   id: string;
   job_id: string;
   seniority?: string;
@@ -171,6 +174,7 @@ export type SubmissionStatus =
   | 'withdrawn';
 
 export interface JobSubmission {
+  org_id: string;
   id: string;
   job_id: string;
   profile_label: string;
@@ -198,6 +202,7 @@ export interface JobWithIntel extends Job {
 // ---- Signal ----
 
 export interface LeadSignal {
+  org_id: string;
   id: string;
   lead_id: string;
   signal_type: string;
@@ -218,6 +223,7 @@ export interface LeadSignal {
 // ---- Score ----
 
 export interface LeadScore {
+  org_id: string;
   id: string;
   lead_id: string;
   overall_score: number;
@@ -234,6 +240,7 @@ export interface LeadScore {
 // ---- Outreach ----
 
 export interface OutreachMessage {
+  org_id: string;
   id: string;
   lead_id: string;
   channel: OutreachChannel;
@@ -287,6 +294,7 @@ export interface ScrapedLeadRaw {
 }
 
 export interface ScrapingLog {
+  org_id: string;
   id: string;
   source: LeadSource;
   status: 'running' | 'finalizing' | 'completed' | 'failed' | 'partial';
@@ -468,6 +476,7 @@ export const DEFAULT_PLATFORM_CONFIG: PlatformConfig = {
 export type UserRole = 'admin' | 'member';
 
 export interface AuthUser {
+  org_id: string;
   id: string;
   email: string;
   name: string;
@@ -478,6 +487,7 @@ export interface AuthUser {
 
 export interface JwtPayload {
   sub: string;
+  org_id: string;
   email: string;
   name: string;
   role: UserRole;
@@ -505,6 +515,7 @@ export interface AuthResponse {
 // ---- Cron Job Logs ----
 
 export interface CronJobLog {
+  org_id: string;
   id: string;
   job_name: string;
   trigger_type: 'scheduled' | 'manual';
@@ -531,4 +542,37 @@ export interface LeadFilters {
   per_page?: number;
   sort_by?: 'lead_score' | 'created_at' | 'company_name';
   sort_order?: 'asc' | 'desc';
+}
+
+// ============================================================
+// TENANCY
+// ============================================================
+
+/**
+ * A branded organization id.
+ *
+ * A plain `orgId: string` parameter is satisfied by any string in scope —
+ * a user id, a lead id, a route param — and the compiler is happy while the
+ * query returns another tenant's rows. Only `asOrgId` produces an `OrgId`,
+ * and only the auth middleware should call it.
+ */
+export type OrgId = string & { readonly __brand: 'OrgId' };
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function asOrgId(value: string): OrgId {
+  if (!UUID_RE.test(value)) {
+    throw new Error(`Invalid OrgId: ${JSON.stringify(value)}`);
+  }
+  return value as OrgId;
+}
+
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  plan: string;
+  status: 'active' | 'suspended';
+  monthly_scrape_cap: number;
+  created_at: string;
 }

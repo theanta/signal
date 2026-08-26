@@ -6,6 +6,27 @@
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- pgvector is enabled now, with no tables, so that month-2 RAG is purely
+-- additive and follows the same org_id convention as everything else.
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- ============================================================
+-- TABLE: organizations (the tenancy root)
+-- ============================================================
+
+CREATE TABLE organizations (
+  id                 UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name               TEXT NOT NULL,
+  slug               TEXT UNIQUE NOT NULL,
+  plan               TEXT NOT NULL DEFAULT 'design_partner',
+  status             TEXT NOT NULL DEFAULT 'active'
+                       CHECK (status IN ('active', 'suspended')),
+  -- Read by Plan 3's enqueue guard. Present now so organizations has its
+  -- final shape and Plan 3 needs no second migration on this table.
+  monthly_scrape_cap INT  NOT NULL DEFAULT 100,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- ============================================================
 -- ENUM TYPES
 -- ============================================================
@@ -50,6 +71,7 @@ CREATE TYPE outreach_status AS ENUM (
 
 CREATE TABLE leads (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  org_id          UUID NOT NULL REFERENCES organizations(id),
   company_name    TEXT NOT NULL,
   website         TEXT,
   linkedin_url    TEXT,
@@ -73,7 +95,8 @@ CREATE TABLE leads (
   analyzed_at     TIMESTAMPTZ,
   contacted_at    TIMESTAMPTZ,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT leads_id_org_uniq UNIQUE (id, org_id)
 );
 
 CREATE INDEX idx_leads_status ON leads(status);
@@ -81,6 +104,7 @@ CREATE INDEX idx_leads_score ON leads(lead_score DESC);
 CREATE INDEX idx_leads_source ON leads(source);
 CREATE INDEX idx_leads_created ON leads(created_at DESC);
 CREATE INDEX idx_leads_company ON leads(company_name);
+CREATE INDEX idx_leads_org ON leads(org_id);
 
 -- ============================================================
 -- TABLE: lead_signals
@@ -88,7 +112,8 @@ CREATE INDEX idx_leads_company ON leads(company_name);
 
 CREATE TABLE lead_signals (
   id                        UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  lead_id                   UUID NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+  org_id                    UUID NOT NULL REFERENCES organizations(id),
+  lead_id                   UUID NOT NULL,
   signal_type               TEXT NOT NULL,
   signal_value              TEXT,
   confidence_score          FLOAT CHECK (confidence_score >= 0 AND confidence_score <= 1),
@@ -102,11 +127,14 @@ CREATE TABLE lead_signals (
   tech_gaps                 TEXT[],
   raw_analysis              JSONB,
   detected_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  created_at                TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at                TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT lead_signals_lead_org_fkey
+    FOREIGN KEY (lead_id, org_id) REFERENCES leads (id, org_id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_lead_signals_lead ON lead_signals(lead_id);
 CREATE INDEX idx_lead_signals_type ON lead_signals(signal_type);
+CREATE INDEX idx_lead_signals_org ON lead_signals(org_id);
 
 -- ============================================================
 -- TABLE: lead_scores
@@ -114,7 +142,8 @@ CREATE INDEX idx_lead_signals_type ON lead_signals(signal_type);
 
 CREATE TABLE lead_scores (
   id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  lead_id               UUID NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+  org_id                UUID NOT NULL REFERENCES organizations(id),
+  lead_id               UUID NOT NULL,
   overall_score         INTEGER NOT NULL CHECK (overall_score >= 0 AND overall_score <= 100),
   company_size_score    INTEGER CHECK (company_size_score >= 0 AND company_size_score <= 25),
   hiring_urgency_score  INTEGER CHECK (hiring_urgency_score >= 0 AND hiring_urgency_score <= 25),
@@ -122,11 +151,14 @@ CREATE TABLE lead_scores (
   digital_score         INTEGER CHECK (digital_score >= 0 AND digital_score <= 25),
   scoring_rationale     TEXT,
   scored_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT lead_scores_lead_org_fkey
+    FOREIGN KEY (lead_id, org_id) REFERENCES leads (id, org_id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_lead_scores_lead ON lead_scores(lead_id);
 CREATE INDEX idx_lead_scores_overall ON lead_scores(overall_score DESC);
+CREATE INDEX idx_lead_scores_org ON lead_scores(org_id);
 
 -- ============================================================
 -- TABLE: outreach_messages
@@ -134,7 +166,8 @@ CREATE INDEX idx_lead_scores_overall ON lead_scores(overall_score DESC);
 
 CREATE TABLE outreach_messages (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  lead_id           UUID NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+  org_id            UUID NOT NULL REFERENCES organizations(id),
+  lead_id           UUID NOT NULL,
   channel           outreach_channel NOT NULL DEFAULT 'email',
   subject           TEXT,
   body              TEXT NOT NULL,
@@ -145,11 +178,15 @@ CREATE TABLE outreach_messages (
   is_selected       BOOLEAN DEFAULT FALSE,
   personalization   JSONB,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT outreach_messages_id_org_uniq UNIQUE (id, org_id),
+  CONSTRAINT outreach_messages_lead_org_fkey
+    FOREIGN KEY (lead_id, org_id) REFERENCES leads (id, org_id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_outreach_messages_lead ON outreach_messages(lead_id);
 CREATE INDEX idx_outreach_messages_channel ON outreach_messages(channel);
+CREATE INDEX idx_outreach_messages_org ON outreach_messages(org_id);
 
 -- ============================================================
 -- TABLE: outreach_history
@@ -157,8 +194,9 @@ CREATE INDEX idx_outreach_messages_channel ON outreach_messages(channel);
 
 CREATE TABLE outreach_history (
   id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  lead_id       UUID NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
-  message_id    UUID REFERENCES outreach_messages(id),
+  org_id        UUID NOT NULL REFERENCES organizations(id),
+  lead_id       UUID NOT NULL,
+  message_id    UUID,
   channel       outreach_channel NOT NULL,
   status        outreach_status NOT NULL DEFAULT 'draft',
   sent_at       TIMESTAMPTZ,
@@ -167,12 +205,21 @@ CREATE TABLE outreach_history (
   reply_body    TEXT,
   notes         TEXT,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT outreach_history_lead_org_fkey
+    FOREIGN KEY (lead_id, org_id) REFERENCES leads (id, org_id) ON DELETE CASCADE,
+  -- message_id is nullable. MATCH SIMPLE (the default) skips the check when
+  -- any referencing column is NULL, which is exactly the wanted behaviour:
+  -- history rows with no generated message stay legal, and ones that name a
+  -- message must name a message in their own org.
+  CONSTRAINT outreach_history_message_org_fkey
+    FOREIGN KEY (message_id, org_id) REFERENCES outreach_messages (id, org_id)
 );
 
 CREATE INDEX idx_outreach_history_lead ON outreach_history(lead_id);
 CREATE INDEX idx_outreach_history_status ON outreach_history(status);
 CREATE INDEX idx_outreach_history_sent ON outreach_history(sent_at DESC);
+CREATE INDEX idx_outreach_history_org ON outreach_history(org_id);
 
 -- ============================================================
 -- TABLE: scraping_logs
@@ -180,6 +227,7 @@ CREATE INDEX idx_outreach_history_sent ON outreach_history(sent_at DESC);
 
 CREATE TABLE scraping_logs (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  org_id          UUID NOT NULL REFERENCES organizations(id),
   source          lead_source NOT NULL,
   status          TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed', 'partial')),
   leads_found     INTEGER DEFAULT 0,
@@ -196,6 +244,7 @@ CREATE TABLE scraping_logs (
 CREATE INDEX idx_scraping_logs_source ON scraping_logs(source);
 CREATE INDEX idx_scraping_logs_status ON scraping_logs(status);
 CREATE INDEX idx_scraping_logs_started ON scraping_logs(started_at DESC);
+CREATE INDEX idx_scraping_logs_org ON scraping_logs(org_id);
 
 -- ============================================================
 -- TRIGGERS: updated_at auto-update
@@ -266,33 +315,20 @@ ORDER BY l.lead_score DESC;
 
 CREATE TABLE IF NOT EXISTS platform_config (
   id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  org_id     UUID NOT NULL REFERENCES organizations(id),
   config     JSONB NOT NULL DEFAULT '{}',
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  -- platform_config is one row per tenant, not a global singleton.
+  CONSTRAINT platform_config_org_uniq UNIQUE (org_id)
 );
 
-INSERT INTO platform_config (config) VALUES ('{
-  "agency_name": "ANTA",
-  "agency_location": "Detroit, Michigan",
-  "agency_website": "",
-  "agency_tagline": "Software consultancy specializing in operational modernization",
-  "services": [
-    "SaaS development and React/Next.js systems",
-    "AI automation systems and intelligent workflows",
-    "Operational dashboards and internal tools",
-    "CRM systems and AI-powered operational software",
-    "Startup MVP development",
-    "Workflow automation and process optimization"
-  ],
-  "outreach_tone": "intelligent, consultative, NOT salesy, operationally focused",
-  "cta_style": "15-min call",
-  "sign_off": "ANTA Team",
-  "target_locations": ["Detroit", "Michigan", "MI", "Dearborn", "Warren", "Troy", "Ann Arbor", "Livonia", "Sterling Heights"],
-  "target_company_sizes": ["11-50", "51-200", "201-500"],
-  "target_industries": [],
-  "active_sources": ["linkedin", "crunchbase", "job_board", "local_business"]
-}')
-ON CONFLICT DO NOTHING;
+-- No seed row here: platform_config is now tenant-scoped (org_id NOT NULL,
+-- UNIQUE (org_id)), and schema.sql deliberately creates no organizations row
+-- (see the organizations table above) — a fresh multi-tenant project has no
+-- tenant yet for a config row to belong to. The ANTA design-partner org and
+-- its config are seeded by the caller after schema.sql runs (see
+-- backend/tests/reset-test-db.sh), not hardcoded into the generic schema.
 
 CREATE TRIGGER platform_config_updated_at
   BEFORE UPDATE ON platform_config
@@ -335,22 +371,8 @@ CREATE POLICY "service_role_all" ON platform_config
 -- ============================================================
 -- SEED: Example lead for development
 -- ============================================================
-
-INSERT INTO leads (
-  company_name, website, location, industry, company_size,
-  description, status, source, source_url, lead_score,
-  hiring_signal, job_title
-) VALUES (
-  'Acme Manufacturing Co.',
-  'https://acmemanufacturing.example.com',
-  'Detroit, MI',
-  'Manufacturing',
-  '51-200',
-  'Mid-size Detroit manufacturer still running operations on spreadsheets and legacy systems. Actively hiring an "Operations Coordinator" and "Data Entry Specialist".',
-  'new',
-  'job_board',
-  'https://indeed.com/example',
-  82,
-  'Hiring Operations Coordinator and Data Entry Specialist',
-  'Operations Coordinator'
-);
+-- Removed: leads.org_id is now NOT NULL and schema.sql deliberately seeds no
+-- organizations row (see the organizations table above), so there is no
+-- tenant for a demo lead to belong to at schema-creation time. Insert a demo
+-- lead against a real org_id after creating one, if a local example is
+-- wanted.

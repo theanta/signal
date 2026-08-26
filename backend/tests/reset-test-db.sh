@@ -123,6 +123,44 @@ echo "About to DROP SCHEMA public CASCADE on project: $api_ref"
 psql "$PSQL_DB_URL" -v ON_ERROR_STOP=1 -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
 psql "$PSQL_DB_URL" -v ON_ERROR_STOP=1 -f supabase/schema.sql
 
+# schema.sql (as of Task 4) creates `organizations` and already puts org_id
+# (NOT NULL) directly on the 7 org-scoped tables it defines, but seeds no
+# organization itself — a fresh multi-tenant project has no tenant yet for a
+# seed row to belong to. Create the one design-partner org this test project
+# needs, then seed platform_config's one row against it: schema.sql no
+# longer seeds that row (same reason), and add_platform_config.sql below is
+# skipped rather than replayed, because its own unconditional seed insert
+# doesn't set org_id and would now fail NOT NULL. See
+# supabase/migrations/README.md #4.
+psql "$PSQL_DB_URL" -v ON_ERROR_STOP=1 -c \
+  "INSERT INTO organizations (name, slug) VALUES ('ANTA', 'anta');"
+psql "$PSQL_DB_URL" -v ON_ERROR_STOP=1 <<'SQL'
+INSERT INTO platform_config (org_id, config) VALUES (
+  (SELECT id FROM organizations WHERE slug = 'anta'),
+  '{
+  "agency_name": "ANTA",
+  "agency_location": "Detroit, Michigan",
+  "agency_website": "",
+  "agency_tagline": "Software consultancy specializing in operational modernization",
+  "services": [
+    "SaaS development and React/Next.js systems",
+    "AI automation systems and intelligent workflows",
+    "Operational dashboards and internal tools",
+    "CRM systems and AI-powered operational software",
+    "Startup MVP development",
+    "Workflow automation and process optimization"
+  ],
+  "outreach_tone": "intelligent, consultative, NOT salesy, operationally focused",
+  "cta_style": "15-min call",
+  "sign_off": "ANTA Team",
+  "target_locations": ["Detroit", "Michigan", "MI", "Dearborn", "Warren", "Troy", "Ann Arbor", "Livonia", "Sterling Heights"],
+  "target_company_sizes": ["11-50", "51-200", "201-500"],
+  "target_industries": [],
+  "active_sources": ["linkedin", "crunchbase", "job_board", "local_business"]
+}'
+);
+SQL
+
 # Chronological order, per supabase/migrations/README.md — NOT alphabetical:
 # jobs-dependent migrations sort before the one that creates `jobs`. Read
 # the whole list up front (not piped straight into the while-loop) so a
@@ -153,8 +191,13 @@ done < <(grep -oE '^[A-Za-z0-9_.-]+\.sql$' supabase/migrations/README.md)
 # (a real syntax error, a missing table for a real reason, a permissions
 # problem) still stops the replay immediately rather than leaving a
 # half-built schema and exiting 0.
+#
+# add_platform_config.sql is skipped: schema.sql + the seed above already
+# cover it, and replaying its own unconditional INSERT (which sets no
+# org_id) now fails NOT NULL — see README.md #4.
 BENIGN_ERROR_PATTERN='already exists|invalid input value for enum lead_source: "wellfound"|current transaction is aborted, commands ignored until end of transaction block'
 for f in "${MIGRATION_FILES[@]}"; do
+  [ "$f" = "add_platform_config.sql" ] && continue
   set +e
   output="$(psql "$PSQL_DB_URL" -f "supabase/migrations/$f" 2>&1)"
   status=$?
@@ -173,10 +216,65 @@ for f in "${MIGRATION_FILES[@]}"; do
   fi
 done
 
-# Both schema.sql and add_platform_config.sql seed platform_config, and the
-# pre-tenancy table has no unique constraint for ON CONFLICT to bite on, so a
-# replay leaves two rows and UNIQUE (org_id) below fails. See README.md.
-psql "$PSQL_DB_URL" -v ON_ERROR_STOP=1 -c \
-  "DELETE FROM platform_config a USING platform_config b WHERE a.ctid < b.ctid;"
-psql "$PSQL_DB_URL" -v ON_ERROR_STOP=1 \
-  -f supabase/migrations/2026-08-26_tenancy_foundation.sql
+# schema.sql doesn't yet define users / jobs / cron_job_logs / job_signals /
+# job_submissions — those 5 org-scoped tables just came from the migration
+# replay above, exactly as before Task 4, with no org_id at all (the
+# migrations that create them predate tenancy and are left unedited).
+# Re-running 2026-08-26_tenancy_foundation.sql in full isn't an option: its
+# Section B does a plain ADD COLUMN org_id on all 12 tables, including the 7
+# schema.sql already covers, which errors "column already exists" rather
+# than skipping. So: backfill org_id onto just these 5, scoped the same way
+# Sections B/D/E/F of that migration do. All 5 are empty at this point in a
+# from-empty replay, so the backfill and NOT NULL tightening are no-ops in
+# practice. See README.md #4.
+psql "$PSQL_DB_URL" -v ON_ERROR_STOP=1 <<'SQL'
+DO $$
+DECLARE anta UUID;
+BEGIN
+  SELECT id INTO STRICT anta FROM organizations WHERE slug = 'anta';
+
+  ALTER TABLE users           ADD COLUMN org_id UUID REFERENCES organizations(id);
+  ALTER TABLE jobs             ADD COLUMN org_id UUID REFERENCES organizations(id);
+  ALTER TABLE cron_job_logs   ADD COLUMN org_id UUID REFERENCES organizations(id);
+  ALTER TABLE job_signals     ADD COLUMN org_id UUID REFERENCES organizations(id);
+  ALTER TABLE job_submissions ADD COLUMN org_id UUID REFERENCES organizations(id);
+
+  UPDATE users           SET org_id = anta WHERE org_id IS NULL;
+  UPDATE jobs             SET org_id = anta WHERE org_id IS NULL;
+  UPDATE cron_job_logs   SET org_id = anta WHERE org_id IS NULL;
+  UPDATE job_signals     SET org_id = anta WHERE org_id IS NULL;
+  UPDATE job_submissions SET org_id = anta WHERE org_id IS NULL;
+
+  ALTER TABLE users           ALTER COLUMN org_id SET NOT NULL;
+  ALTER TABLE jobs             ALTER COLUMN org_id SET NOT NULL;
+  ALTER TABLE cron_job_logs   ALTER COLUMN org_id SET NOT NULL;
+  ALTER TABLE job_signals     ALTER COLUMN org_id SET NOT NULL;
+  ALTER TABLE job_submissions ALTER COLUMN org_id SET NOT NULL;
+END $$;
+
+CREATE INDEX idx_users_org           ON users(org_id);
+CREATE INDEX idx_jobs_org             ON jobs(org_id);
+CREATE INDEX idx_cron_job_logs_org   ON cron_job_logs(org_id);
+CREATE INDEX idx_job_signals_org     ON job_signals(org_id);
+CREATE INDEX idx_job_submissions_org ON job_submissions(org_id);
+
+ALTER TABLE jobs
+  ADD CONSTRAINT jobs_id_org_uniq UNIQUE (id, org_id);
+
+ALTER TABLE job_signals
+  DROP CONSTRAINT job_signals_job_id_fkey,
+  ADD CONSTRAINT job_signals_job_org_fkey
+    FOREIGN KEY (job_id, org_id) REFERENCES jobs (id, org_id) ON DELETE CASCADE;
+
+ALTER TABLE job_submissions
+  DROP CONSTRAINT job_submissions_job_id_fkey,
+  ADD CONSTRAINT job_submissions_job_org_fkey
+    FOREIGN KEY (job_id, org_id) REFERENCES jobs (id, org_id) ON DELETE CASCADE;
+
+-- jobs.converted_lead_id is a nullable sibling reference into leads, which
+-- already has its composite UNIQUE (id, org_id) from schema.sql.
+ALTER TABLE jobs
+  DROP CONSTRAINT jobs_converted_lead_id_fkey,
+  ADD CONSTRAINT jobs_converted_lead_org_fkey
+    FOREIGN KEY (converted_lead_id, org_id) REFERENCES leads (id, org_id);
+SQL

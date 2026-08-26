@@ -88,3 +88,58 @@ Any error **other** than "already exists" / the enum case above — most
 importantly `relation "jobs" does not exist`, which is what plain
 alphabetical order produces — means something is genuinely missing or out
 of order, not a benign replay artifact. Don't wave it through.
+
+## 4. `schema.sql` now folds in tenancy for the tables it defines — two knock-on effects
+
+As of Task 4 (2026-08-26), `schema.sql` creates `organizations` and already
+puts `org_id` (NOT NULL, referencing `organizations`) directly on the 7
+org-scoped tables it defines: `leads`, `lead_signals`, `lead_scores`,
+`outreach_messages`, `outreach_history`, `scraping_logs`, `platform_config`.
+It does **not** define the other 5 org-scoped tables — `users`, `jobs`,
+`cron_job_logs`, `job_signals`, `job_submissions` — those still come from
+migrations further down this list, exactly as before. `refresh_tokens` gets
+no `org_id` anywhere, by design.
+
+This changes what a correct replay must do, in two ways:
+
+**a) `add_platform_config.sql` is now skipped, not replayed.** Its
+`CREATE TABLE IF NOT EXISTS platform_config` still no-ops harmlessly, but its
+unconditional `INSERT INTO platform_config (config) VALUES (...)` does not
+set `org_id` — and `schema.sql`'s `platform_config` now has `org_id NOT
+NULL` with no default, so that insert fails with a real
+`not_null_violation`, not a benign "already exists". `schema.sql` no longer
+seeds `platform_config` itself either (there is no organization yet at
+`schema.sql`-build time for a seed row to belong to). `backend/tests/reset-test-db.sh`
+seeds the one `platform_config` row itself, explicitly, against the ANTA
+org it also creates — after `schema.sql`, before replaying the rest of this
+list, and with `add_platform_config.sql` excluded from the replay entirely.
+
+**b) The 5 tables `schema.sql` doesn't define still need `org_id` after
+they're created.** Migrations further down this list (`add_auth_tables.sql`,
+`split_remote_jobs_into_jobs_table.sql`, `add_cron_job_logs.sql`,
+`add_job_signals.sql`, `add_job_submissions.sql`) create these 5 tables
+exactly as they always have — with no `org_id` at all, since they predate
+tenancy and are left untouched (migrations are not edited after they've
+run). Re-running `2026-08-26_tenancy_foundation.sql` in full to backfill
+them isn't possible either: its Section B does a plain `ADD COLUMN org_id`
+on all 12 tables, including the 7 `schema.sql` already covers, and that
+errors "column already exists" (a real error, not one of the benign
+patterns above) rather than silently skipping.
+
+`backend/tests/reset-test-db.sh` closes this gap itself, in a step run after
+the migration replay: it adds `org_id` to just these 5 tables, backfills it
+to the ANTA org, tightens to `NOT NULL`, adds the `idx_*_org` indexes, and
+replaces `jobs.converted_lead_id` / `job_signals.job_id` /
+`job_submissions.job_id`'s plain FKs with the composite
+`(x_id, org_id) REFERENCES ... (id, org_id)` form — the same shape Section F
+of `2026-08-26_tenancy_foundation.sql` uses for the tables `schema.sql`
+already has, just scoped to the 5 it doesn't. All 5 tables are empty at this
+point in a from-empty replay, so the backfill and the `NOT NULL` tightening
+are no-ops in practice; the statements exist for the same reason Section
+B/C/D of the original migration does.
+
+This is test-harness-only scaffolding, needed because `schema.sql` and the
+migration list are (deliberately, per Task 4's scope) not yet at full parity
+for these 5 tables — a future task may fold their `CREATE TABLE`s into
+`schema.sql` too, at which point this whole section and the corresponding
+block in `reset-test-db.sh` can be deleted.
