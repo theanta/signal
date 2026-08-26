@@ -113,4 +113,63 @@ CREATE INDEX idx_outreach_history_org  ON outreach_history(org_id);
 CREATE INDEX idx_job_signals_org       ON job_signals(org_id);
 CREATE INDEX idx_job_submissions_org   ON job_submissions(org_id);
 
+-- ---- Section F: make org drift unrepresentable ----
+--
+-- A denormalized org_id that can disagree with its parent's is worse than no
+-- org_id, because it looks correct. The composite FK removes the possibility
+-- rather than discouraging it. Each parent first needs a UNIQUE (id, org_id)
+-- for the composite reference to target.
+
+ALTER TABLE leads
+  ADD CONSTRAINT leads_id_org_uniq UNIQUE (id, org_id);
+ALTER TABLE jobs
+  ADD CONSTRAINT jobs_id_org_uniq UNIQUE (id, org_id);
+ALTER TABLE outreach_messages
+  ADD CONSTRAINT outreach_messages_id_org_uniq UNIQUE (id, org_id);
+
+ALTER TABLE lead_signals
+  DROP CONSTRAINT lead_signals_lead_id_fkey,
+  ADD CONSTRAINT lead_signals_lead_org_fkey
+    FOREIGN KEY (lead_id, org_id) REFERENCES leads (id, org_id) ON DELETE CASCADE;
+
+ALTER TABLE lead_scores
+  DROP CONSTRAINT lead_scores_lead_id_fkey,
+  ADD CONSTRAINT lead_scores_lead_org_fkey
+    FOREIGN KEY (lead_id, org_id) REFERENCES leads (id, org_id) ON DELETE CASCADE;
+
+ALTER TABLE outreach_messages
+  DROP CONSTRAINT outreach_messages_lead_id_fkey,
+  ADD CONSTRAINT outreach_messages_lead_org_fkey
+    FOREIGN KEY (lead_id, org_id) REFERENCES leads (id, org_id) ON DELETE CASCADE;
+
+ALTER TABLE outreach_history
+  DROP CONSTRAINT outreach_history_lead_id_fkey,
+  ADD CONSTRAINT outreach_history_lead_org_fkey
+    FOREIGN KEY (lead_id, org_id) REFERENCES leads (id, org_id) ON DELETE CASCADE;
+
+-- message_id is nullable. MATCH SIMPLE (the default) skips the check when any
+-- referencing column is NULL, which is exactly the wanted behaviour: history
+-- rows with no generated message stay legal, and ones that name a message must
+-- name a message in their own org.
+ALTER TABLE outreach_history
+  DROP CONSTRAINT outreach_history_message_id_fkey,
+  ADD CONSTRAINT outreach_history_message_org_fkey
+    FOREIGN KEY (message_id, org_id) REFERENCES outreach_messages (id, org_id);
+
+ALTER TABLE job_signals
+  DROP CONSTRAINT job_signals_job_id_fkey,
+  ADD CONSTRAINT job_signals_job_org_fkey
+    FOREIGN KEY (job_id, org_id) REFERENCES jobs (id, org_id) ON DELETE CASCADE;
+
+ALTER TABLE job_submissions
+  DROP CONSTRAINT job_submissions_job_id_fkey,
+  ADD CONSTRAINT job_submissions_job_org_fkey
+    FOREIGN KEY (job_id, org_id) REFERENCES jobs (id, org_id) ON DELETE CASCADE;
+
+-- jobs.converted_lead_id is a sibling reference, also nullable, same treatment.
+ALTER TABLE jobs
+  DROP CONSTRAINT jobs_converted_lead_id_fkey,
+  ADD CONSTRAINT jobs_converted_lead_org_fkey
+    FOREIGN KEY (converted_lead_id, org_id) REFERENCES leads (id, org_id);
+
 COMMIT;

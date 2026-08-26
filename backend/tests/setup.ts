@@ -41,9 +41,14 @@ export function projectRef(url: string | undefined): string | null {
 // a bare `npx vitest run`. Fail closed: an unparseable ref on either side
 // stops the run rather than skipping the check.
 const prod = config({ path: path.resolve(__dirname, '../../.env'), processEnv: {} });
-const prodRef = prod.parsed ? projectRef(prod.parsed.SUPABASE_URL) : null;
+// CI supplies secrets as environment variables, not a repo-root .env file —
+// when the file yields no SUPABASE_URL, fall back to the ambient
+// process.env.SUPABASE_URL before concluding there is no production
+// reference to compare against, so the guard still works there.
+const prodUrl = prod.parsed?.SUPABASE_URL ?? process.env.SUPABASE_URL;
+const prodRef = prodUrl ? projectRef(prodUrl) : null;
 
-if (prod.parsed?.SUPABASE_URL && !prodRef) {
+if (prodUrl && !prodRef) {
   throw new Error('.env has a SUPABASE_URL that could not be parsed for a project ref — refusing to run.');
 }
 
