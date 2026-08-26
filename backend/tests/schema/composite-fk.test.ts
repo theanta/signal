@@ -94,7 +94,7 @@ describe('lead children cannot disagree with their lead about org', () => {
   it('rejects a lead_signal in org B pointing at a lead in org A (23503)', async () => {
     await expect(
       insertRow('lead_signals', ['lead_id', 'signal_type', 'org_id'], [leadA, 'hiring', orgB]),
-    ).rejects.toMatchObject({ code: '23503' });
+    ).rejects.toMatchObject({ code: '23503', constraint: 'lead_signals_lead_org_fkey' });
   });
 
   it('accepts a lead_signal in the same org as its lead (positive control)', async () => {
@@ -106,7 +106,7 @@ describe('lead children cannot disagree with their lead about org', () => {
   it('rejects a lead_score in the wrong org (23503)', async () => {
     await expect(
       insertRow('lead_scores', ['lead_id', 'overall_score', 'org_id'], [leadA, 50, orgB]),
-    ).rejects.toMatchObject({ code: '23503' });
+    ).rejects.toMatchObject({ code: '23503', constraint: 'lead_scores_lead_org_fkey' });
   });
 
   it('accepts a lead_score in the matching org (positive control)', async () => {
@@ -118,7 +118,7 @@ describe('lead children cannot disagree with their lead about org', () => {
   it('rejects an outreach_message in the wrong org (23503)', async () => {
     await expect(
       insertRow('outreach_messages', ['lead_id', 'body', 'org_id'], [leadA, 'hi', orgB]),
-    ).rejects.toMatchObject({ code: '23503' });
+    ).rejects.toMatchObject({ code: '23503', constraint: 'outreach_messages_lead_org_fkey' });
   });
 
   it('accepts an outreach_message in the matching org (positive control)', async () => {
@@ -130,7 +130,7 @@ describe('lead children cannot disagree with their lead about org', () => {
   it('rejects outreach_history in the wrong org (23503)', async () => {
     await expect(
       insertRow('outreach_history', ['lead_id', 'channel', 'org_id'], [leadA, 'email', orgB]),
-    ).rejects.toMatchObject({ code: '23503' });
+    ).rejects.toMatchObject({ code: '23503', constraint: 'outreach_history_lead_org_fkey' });
   });
 
   it('accepts outreach_history in the matching org (positive control)', async () => {
@@ -144,7 +144,7 @@ describe('job children cannot disagree with their job about org', () => {
   it('rejects a job_signal in the wrong org (23503)', async () => {
     await expect(
       insertRow('job_signals', ['job_id', 'org_id'], [jobA, orgB]),
-    ).rejects.toMatchObject({ code: '23503' });
+    ).rejects.toMatchObject({ code: '23503', constraint: 'job_signals_job_org_fkey' });
   });
 
   it('accepts a job_signal in the matching org (positive control)', async () => {
@@ -156,7 +156,7 @@ describe('job children cannot disagree with their job about org', () => {
   it('rejects a job_submission in the wrong org (23503)', async () => {
     await expect(
       insertRow('job_submissions', ['job_id', 'profile_label', 'org_id'], [jobA, 'Someone', orgB]),
-    ).rejects.toMatchObject({ code: '23503' });
+    ).rejects.toMatchObject({ code: '23503', constraint: 'job_submissions_job_org_fkey' });
   });
 
   it('accepts a job_submission in the matching org (positive control)', async () => {
@@ -170,7 +170,7 @@ describe('cross-org references between siblings (nullable, MATCH SIMPLE)', () =>
   it('rejects a job in org B converted from a lead in org A (23503)', async () => {
     await expect(
       insertRow('jobs', ['company_name', 'converted_lead_id', 'org_id'], ['X', leadA, orgB]),
-    ).rejects.toMatchObject({ code: '23503' });
+    ).rejects.toMatchObject({ code: '23503', constraint: 'jobs_converted_lead_org_fkey' });
   });
 
   it('accepts a job converted from a lead in the same org (positive control)', async () => {
@@ -190,7 +190,7 @@ describe('cross-org references between siblings (nullable, MATCH SIMPLE)', () =>
     // message_org_fkey — messageA belongs to orgA, not orgB.
     await expect(
       insertRow('outreach_history', ['lead_id', 'message_id', 'channel', 'org_id'], [leadB, messageA, 'email', orgB]),
-    ).rejects.toMatchObject({ code: '23503' });
+    ).rejects.toMatchObject({ code: '23503', constraint: 'outreach_history_message_org_fkey' });
   });
 
   it('accepts outreach_history pointing at a message in the same org (positive control)', async () => {
