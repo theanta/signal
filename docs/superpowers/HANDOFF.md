@@ -28,14 +28,16 @@ migration so RAG is purely additive later. No speculative empty tables.
 - **Spec:** `docs/superpowers/specs/2026-08-26-multi-tenant-saas-design.md`
   Full design — data model, dual enforcement, job store, testing, sequencing.
 - **Plan 1:** `docs/superpowers/plans/2026-08-26-signal-engine-auth.md` — DONE
-- Plans 2 and 3 are **not yet written**.
+- **Plan 2:** `docs/superpowers/plans/2026-08-26-tenancy-foundation.md` — written,
+  15 tasks, not started.
+- Plan 3 is **not yet written**.
 
 ## The three plans
 
 | Plan | Deliverable | Days | Status |
 |---|---|---|---|
 | 1. Signal engine authentication | Engine rejects unauthenticated calls | 2 | **Complete** |
-| 2. Tenancy foundation | `org_id`, composite FKs, `TenantContext`, RLS, isolation suites | 18 | Not written |
+| 2. Tenancy foundation | `org_id`, composite FKs, `TenantContext`, RLS, isolation suites | 18 | **Planned, not started** |
 | 3. Job durability + metering | Postgres job store, reaper, usage events, scrape cap | 9 | Not written |
 
 ## Key architectural decisions (locked)
@@ -121,5 +123,7 @@ Reviewed but NOT fixed, except where noted:
 
 ## Next step
 
-Write Plan 2 (tenancy foundation) against the spec. It is the 18-day one and
-the piece everything else waits on.
+Execute Plan 2 (`docs/superpowers/plans/2026-08-26-tenancy-foundation.md`). It
+is the 18-day one and the piece everything else waits on. Task 1 needs a second
+Supabase project (`anta-lead-radar-test`) created by hand before anything else
+can run — do that first.
