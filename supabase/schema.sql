@@ -47,7 +47,11 @@ CREATE TYPE lead_source AS ENUM (
   'crunchbase',
   'local_business',
   'manual',
-  'other'
+  'other',
+  -- Appended, not inserted: add_remote_jobs_source.sql adds this value with
+  -- ALTER TYPE ... ADD VALUE, which always lands last. Keeping the same
+  -- position here keeps schema.sql and the migration path byte-identical.
+  'remote_jobs'
 );
 
 CREATE TYPE outreach_channel AS ENUM (
@@ -96,6 +100,11 @@ CREATE TABLE leads (
   contacted_at    TIMESTAMPTZ,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  -- Multi-source corroboration (add_lead_source_count.sql). Declared after
+  -- updated_at, not beside `source`, so the column order here matches what
+  -- the migration path produces.
+  source_count           INTEGER NOT NULL DEFAULT 1,
+  contributing_sources   TEXT[]  NOT NULL DEFAULT '{}',
   CONSTRAINT leads_id_org_uniq UNIQUE (id, org_id)
 );
 
@@ -229,7 +238,7 @@ CREATE TABLE scraping_logs (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   org_id          UUID NOT NULL REFERENCES organizations(id),
   source          lead_source NOT NULL,
-  status          TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed', 'partial')),
+  status          TEXT NOT NULL,
   leads_found     INTEGER DEFAULT 0,
   leads_new       INTEGER DEFAULT 0,
   leads_updated   INTEGER DEFAULT 0,
@@ -238,13 +247,179 @@ CREATE TABLE scraping_logs (
   completed_at    TIMESTAMPTZ,
   duration_ms     INTEGER,
   config          JSONB,
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  job_id          UUID,
+  -- Named explicitly because add_finalizing_scraping_status.sql drops the
+  -- auto-named constraint and re-adds it under this name.
+  CONSTRAINT scraping_logs_status_check
+    CHECK (status IN ('running', 'finalizing', 'completed', 'failed', 'partial'))
 );
 
 CREATE INDEX idx_scraping_logs_source ON scraping_logs(source);
+CREATE INDEX idx_scraping_logs_job_id ON scraping_logs(job_id);
 CREATE INDEX idx_scraping_logs_status ON scraping_logs(status);
 CREATE INDEX idx_scraping_logs_started ON scraping_logs(started_at DESC);
 CREATE INDEX idx_scraping_logs_org ON scraping_logs(org_id);
+
+
+-- ============================================================
+-- TABLE: users  (+ refresh_tokens, which is deliberately NOT org-scoped)
+-- ============================================================
+
+CREATE TABLE users (
+  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  org_id        UUID NOT NULL REFERENCES organizations(id),
+  email         TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  name          TEXT NOT NULL,
+  role          TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('admin', 'member')),
+  is_active     BOOLEAN NOT NULL DEFAULT true,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_login    TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_org ON users(org_id);
+
+-- refresh_tokens deliberately gets no org_id: it is auth infrastructure
+-- scoped by user_id, and a second source of truth for a session's org is
+-- precisely the drift this design exists to prevent.
+CREATE TABLE refresh_tokens (
+  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash  TEXT UNIQUE NOT NULL,
+  expires_at  TIMESTAMPTZ NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_refresh_tokens_user_id ON refresh_tokens(user_id);
+CREATE INDEX idx_refresh_tokens_expires_at ON refresh_tokens(expires_at);
+
+-- ============================================================
+-- TABLE: jobs
+-- ============================================================
+
+CREATE TABLE jobs (
+  id                 UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  org_id             UUID NOT NULL REFERENCES organizations(id),
+  external_id        TEXT,
+  company_name       TEXT NOT NULL,
+  job_title          TEXT,
+  location           TEXT,
+  employment_type    TEXT,
+  salary_text        TEXT,
+  posted_at_raw      TEXT,
+  technologies       TEXT[],
+  source_url         TEXT,
+  description        TEXT,
+  status             TEXT NOT NULL DEFAULT 'new',
+  converted_lead_id  UUID,
+  scraped_at         TIMESTAMPTZ,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  -- source / verdict / verdict_reasons / posted_at were added by later
+  -- migrations (add_source_to_jobs.sql, add_job_verdict.sql) and so sit
+  -- after updated_at in the migration path; same order kept here.
+  source             TEXT NOT NULL DEFAULT 'indeed',
+  verdict            TEXT,
+  verdict_reasons    TEXT[],
+  posted_at          TIMESTAMPTZ,
+  CONSTRAINT jobs_status_check CHECK (status IN
+    ('new', 'reviewed', 'applied', 'interviewing', 'placed', 'rejected', 'archived', 'converted')),
+  CONSTRAINT jobs_verdict_check CHECK (verdict IN ('apply', 'caution', 'skip')),
+  -- A real UNIQUE constraint, not the original partial unique index: ON
+  -- CONFLICT (external_id) cannot infer a partial index as its arbiter.
+  -- See fix_jobs_external_id_unique_constraint.sql.
+  CONSTRAINT jobs_external_id_key UNIQUE (external_id),
+  CONSTRAINT jobs_id_org_uniq UNIQUE (id, org_id),
+  -- converted_lead_id is a nullable sibling reference. MATCH SIMPLE (the
+  -- default) skips the check when any referencing column is NULL, so an
+  -- unconverted job stays legal and a converted one must name a lead in its
+  -- own org.
+  CONSTRAINT jobs_converted_lead_org_fkey
+    FOREIGN KEY (converted_lead_id, org_id) REFERENCES leads (id, org_id)
+);
+
+CREATE INDEX idx_jobs_source_url ON jobs(source_url);
+CREATE INDEX idx_jobs_status ON jobs(status);
+CREATE INDEX idx_jobs_company ON jobs(company_name);
+CREATE INDEX idx_jobs_created ON jobs(created_at DESC);
+CREATE INDEX idx_jobs_source ON jobs(source);
+CREATE INDEX idx_jobs_verdict ON jobs(verdict);
+CREATE INDEX idx_jobs_posted_at ON jobs(posted_at DESC NULLS LAST);
+CREATE INDEX idx_jobs_org ON jobs(org_id);
+
+-- ============================================================
+-- TABLE: cron_job_logs
+-- ============================================================
+
+CREATE TABLE cron_job_logs (
+  id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id          UUID        NOT NULL REFERENCES organizations(id),
+  job_name        TEXT        NOT NULL,
+  trigger_type    TEXT        NOT NULL DEFAULT 'scheduled' CHECK (trigger_type IN ('scheduled', 'manual')),
+  status          TEXT        NOT NULL DEFAULT 'running'   CHECK (status       IN ('running', 'success', 'failed')),
+  leads_processed INTEGER,
+  error_message   TEXT,
+  started_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  completed_at    TIMESTAMPTZ,
+  duration_ms     INTEGER,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX cron_job_logs_started_at_idx ON cron_job_logs (started_at DESC);
+CREATE INDEX cron_job_logs_job_name_idx   ON cron_job_logs (job_name);
+CREATE INDEX idx_cron_job_logs_org ON cron_job_logs(org_id);
+
+-- ============================================================
+-- TABLE: job_signals
+-- ============================================================
+
+CREATE TABLE job_signals (
+  id                   UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  org_id               UUID NOT NULL REFERENCES organizations(id),
+  job_id               UUID NOT NULL,
+  seniority            TEXT,      -- junior | mid | senior | lead | unclear
+  contract_type        TEXT,      -- full-time | contract | c2c | unclear
+  contract_duration    TEXT,
+  must_have_skills     TEXT[],
+  nice_to_have_skills  TEXT[],
+  ats_keywords         TEXT[],    -- ranked, exact JD phrasing
+  salary_parsed        JSONB,     -- { min, max, currency, period, normalized_annual_usd }
+  red_flags            TEXT[],
+  timezone_note        TEXT,      -- IST-translated overlap requirement, if any
+  resume_playbook      JSONB,
+  summary              TEXT,      -- 2-sentence "what this role actually is"
+  model_version        TEXT,
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT job_signals_job_org_fkey
+    FOREIGN KEY (job_id, org_id) REFERENCES jobs (id, org_id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_job_signals_job ON job_signals(job_id);
+CREATE INDEX idx_job_signals_org ON job_signals(org_id);
+
+-- ============================================================
+-- TABLE: job_submissions
+-- ============================================================
+
+CREATE TABLE job_submissions (
+  id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  org_id         UUID NOT NULL REFERENCES organizations(id),
+  job_id         UUID NOT NULL,
+  profile_label  TEXT NOT NULL,
+  status         TEXT NOT NULL DEFAULT 'submitted' CHECK (status IN
+                   ('submitted', 'screening', 'interviewing', 'offer', 'placed', 'rejected', 'withdrawn')),
+  submitted_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  notes          TEXT,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT job_submissions_job_org_fkey
+    FOREIGN KEY (job_id, org_id) REFERENCES jobs (id, org_id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_job_submissions_job ON job_submissions(job_id);
+CREATE INDEX idx_job_submissions_org ON job_submissions(org_id);
 
 -- ============================================================
 -- TRIGGERS: updated_at auto-update
@@ -268,6 +443,14 @@ CREATE TRIGGER outreach_messages_updated_at
 
 CREATE TRIGGER outreach_history_updated_at
   BEFORE UPDATE ON outreach_history
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+CREATE TRIGGER jobs_updated_at
+  BEFORE UPDATE ON jobs
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+CREATE TRIGGER job_submissions_updated_at
+  BEFORE UPDATE ON job_submissions
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- ============================================================
@@ -345,6 +528,12 @@ ALTER TABLE outreach_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE outreach_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE scraping_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE platform_config ENABLE ROW LEVEL SECURITY;
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE refresh_tokens ENABLE ROW LEVEL SECURITY;
+ALTER TABLE jobs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cron_job_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE job_signals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE job_submissions ENABLE ROW LEVEL SECURITY;
 
 -- Policy: service role has full access (used by backend)
 CREATE POLICY "service_role_all" ON leads
@@ -366,6 +555,24 @@ CREATE POLICY "service_role_all" ON scraping_logs
   FOR ALL USING (auth.role() = 'service_role');
 
 CREATE POLICY "service_role_all" ON platform_config
+  FOR ALL USING (auth.role() = 'service_role');
+
+CREATE POLICY "service_role_all" ON users
+  FOR ALL USING (auth.role() = 'service_role');
+
+CREATE POLICY "service_role_all" ON refresh_tokens
+  FOR ALL USING (auth.role() = 'service_role');
+
+CREATE POLICY "service_role_all" ON jobs
+  FOR ALL USING (auth.role() = 'service_role');
+
+CREATE POLICY "service_role_all" ON cron_job_logs
+  FOR ALL USING (auth.role() = 'service_role');
+
+CREATE POLICY "service_role_all" ON job_signals
+  FOR ALL USING (auth.role() = 'service_role');
+
+CREATE POLICY "service_role_all" ON job_submissions
   FOR ALL USING (auth.role() = 'service_role');
 
 -- ============================================================

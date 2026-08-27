@@ -172,4 +172,35 @@ ALTER TABLE jobs
   ADD CONSTRAINT jobs_converted_lead_org_fkey
     FOREIGN KEY (converted_lead_id, org_id) REFERENCES leads (id, org_id);
 
+-- ---- Section G: re-expand the hot_leads view ----
+--
+-- hot_leads selects `l.*`, and Postgres freezes that star into an explicit
+-- column list at CREATE VIEW time. The view therefore still has the
+-- pre-tenancy column set: an existing database upgraded by this migration
+-- would expose a hot_leads WITHOUT org_id, while a fresh database built from
+-- supabase/schema.sql gets one WITH it. Recreating the view here makes the
+-- two paths converge, which is checked by a pg_dump --schema-only diff
+-- between them (the only permitted divergence being org_id's ordinal
+-- position, which ADD COLUMN necessarily puts last on this path).
+--
+-- Dropping the view is safe: nothing holds a dependency on it, and it is
+-- recreated in the same transaction.
+DROP VIEW IF EXISTS hot_leads;
+
+CREATE VIEW hot_leads AS
+SELECT
+  l.*,
+  ls.overall_score,
+  ls.scoring_rationale,
+  array_agg(DISTINCT lsig.signal_type) AS signal_types,
+  array_agg(DISTINCT unnested_pain) AS all_pain_points
+FROM leads l
+LEFT JOIN lead_scores ls ON ls.lead_id = l.id
+LEFT JOIN lead_signals lsig ON lsig.lead_id = l.id
+LEFT JOIN LATERAL unnest(lsig.likely_pain_points) AS unnested_pain ON TRUE
+WHERE l.lead_score >= 70
+  AND l.status NOT IN ('client', 'proposal')
+GROUP BY l.id, ls.overall_score, ls.scoring_rationale
+ORDER BY l.lead_score DESC;
+
 COMMIT;
