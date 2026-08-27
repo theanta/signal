@@ -1,7 +1,7 @@
 # Signal Repo — Session Handoff
 
-**Last updated:** 2026-08-27
-**Branch:** `feat/multi-tenant-saas` (16 commits, unpushed, clean tree)
+**Last updated:** 2026-08-28
+**Branch:** `feat/multi-tenant-saas` (18 commits, unpushed, clean tree)
 
 ## What changed direction
 
@@ -28,8 +28,8 @@ migration so RAG is purely additive later. No speculative empty tables.
 - **Spec:** `docs/superpowers/specs/2026-08-26-multi-tenant-saas-design.md`
   Full design — data model, dual enforcement, job store, testing, sequencing.
 - **Plan 1:** `docs/superpowers/plans/2026-08-26-signal-engine-auth.md` — DONE
-- **Plan 2:** `docs/superpowers/plans/2026-08-26-tenancy-foundation.md` — written,
-  15 tasks, not started.
+- **Plan 2:** `docs/superpowers/plans/2026-08-26-tenancy-foundation.md` —
+  15 tasks, 4 complete.
 - Plan 3 is **not yet written**.
 
 ## The three plans
@@ -121,7 +121,7 @@ Reviewed but NOT fixed, except where noted:
 - God files: `frontend/app/jobs/[id]/page.tsx` (1127 lines),
   `frontend/app/leads/[id]/page.tsx` (1034), `signal-engine/main.py` (874).
 
-## Plan 2 execution state (2026-08-27)
+## Plan 2 execution state (2026-08-28)
 
 Being executed task-by-task with fresh subagents and a review after each. The
 ledger — completed tasks with commit ranges, every ruling, every deferred
@@ -134,33 +134,46 @@ and do not re-run tasks it marks complete.**
   production's. The tenancy migration (`organizations`, `org_id` on all 12
   tables, backfill, `pgvector`). Composite foreign keys making org drift
   unrepresentable, plus `backend/tests/reset-test-db.sh`.
-- **Task 4 implemented (`dd6f19f`) but its fix round is unfinished.** See below.
-- **Tasks 5-15 not started.** Next after Task 4: Task 5, the `supabaseAdmin`
-  split and the ESLint import fence.
-- 68 tests passing at the stopping point; `npx tsc --noEmit` reports exactly 4
-  errors, all object literals missing `org_id` in `authController.ts` and
-  `routes/cron.ts`, which Tasks 7-11 fix.
+- **Task 4 complete** (`dd6f19f..f12e080`, review clean, 5 minors deferred).
+  See "What Task 4 closed" below.
+- **Tasks 5-15 not started.** Next: Task 5, the `supabaseAdmin` split and the
+  ESLint import fence.
+- 68 tests passing, now against a database built by `schema.sql` alone;
+  `npx tsc --noEmit` reports exactly 4 errors, all object literals missing
+  `org_id` in `authController.ts` and `routes/cron.ts`, which Tasks 7-11 fix.
 
-### Open: `schema.sql` was never complete
+### What Task 4 closed: `schema.sql` was never complete
 
 Task 4 found that `supabase/schema.sql` only ever defined **7 of the 12**
 org-scoped tables — `users`, `jobs`, `cron_job_logs`, `job_signals` and
-`job_submissions` live only in migrations. Pre-existing drift, months old.
+`job_submissions` lived only in migrations. Pre-existing drift, months old.
 
-The committed state works around it by having `reset-test-db.sh` backfill those
-five tables itself, which left `schema.sql` worse as a standalone artifact:
-applied alone it now yields a database with `org_id NOT NULL` everywhere, an
-empty `organizations` table so nothing can be inserted, and five tables missing.
+Fixed at the root in `f12e080` rather than worked around: the five tables are
+folded into `schema.sql` with `org_id` from the start, and `reset-test-db.sh`
+now applies `schema.sql` **alone** and no longer replays migrations. That is
+the correct split — `schema.sql` builds a fresh database, migrations upgrade an
+existing one — and it deleted the scaffolding, the chronological-order
+dependency, the `add_platform_config.sql` skip, the dedup and the benign-error
+filter in one move. `hot_leads` is recreated in the migration's Section G so
+the upgrade path converges with `schema.sql`.
 
-**The decided fix, dispatched but not completed:** fold the five tables into
-`schema.sql` with `org_id` from the start, then make `reset-test-db.sh` apply
-`schema.sql` alone and stop replaying migrations — `schema.sql` builds a fresh
-database, migrations upgrade an existing one. The acceptance gate is a
-`pg_dump --schema-only` diff between a replay-built database and a
-`schema.sql`-built one, driven to nothing but `org_id`'s column position. Also
-pending: recreating the `hot_leads` view in the migration's Section F, since a
-migration-upgraded database's copy lacks `org_id` while `schema.sql`'s has it.
-Full instruction is in the ledger under the Task 4 ruling.
+Closing the five-table gap surfaced more old drift that had to go for the paths
+to converge: a missing `'remote_jobs'` enum value, `leads.source_count` and
+`contributing_sources`, `scraping_logs.job_id` and its `'finalizing'` status,
+and a `jobs` partial index where the real database has a `UNIQUE (external_id)`
+constraint. `refresh_tokens` was added too (no `org_id` — it is auth
+infrastructure scoped by `user_id`).
+
+**The parity gate:** `supabase/schema-parity-check.sh` builds two throwaway
+local-postgres databases — one by replaying migrations, one from `schema.sql`
+alone — and diffs `pg_dump --schema-only`. It converges to nothing but
+`org_id`'s column ordinal position. It never touches a Supabase project. Note
+it always exits non-zero (the expected `org_id` divergence guarantees it), so
+it is an eyeball aid, not a CI assertion.
+
+**Task 12 owes this file a debt:** it org-scopes `jobs_external_id_key`, and
+must change **both** `schema.sql` and the migration, then re-run the parity
+script. Nothing in CI enforces that.
 
 ## Environment: the app's Supabase project was deleted
 
