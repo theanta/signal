@@ -1,11 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import type { JwtPayload } from '../../../shared/types';
+import { createTenantContext, TenantContext } from '../../services/tenantContext';
 
 declare global {
   namespace Express {
     interface Request {
       user?: JwtPayload;
+      ctx?: TenantContext;
     }
   }
 }
@@ -18,12 +20,32 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
   }
 
   const token = header.slice(7);
+  let payload: JwtPayload;
   try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET!, { algorithms: ['HS256'] }) as JwtPayload;
-    next();
+    payload = jwt.verify(token, process.env.JWT_SECRET!, { algorithms: ['HS256'] }) as JwtPayload;
   } catch {
     res.status(401).json({ success: false, error: 'Token expired or invalid' });
+    return;
   }
+
+  // Tokens minted before the tenancy cutover carry no org. There is no safe
+  // default org to pick, so the session ends and the user logs in again.
+  if (!payload.org_id) {
+    res.status(401).json({ success: false, error: 'Session predates tenancy — please log in again' });
+    return;
+  }
+
+  req.user = payload;
+  try {
+    // The org id comes from the verified token payload and from nowhere else.
+    // Not req.body, not req.query, not a header — a client-supplied org id is
+    // not an authenticated one.
+    req.ctx = createTenantContext(payload.org_id, payload.sub);
+  } catch {
+    res.status(401).json({ success: false, error: 'Invalid session organization' });
+    return;
+  }
+  next();
 }
 
 export function requireAdmin(req: Request, res: Response, next: NextFunction): void {
@@ -32,4 +54,18 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction): v
     return;
   }
   next();
+}
+
+/**
+ * Narrow `req.ctx` for handlers running behind `authenticate`.
+ *
+ * Express types it optional because the middleware is not in the type system.
+ * Every handler in this codebase runs behind `authenticate`, so a missing ctx
+ * is a wiring bug, not a request the client can provoke.
+ */
+export function ctxOf(req: Request): TenantContext {
+  if (!req.ctx) {
+    throw new Error('No TenantContext on request — route is missing the authenticate middleware');
+  }
+  return req.ctx;
 }
