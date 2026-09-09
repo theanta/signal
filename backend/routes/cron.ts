@@ -10,7 +10,7 @@ import type { LeadSource, SignalAnalysisResult } from '../../shared/types';
 const router = Router();
 
 // ---- Job state ----
-let jobs: Record<string, cron.ScheduledTask> = {};
+const jobs: Record<string, cron.ScheduledTask> = {};
 
 // ---- Audit helpers ----
 async function withAudit(
