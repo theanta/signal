@@ -37,7 +37,7 @@ migration so RAG is purely additive later. No speculative empty tables.
 | Plan | Deliverable | Days | Status |
 |---|---|---|---|
 | 1. Signal engine authentication | Engine rejects unauthenticated calls | 2 | **Complete** |
-| 2. Tenancy foundation | `org_id`, composite FKs, `TenantContext`, RLS, isolation suites | 18 | **BLOCKED — 5 of 15 tasks** |
+| 2. Tenancy foundation | `org_id`, composite FKs, `TenantContext`, RLS, isolation suites | 18 | **In progress — 5 of 15 tasks** |
 | 3. Job durability + metering | Postgres job store, reaper, usage events, scrape cap | 9 | Not written |
 
 ## Key architectural decisions (locked)
@@ -141,34 +141,35 @@ and do not re-run tasks it marks complete.**
   an ESLint failure. Two fence bypasses (`.js` specifier, dynamic `import()`)
   were found and closed; the fence is verified across 8 import shapes and
   confirmed not to over-block the four allowed service-role locations.
-- **Tasks 6-15 BLOCKED.** See "Plan 2 is blocked" below.
-- 68 tests passing, now against a database built by `schema.sql` alone;
+- **Task 6 is next**, once `SUPABASE_TEST_JWT_SECRET` is corrected (see below).
+- 77 tests passing against the restored test project;
   `npx tsc --noEmit` reports exactly 4 errors, all object literals missing
   `org_id` in `authController.ts` and `routes/cron.ts`, which Tasks 7-11 fix.
 
-### Plan 2 is blocked — two things only Anadi can supply
+### Environment restored 2026-09-09 — one item outstanding
 
-**1. There is no test Supabase project.** `anta-signal-test`
-(`yvukeeszxokhrkjcstds`) returns NXDOMAIN on its project host — deleted, not
-paused (a paused free-tier project still resolves). Tasks 6-15 *each* assert
-against a live test database: the isolation suites, RLS proven with the app
-filter removed, the composite-FK guarantees. None of them can be proven
-without one, and running them unproven defeats the point of a plan whose
-deliverable is "one tenant's data is unreachable from another's".
+`anta-signal-test` (`yvukeeszxokhrkjcstds`) is **live again at the same project
+ref**, and the suite runs: **77/77 passing**. Correcting the earlier entry in
+this file: the project had been **paused, not deleted**. Supabase drops DNS for
+a paused project, so the NXDOMAIN on both the project host and the `db.` host
+was not the proof of deletion it was recorded as. Restoring it brought the same
+ref back.
 
-**2. `SUPABASE_JWT_SECRET` is not set.** Task 6 needs it to mint the 5-minute
-org-scoped Supabase-compatible JWTs. It comes from a project's API settings.
+`SUPABASE_JWT_SECRET` is now set in `.env` (88 chars, opaque — the right shape).
 
-**When recreating:** build the new project from `supabase/schema.sql` **alone**
-— since Task 4 it is a true from-scratch build, so do not replay migrations
-into a fresh project. Put the new ref and DB password in `.env.test`. Do **not**
-point `.env` at the same new project: `backend/tests/setup.ts`'s guard compares
-the test ref against the production ref and correctly refuses to run anything
-when they match. Confirm the guard still arms afterwards.
+**Outstanding: `SUPABASE_TEST_JWT_SECRET` in `.env.test` holds the wrong
+value.** It is byte-identical to `SUPABASE_TEST_SERVICE_ROLE_KEY` — a JWT whose
+payload decodes to `{"iss":"supabase","ref":"yvukeeszxokhrkjcstds",
+"role":"service_role"}`. That is an API key, not the signing secret. Task 6
+signs org-scoped tokens with `jwt.sign(payload, secret)` (HS256) and PostgREST
+verifies them against the project's real JWT secret, so tokens signed with this
+value will be rejected. Replace it with the test project's JWT secret from
+Project Settings → API before Task 6 is dispatched.
 
-The app's own project (`lgendecyizgfyajaooud`, deleted 2026-08-26) is still
-gone too, and is where `SUPABASE_JWT_SECRET` would naturally come from — so
-recreating both in one sitting is the efficient move.
+The app's own project (`lgendecyizgfyajaooud`) is still gone. `.env` still names
+it, which is deliberate — `backend/tests/setup.ts`'s guard compares the test ref
+against it, the two differ, and the guard is armed (`tests/setup-guard.test.ts`
+passes).
 
 ### What Task 4 closed: `schema.sql` was never complete
 
