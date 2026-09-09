@@ -1,49 +1,108 @@
 import { execFileSync } from 'child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'fs';
-import { tmpdir } from 'os';
+import { existsSync, rmSync, writeFileSync } from 'fs';
 import path from 'path';
-import { afterAll, expect, it } from 'vitest';
+import { expect, it } from 'vitest';
 
-const dir = mkdtempSync(path.join(tmpdir(), 'anta-lint-'));
+const backendRoot = path.join(__dirname, '../..');
 
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+// Probe files are written into the live source tree (ESLint's fenced
+// directories don't exist as a scratch copy) and removed in a `finally`
+// below. If a run is ever killed between `writeFileSync` and that `finally`,
+// a stray `__lintProbe*.ts` would sit in `controllers/`, `routes/`, or
+// `services/` and break `npm run lint` / `tsc` for the next person. Guard
+// against that two ways: self-heal any leftovers from a previous crashed run
+// before this run starts, and register process-signal handlers so a normal
+// interrupt (Ctrl+C) during this run still cleans up.
+const PROBE_GLOB_DIRS = ['controllers', 'routes', 'services'];
+const PROBE_NAME = '__lintProbe.ts';
 
-function lint(relativePath: string, source: string): string {
-  const file = path.join(__dirname, '../..', relativePath);
+function strayProbePaths(): string[] {
+  return PROBE_GLOB_DIRS.map((dir) => path.join(backendRoot, dir, PROBE_NAME)).filter(
+    existsSync,
+  );
+}
+
+// Self-heal: a previous run that was killed mid-test leaves exactly this file
+// shape behind. Clean it up before we add our own.
+strayProbePaths().forEach((p) => rmSync(p, { force: true }));
+
+let activeProbeFile: string | null = null;
+function cleanupActiveProbe(): void {
+  if (activeProbeFile) {
+    rmSync(activeProbeFile, { force: true });
+    activeProbeFile = null;
+  }
+}
+process.on('SIGINT', cleanupActiveProbe);
+process.on('SIGTERM', cleanupActiveProbe);
+process.on('exit', cleanupActiveProbe);
+
+function lint(dir: string, source: string): string {
+  const file = path.join(backendRoot, dir, PROBE_NAME);
+  activeProbeFile = file;
   writeFileSync(file, source);
   try {
     execFileSync('npx', ['eslint', '--format', 'json', file], {
-      cwd: path.join(__dirname, '../..'),
+      cwd: backendRoot,
       encoding: 'utf8',
     });
     return '';
   } catch (err) {
     return String((err as { stdout?: string }).stdout ?? '');
   } finally {
-    rmSync(file, { force: true });
+    cleanupActiveProbe();
   }
 }
 
+const IMPORT_LINE = `import { supabaseAdmin } from '../services/supabaseAdmin';`;
+const NESTED_IMPORT_LINE = `import { supabaseAdmin } from '../../../services/supabaseAdmin';`;
+const ALIAS_IMPORT_LINE = `import { supabaseAdmin } from '@/services/supabaseAdmin';`;
+const TYPE_IMPORT_LINE = `import type { SupabaseClient } from '../services/supabaseAdmin';`;
+const EXPORT_FROM_LINE = `export { supabaseAdmin } from '../services/supabaseAdmin';`;
+const DOT_JS_IMPORT_LINE = `import { supabaseAdmin } from '../services/supabaseAdmin.js';`;
+const DYNAMIC_IMPORT_SOURCE = `export async function f() {\n  const mod = await import('../services/supabaseAdmin');\n  return mod;\n}\n`;
+
 it('forbids importing supabaseAdmin from a controller', () => {
-  const out = lint(
-    'controllers/__lintProbe.ts',
-    `import { supabaseAdmin } from '../services/supabaseAdmin';\nexport const x = supabaseAdmin;\n`,
-  );
+  const out = lint('controllers', `${IMPORT_LINE}\nexport const x = supabaseAdmin;\n`);
   expect(out).toMatch(/no-restricted-imports/);
 });
 
 it('forbids importing supabaseAdmin from a route', () => {
-  const out = lint(
-    'routes/__lintProbe.ts',
-    `import { supabaseAdmin } from '../services/supabaseAdmin';\nexport const x = supabaseAdmin;\n`,
-  );
+  const out = lint('routes', `${IMPORT_LINE}\nexport const x = supabaseAdmin;\n`);
   expect(out).toMatch(/no-restricted-imports/);
 });
 
-it('allows importing supabaseAdmin from a service', () => {
-  const out = lint(
-    'services/__lintProbe.ts',
-    `import { supabaseAdmin } from './supabaseAdmin';\nexport const x = supabaseAdmin;\n`,
-  );
-  expect(out).not.toMatch(/no-restricted-imports/);
+it('forbids a nested relative path to supabaseAdmin', () => {
+  const out = lint('controllers', `${NESTED_IMPORT_LINE}\nexport const x = supabaseAdmin;\n`);
+  expect(out).toMatch(/no-restricted-imports/);
+});
+
+it('forbids an aliased path to supabaseAdmin', () => {
+  const out = lint('controllers', `${ALIAS_IMPORT_LINE}\nexport const x = supabaseAdmin;\n`);
+  expect(out).toMatch(/no-restricted-imports/);
+});
+
+it('forbids a type-only import of supabaseAdmin', () => {
+  const out = lint('controllers', `${TYPE_IMPORT_LINE}\nexport const y: SupabaseClient | undefined = undefined;\n`);
+  expect(out).toMatch(/no-restricted-imports/);
+});
+
+it('forbids re-exporting supabaseAdmin', () => {
+  const out = lint('controllers', EXPORT_FROM_LINE);
+  expect(out).toMatch(/no-restricted-imports/);
+});
+
+it('forbids an explicit .js extension on the supabaseAdmin specifier', () => {
+  const out = lint('controllers', `${DOT_JS_IMPORT_LINE}\nexport const x = supabaseAdmin;\n`);
+  expect(out).toMatch(/no-restricted-imports/);
+});
+
+it('forbids a dynamic import() of supabaseAdmin', () => {
+  const out = lint('controllers', DYNAMIC_IMPORT_SOURCE);
+  expect(out).toMatch(/no-restricted-syntax/);
+});
+
+it('allows importing supabaseAdmin from a service, and services/ lints clean', () => {
+  const out = lint('services', `import { supabaseAdmin } from './supabaseAdmin';\nexport const x = supabaseAdmin;\n`);
+  expect(out).toBe('');
 });

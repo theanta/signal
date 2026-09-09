@@ -3,6 +3,11 @@ node_modules/
 .pnp
 .pnp.js
 
+# Stray lint-probe scratch files (backend/tests/lint/import-boundary.test.ts
+# writes these into the live tree and removes them; this is a safety net for
+# a leftover from a killed test run)
+**/__lintProbe.ts
+
 # Environment variables — NEVER commit these
 .env
 .env.local
