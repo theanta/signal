@@ -10,9 +10,13 @@ const backendRoot = path.join(__dirname, '../..');
 // below. If a run is ever killed between `writeFileSync` and that `finally`,
 // a stray `__lintProbe*.ts` would sit in `controllers/`, `routes/`, or
 // `services/` and break `npm run lint` / `tsc` for the next person. Guard
-// against that two ways: self-heal any leftovers from a previous crashed run
-// before this run starts, and register process-signal handlers so a normal
-// interrupt (Ctrl+C) during this run still cleans up.
+// against that by self-healing any leftovers from a previous crashed run
+// before this run starts, plus a `process.on('exit', ...)` handler below as
+// a last-resort net for this run. Deliberately NOT `SIGINT`/`SIGTERM`
+// handlers: registering either one suppresses Node's default
+// immediate-terminate behavior for that signal, so a bare `cleanupActiveProbe()`
+// call with no `process.exit()` would make Ctrl+C stop killing the process —
+// a worse hazard than the stray file this exists to prevent.
 const PROBE_GLOB_DIRS = ['controllers', 'routes', 'services'];
 const PROBE_NAME = '__lintProbe.ts';
 
@@ -33,8 +37,6 @@ function cleanupActiveProbe(): void {
     activeProbeFile = null;
   }
 }
-process.on('SIGINT', cleanupActiveProbe);
-process.on('SIGTERM', cleanupActiveProbe);
 process.on('exit', cleanupActiveProbe);
 
 function lint(dir: string, source: string): string {
