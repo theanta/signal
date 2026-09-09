@@ -203,4 +203,53 @@ WHERE l.lead_score >= 70
 GROUP BY l.id, ls.overall_score, ls.scoring_rationale
 ORDER BY l.lead_score DESC;
 
+-- ---- Section H: privileges for the `authenticated` role ----
+--
+-- Task 6 mints short-lived Supabase JWTs whose `role` claim is `authenticated`,
+-- so PostgREST executes those requests as the `authenticated` database role.
+-- That role had NO privileges at all in this project, so every scoped request
+-- failed at the authorization step (42501, "permission denied for schema
+-- public") long before any RLS policy was consulted. Grants are what make the
+-- policies reachable; the policies themselves arrive in Task 14.
+--
+-- Granting now is safe and non-exposing: all twelve tables below already have
+-- RLS ENABLED with a single `service_role_all` policy, so until Task 14 adds
+-- the org_isolation policies an `authenticated` request sees zero rows and can
+-- write none. The grant changes the failure from "permission denied" to
+-- "empty result", which is what the RLS work in Task 14 then narrows to the
+-- caller's own org.
+--
+-- Deliberately NOT granted:
+--   * organizations  — RLS is not enabled on it, so a SELECT grant would let
+--                      any logged-in user read every tenant's row. It gets
+--                      grants together with its policy in Task 14.
+--   * refresh_tokens — auth infrastructure, service-role only by design.
+--
+-- The role is a Supabase platform role; a plain local postgres (the
+-- schema-parity harness) has no such role, so create it there if absent.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    CREATE ROLE authenticated NOLOGIN NOINHERIT;
+  END IF;
+END
+$$;
+
+GRANT USAGE ON SCHEMA public TO authenticated;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON
+  users,
+  leads,
+  jobs,
+  scraping_logs,
+  cron_job_logs,
+  lead_signals,
+  lead_scores,
+  outreach_messages,
+  outreach_history,
+  job_signals,
+  job_submissions,
+  platform_config
+TO authenticated;
+
 COMMIT;

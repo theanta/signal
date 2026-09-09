@@ -1,6 +1,19 @@
 import { config } from 'dotenv';
 import path from 'path';
 
+// setup.ts runs once per test FILE, but process.env persists for the whole
+// worker. The block at the bottom of this file overwrites SUPABASE_URL with
+// the TEST project's URL, so by the second file the ambient value is no longer
+// production's. Snapshot it on the first run (behind a marker so a later,
+// already-overwritten value can never be mistaken for production) and let the
+// guard below compare against the snapshot.
+if (!process.env.__SETUP_ENV_SNAPSHOT_TAKEN) {
+  process.env.__SETUP_ENV_SNAPSHOT_TAKEN = '1';
+  if (process.env.SUPABASE_URL) {
+    process.env.__AMBIENT_PROD_SUPABASE_URL = process.env.SUPABASE_URL;
+  }
+}
+
 config({ path: path.resolve(__dirname, '../../.env.test') });
 
 const REQUIRED = [
@@ -45,7 +58,7 @@ const prod = config({ path: path.resolve(__dirname, '../../.env'), processEnv: {
 // when the file yields no SUPABASE_URL, fall back to the ambient
 // process.env.SUPABASE_URL before concluding there is no production
 // reference to compare against, so the guard still works there.
-const prodUrl = prod.parsed?.SUPABASE_URL ?? process.env.SUPABASE_URL;
+const prodUrl = prod.parsed?.SUPABASE_URL ?? process.env.__AMBIENT_PROD_SUPABASE_URL;
 const prodRef = prodUrl ? projectRef(prodUrl) : null;
 
 if (prodUrl && !prodRef) {
@@ -69,3 +82,13 @@ if (prodRef) {
     }
   }
 }
+
+// The production guard above has already run and is the ONLY thing that reads
+// the production SUPABASE_URL. From here on, the modules under test must see
+// the TEST project — under the names they actually read, so the tests exercise
+// the real functions rather than a copy of them.
+process.env.SUPABASE_URL = process.env.SUPABASE_TEST_URL;
+process.env.SUPABASE_ANON_KEY = process.env.SUPABASE_TEST_ANON_KEY;
+process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_TEST_SERVICE_ROLE_KEY;
+process.env.SUPABASE_JWT_SECRET = process.env.SUPABASE_TEST_JWT_SECRET;
+process.env.JWT_SECRET = process.env.JWT_SECRET ?? 'test-login-jwt-secret';
