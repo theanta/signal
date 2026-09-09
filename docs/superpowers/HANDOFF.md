@@ -1,7 +1,7 @@
 # Signal Repo — Session Handoff
 
-**Last updated:** 2026-08-28
-**Branch:** `feat/multi-tenant-saas` (18 commits, unpushed, clean tree)
+**Last updated:** 2026-09-09
+**Branch:** `feat/multi-tenant-saas` (21 commits, unpushed, clean tree)
 
 ## What changed direction
 
@@ -37,7 +37,7 @@ migration so RAG is purely additive later. No speculative empty tables.
 | Plan | Deliverable | Days | Status |
 |---|---|---|---|
 | 1. Signal engine authentication | Engine rejects unauthenticated calls | 2 | **Complete** |
-| 2. Tenancy foundation | `org_id`, composite FKs, `TenantContext`, RLS, isolation suites | 18 | **In progress — 4 of 15 tasks** |
+| 2. Tenancy foundation | `org_id`, composite FKs, `TenantContext`, RLS, isolation suites | 18 | **BLOCKED — 5 of 15 tasks** |
 | 3. Job durability + metering | Postgres job store, reaper, usage events, scrape cap | 9 | Not written |
 
 ## Key architectural decisions (locked)
@@ -121,7 +121,7 @@ Reviewed but NOT fixed, except where noted:
 - God files: `frontend/app/jobs/[id]/page.tsx` (1127 lines),
   `frontend/app/leads/[id]/page.tsx` (1034), `signal-engine/main.py` (874).
 
-## Plan 2 execution state (2026-08-28)
+## Plan 2 execution state (2026-09-09)
 
 Being executed task-by-task with fresh subagents and a review after each. The
 ledger — completed tasks with commit ranges, every ruling, every deferred
@@ -136,11 +136,39 @@ and do not re-run tasks it marks complete.**
   unrepresentable, plus `backend/tests/reset-test-db.sh`.
 - **Task 4 complete** (`dd6f19f..f12e080`, review clean, 5 minors deferred).
   See "What Task 4 closed" below.
-- **Tasks 5-15 not started.** Next: Task 5, the `supabaseAdmin` split and the
-  ESLint import fence.
+- **Task 5 complete** (`f4dda76..7cbe76a`, review clean). One `supabaseAdmin` replaces
+  three scattered `createClient` calls, and the service-role import boundary is
+  an ESLint failure. Two fence bypasses (`.js` specifier, dynamic `import()`)
+  were found and closed; the fence is verified across 8 import shapes and
+  confirmed not to over-block the four allowed service-role locations.
+- **Tasks 6-15 BLOCKED.** See "Plan 2 is blocked" below.
 - 68 tests passing, now against a database built by `schema.sql` alone;
   `npx tsc --noEmit` reports exactly 4 errors, all object literals missing
   `org_id` in `authController.ts` and `routes/cron.ts`, which Tasks 7-11 fix.
+
+### Plan 2 is blocked — two things only Anadi can supply
+
+**1. There is no test Supabase project.** `anta-signal-test`
+(`yvukeeszxokhrkjcstds`) returns NXDOMAIN on its project host — deleted, not
+paused (a paused free-tier project still resolves). Tasks 6-15 *each* assert
+against a live test database: the isolation suites, RLS proven with the app
+filter removed, the composite-FK guarantees. None of them can be proven
+without one, and running them unproven defeats the point of a plan whose
+deliverable is "one tenant's data is unreachable from another's".
+
+**2. `SUPABASE_JWT_SECRET` is not set.** Task 6 needs it to mint the 5-minute
+org-scoped Supabase-compatible JWTs. It comes from a project's API settings.
+
+**When recreating:** build the new project from `supabase/schema.sql` **alone**
+— since Task 4 it is a true from-scratch build, so do not replay migrations
+into a fresh project. Put the new ref and DB password in `.env.test`. Do **not**
+point `.env` at the same new project: `backend/tests/setup.ts`'s guard compares
+the test ref against the production ref and correctly refuses to run anything
+when they match. Confirm the guard still arms afterwards.
+
+The app's own project (`lgendecyizgfyajaooud`, deleted 2026-08-26) is still
+gone too, and is where `SUPABASE_JWT_SECRET` would naturally come from — so
+recreating both in one sitting is the efficient move.
 
 ### What Task 4 closed: `schema.sql` was never complete
 
