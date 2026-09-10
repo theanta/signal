@@ -1,8 +1,10 @@
+/* eslint-disable no-restricted-imports -- authentication necessarily runs
+   before a tenant context exists: it is what produces one. */
 import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
-import { supabase } from '../services/supabaseService';
+import { supabaseAdmin } from '../services/supabaseAdmin';
 import type { AuthUser, JwtPayload, LoginRequest, RegisterRequest } from '../../shared/types';
 
 const ACCESS_EXPIRY = process.env.JWT_ACCESS_EXPIRY ?? '15m';
@@ -18,6 +20,7 @@ const TIMING_SAFE_DUMMY_HASH =
 function generateAccessToken(user: AuthUser): string {
   const payload: Omit<JwtPayload, 'iat' | 'exp'> = {
     sub: user.id,
+    org_id: user.org_id,
     email: user.email,
     name: user.name,
     role: user.role,
@@ -64,7 +67,7 @@ export async function login(req: Request, res: Response): Promise<void> {
     return;
   }
 
-  const { data: user, error } = await supabase
+  const { data: user, error } = await supabaseAdmin
     .from('users')
     .select('*')
     .eq('email', email.toLowerCase().trim())
@@ -81,13 +84,14 @@ export async function login(req: Request, res: Response): Promise<void> {
     return;
   }
 
-  await supabase
+  await supabaseAdmin
     .from('users')
     .update({ last_login: new Date().toISOString() })
     .eq('id', user.id);
 
   const authUser: AuthUser = {
     id: user.id,
+    org_id: user.org_id,
     email: user.email,
     name: user.name,
     role: user.role,
@@ -101,7 +105,7 @@ export async function login(req: Request, res: Response): Promise<void> {
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + REFRESH_EXPIRY_DAYS);
 
-  await supabase.from('refresh_tokens').insert({
+  await supabaseAdmin.from('refresh_tokens').insert({
     user_id: user.id,
     token_hash: hash,
     expires_at: expiresAt.toISOString(),
@@ -109,7 +113,7 @@ export async function login(req: Request, res: Response): Promise<void> {
 
   // Purge this user's expired tokens so the table doesn't grow unbounded.
   // Fire-and-forget — a failure here doesn't affect the login response.
-  supabase
+  supabaseAdmin
     .from('refresh_tokens')
     .delete()
     .eq('user_id', user.id)
@@ -125,7 +129,7 @@ export async function logout(req: Request, res: Response): Promise<void> {
 
   if (raw) {
     const hash = crypto.createHash('sha256').update(raw).digest('hex');
-    await supabase.from('refresh_tokens').delete().eq('token_hash', hash);
+    await supabaseAdmin.from('refresh_tokens').delete().eq('token_hash', hash);
   }
 
   clearRefreshCookie(res);
@@ -141,7 +145,7 @@ export async function refresh(req: Request, res: Response): Promise<void> {
 
   const hash = crypto.createHash('sha256').update(raw).digest('hex');
 
-  const { data: tokenRow, error } = await supabase
+  const { data: tokenRow, error } = await supabaseAdmin
     .from('refresh_tokens')
     .select('*, users(*)')
     .eq('token_hash', hash)
@@ -165,7 +169,7 @@ export async function refresh(req: Request, res: Response): Promise<void> {
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + REFRESH_EXPIRY_DAYS);
 
-  const { error: insertError } = await supabase.from('refresh_tokens').insert({
+  const { error: insertError } = await supabaseAdmin.from('refresh_tokens').insert({
     user_id: tokenRow.user_id,
     token_hash: newRefresh.hash,
     expires_at: expiresAt.toISOString(),
@@ -177,10 +181,11 @@ export async function refresh(req: Request, res: Response): Promise<void> {
   }
 
   // Delete old token after the new one is safely stored.
-  await supabase.from('refresh_tokens').delete().eq('token_hash', hash);
+  await supabaseAdmin.from('refresh_tokens').delete().eq('token_hash', hash);
 
   const authUser: AuthUser = {
     id: tokenRow.users.id,
+    org_id: tokenRow.users.org_id,
     email: tokenRow.users.email,
     name: tokenRow.users.name,
     role: tokenRow.users.role,
@@ -194,9 +199,9 @@ export async function refresh(req: Request, res: Response): Promise<void> {
 }
 
 export async function me(req: Request, res: Response): Promise<void> {
-  const { data: user, error } = await supabase
+  const { data: user, error } = await supabaseAdmin
     .from('users')
-    .select('id, email, name, role, last_login, created_at')
+    .select('id, org_id, email, name, role, last_login, created_at')
     .eq('id', req.user!.sub)
     .single();
 
@@ -221,14 +226,33 @@ export async function register(req: Request, res: Response): Promise<void> {
     return;
   }
 
-  // Bootstrap: allow first user without auth; otherwise require admin token
-  const { count } = await supabase
+  // Bootstrap: the very first user creates nothing here — the org must already
+  // exist, created by scripts/create-org.ts. Otherwise the caller's own org is
+  // the org the new user joins; there is no cross-org user creation.
+  let orgId: string;
+
+  const { count } = await supabaseAdmin
     .from('users')
     .select('*', { count: 'exact', head: true });
 
   const isBootstrap = count === 0;
 
-  if (!isBootstrap) {
+  if (isBootstrap) {
+    const { data: org } = await supabaseAdmin
+      .from('organizations')
+      .select('id')
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .single();
+    if (!org) {
+      res.status(409).json({
+        success: false,
+        error: 'No organization exists. Run scripts/create-org.ts first.',
+      });
+      return;
+    }
+    orgId = org.id;
+  } else {
     const header = req.headers.authorization;
     if (!header?.startsWith('Bearer ')) {
       res.status(401).json({ success: false, error: 'Unauthorized' });
@@ -240,13 +264,26 @@ export async function register(req: Request, res: Response): Promise<void> {
         res.status(403).json({ success: false, error: 'Admin access required to create users' });
         return;
       }
+      // The new user joins the ADMIN'S org, taken from the verified token —
+      // never from the request body. There is no cross-org user creation.
+      //
+      // register() verifies its own token rather than running behind
+      // `authenticate`, so it has to repeat that middleware's pre-cutover
+      // check: an admin token minted before the cutover carries no org_id,
+      // and creating a user with an undefined org is exactly the orphan row
+      // the NOT NULL constraint exists to prevent.
+      if (!payload.org_id) {
+        res.status(401).json({ success: false, error: 'Session predates tenancy — please log in again' });
+        return;
+      }
+      orgId = payload.org_id;
     } catch {
       res.status(401).json({ success: false, error: 'Invalid token' });
       return;
     }
   }
 
-  const { data: existing } = await supabase
+  const { data: existing } = await supabaseAdmin
     .from('users')
     .select('id')
     .eq('email', email.toLowerCase().trim())
@@ -259,15 +296,16 @@ export async function register(req: Request, res: Response): Promise<void> {
 
   const passwordHash = await bcrypt.hash(password, 12);
 
-  const { data: newUser, error: insertError } = await supabase
+  const { data: newUser, error: insertError } = await supabaseAdmin
     .from('users')
     .insert({
+      org_id: orgId,
       email: email.toLowerCase().trim(),
       password_hash: passwordHash,
       name: name.trim(),
       role: isBootstrap ? 'admin' : role,
     })
-    .select('id, email, name, role, created_at')
+    .select('id, org_id, email, name, role, created_at')
     .single();
 
   if (insertError || !newUser) {
