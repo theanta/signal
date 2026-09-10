@@ -17,7 +17,7 @@ const backendRoot = path.join(__dirname, '../..');
 // immediate-terminate behavior for that signal, so a bare `cleanupActiveProbe()`
 // call with no `process.exit()` would make Ctrl+C stop killing the process —
 // a worse hazard than the stray file this exists to prevent.
-const PROBE_GLOB_DIRS = ['controllers', 'routes', 'services'];
+const PROBE_GLOB_DIRS = ['controllers', 'routes', 'services', 'api/middleware'];
 const PROBE_NAME = '__lintProbe.ts';
 
 function strayProbePaths(): string[] {
@@ -106,5 +106,29 @@ it('forbids a dynamic import() of supabaseAdmin', () => {
 
 it('allows importing supabaseAdmin from a service, and services/ lints clean', () => {
   const out = lint('services', `import { supabaseAdmin } from './supabaseAdmin';\nexport const x = supabaseAdmin;\n`);
+  expect(out).toBe('');
+});
+
+const TC_IMPORT_LINE = `import { createTenantContext } from '../services/tenantContext';`;
+const TC_DOT_JS_IMPORT_LINE = `import { createTenantContext } from '../services/tenantContext.js';`;
+const TC_DYNAMIC_IMPORT_SOURCE = `export async function f() {\n  const mod = await import('../services/tenantContext');\n  return mod;\n}\n`;
+
+it('forbids importing tenantContext from a controller', () => {
+  const out = lint('controllers', `${TC_IMPORT_LINE}\nexport const x = createTenantContext;\n`);
+  expect(out).toMatch(/no-restricted-imports/);
+});
+
+it('forbids an explicit .js extension on the tenantContext specifier', () => {
+  const out = lint('controllers', `${TC_DOT_JS_IMPORT_LINE}\nexport const x = createTenantContext;\n`);
+  expect(out).toMatch(/no-restricted-imports/);
+});
+
+it('forbids a dynamic import() of tenantContext', () => {
+  const out = lint('controllers', TC_DYNAMIC_IMPORT_SOURCE);
+  expect(out).toMatch(/no-restricted-syntax/);
+});
+
+it('allows importing tenantContext from api/middleware/ (the legitimate caller)', () => {
+  const out = lint('api/middleware', `${TC_IMPORT_LINE}\nexport const x = createTenantContext;\n`);
   expect(out).toBe('');
 });
