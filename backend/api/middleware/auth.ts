@@ -41,7 +41,26 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
     // Not req.body, not req.query, not a header — a client-supplied org id is
     // not an authenticated one.
     req.ctx = createTenantContext(payload.org_id, payload.sub);
-  } catch {
+  } catch (err) {
+    // createTenantContext throws for two unrelated reasons, and only one of
+    // them is the user's fault. `asOrgId` failing on a malformed org_id claim
+    // is a bad-session problem (401, log-free — it's routine). Missing
+    // SUPABASE_URL/SUPABASE_ANON_KEY/SUPABASE_JWT_SECRET on this server is a
+    // deploy/config problem (500, logged) — without this split, a missing
+    // env var makes every authenticated request 401 "Invalid session
+    // organization" with nothing logged anywhere, which reads as an auth-token
+    // bug and sends whoever is on call looking in the wrong place entirely.
+    //
+    // Distinguished by message shape rather than a new error type so this
+    // stays a middleware-only change: the thrown message already names the
+    // missing variables without their values (see tenantContext.ts), so
+    // logging it verbatim is safe — never interpolate the values here.
+    const message = err instanceof Error ? err.message : '';
+    if (message.startsWith('Missing SUPABASE_URL')) {
+      console.error(`[auth] createTenantContext failed — server misconfigured: ${message}`);
+      res.status(500).json({ success: false, error: 'Server configuration error' });
+      return;
+    }
     res.status(401).json({ success: false, error: 'Invalid session organization' });
     return;
   }

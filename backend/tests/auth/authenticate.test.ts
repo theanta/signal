@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { authenticate, ctxOf } from '../../api/middleware/auth';
 import { signLoginToken } from '../helpers/context';
 
@@ -77,6 +77,37 @@ describe('authenticate', () => {
     expect(nextCalls).toBe(1);
     expect(req.ctx?.orgId).toBe(ORG_A);
     expect(req.ctx?.userId).toBe(USER);
+  });
+
+  it('surfaces a missing SUPABASE_JWT_SECRET as a 500, distinct from a bad org id, and logs once without the value of any secret', () => {
+    const savedSecret = process.env.SUPABASE_JWT_SECRET;
+    delete process.env.SUPABASE_JWT_SECRET;
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const token = signLoginToken({ sub: USER, org_id: ORG_A });
+      const { req, res, nextCalls } = run({ headers: { authorization: `Bearer ${token}` } });
+
+      expect(res.status).toBe(500);
+      expect(res.body).toMatchObject({ success: false });
+      expect(req.ctx).toBeUndefined();
+      expect(nextCalls).toBe(0);
+
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      const logged = errorSpy.mock.calls[0].join(' ');
+      expect(logged).toMatch(/SUPABASE_JWT_SECRET/);
+      // The log names the missing variable, never a secret's value. There is
+      // no secret value in scope for this case (the var is unset), but assert
+      // the shape stays a static message rather than an interpolated one.
+      expect(logged).not.toMatch(/Bearer /);
+      expect(logged).not.toContain(token);
+    } finally {
+      if (savedSecret === undefined) {
+        delete process.env.SUPABASE_JWT_SECRET;
+      } else {
+        process.env.SUPABASE_JWT_SECRET = savedSecret;
+      }
+      errorSpy.mockRestore();
+    }
   });
 
   it('ignores an org id supplied in the body, query or a header', () => {
