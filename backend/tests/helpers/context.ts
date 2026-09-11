@@ -1,5 +1,8 @@
 import jwt from 'jsonwebtoken';
+import { createTenantContext } from '../../services/tenantContext';
 import type { TenantContext } from '../../services/tenantContext';
+
+const ANY_USER = '00000000-0000-0000-0000-0000000000ff';
 
 /**
  * Pull the scoped JWT off a TenantContext's Supabase client.
@@ -50,4 +53,14 @@ export function signLoginToken(claims: Record<string, unknown>): string {
     if (payload[key] === undefined) delete payload[key];
   }
   return jwt.sign(payload, process.env.JWT_SECRET!, { expiresIn: '15m' });
+}
+
+/**
+ * Build a TenantContext for a seeded org.
+ *
+ * `userId` defaults to a fixed sentinel for tests that only care which org
+ * they are acting as.
+ */
+export function makeTestContext(orgId: string, userId: string = ANY_USER): TenantContext {
+  return createTenantContext(orgId, userId);
 }

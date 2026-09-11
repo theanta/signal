@@ -1,33 +1,27 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import type {
   Lead, LeadFilters, LeadSignal, LeadScore,
   OutreachMessage, ScrapingLog, PaginatedResponse, DashboardMetrics, CronJobLog,
   Job, JobFilters, JobWithIntel, JobSignal, JobSubmission,
 } from '../../shared/types';
+import type { TenantContext } from './tenantContext';
 
-const supabaseUrl = process.env.SUPABASE_URL!;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-if (!supabaseUrl || !supabaseKey) {
-  throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
-}
-
-export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseKey, {
-  auth: { persistSession: false },
-});
+// No ambient client and no exported client. Every function below is reachable
+// only with a TenantContext, whose `db` already carries an org-scoped JWT — so
+// the app-layer `.eq('org_id', ...)` filter and the RLS policy are always
+// looking at the same org.
 
 // ============================================================
 // LEADS
 // ============================================================
 
-export async function getLeads(filters: LeadFilters = {}): Promise<PaginatedResponse<Lead>> {
+export async function getLeads(ctx: TenantContext, filters: LeadFilters = {}): Promise<PaginatedResponse<Lead>> {
   const {
     status, source, sources, min_score, industry, location, search,
     page = 1, per_page = 25,
     sort_by = 'created_at', sort_order = 'desc',
   } = filters;
 
-  let query = supabase.from('leads').select('*', { count: 'exact' });
+  let query = ctx.db.from('leads').select('*', { count: 'exact' }).eq('org_id', ctx.orgId);
 
   if (status) query = query.eq('status', status);
   if (sources && sources.length > 0) {
@@ -57,35 +51,46 @@ export async function getLeads(filters: LeadFilters = {}): Promise<PaginatedResp
   };
 }
 
-export async function getLeadById(id: string): Promise<Lead | null> {
-  const { data, error } = await supabase.from('leads').select('*').eq('id', id).single();
+export async function getLeadById(ctx: TenantContext, id: string): Promise<Lead | null> {
+  const { data, error } = await ctx.db
+    .from('leads').select('*').eq('id', id).eq('org_id', ctx.orgId).single();
   if (error) return null;
   return data as Lead;
 }
 
-export async function createLead(lead: Partial<Lead>): Promise<Lead> {
-  const { data, error } = await supabase.from('leads').insert(lead).select().single();
+export async function createLead(ctx: TenantContext, lead: Partial<Lead>): Promise<Lead> {
+  // org_id is set from the context last, so a caller-supplied org_id — from a
+  // request body, or a stale object copied between tenants — cannot win.
+  const { data, error } = await ctx.db
+    .from('leads').insert({ ...lead, org_id: ctx.orgId }).select().single();
   if (error) throw new Error(`createLead: ${error.message}`);
   return data as Lead;
 }
 
-export async function updateLead(id: string, updates: Partial<Lead>): Promise<Lead> {
-  const { data, error } = await supabase
-    .from('leads').update(updates).eq('id', id).select().single();
+export async function updateLead(ctx: TenantContext, id: string, updates: Partial<Lead>): Promise<Lead> {
+  const { org_id: _ignored, ...safe } = updates as Partial<Lead> & { org_id?: string };
+  const { data, error } = await ctx.db
+    .from('leads').update(safe).eq('id', id).eq('org_id', ctx.orgId).select().single();
   if (error) throw new Error(`updateLead: ${error.message}`);
   return data as Lead;
 }
 
-export async function upsertLeadByWebsite(lead: Partial<Lead>): Promise<{ lead: Lead; isNew: boolean }> {
+export async function upsertLeadByWebsite(
+  ctx: TenantContext, lead: Partial<Lead>,
+): Promise<{ lead: Lead; isNew: boolean }> {
   if (lead.website) {
-    const { data: existing } = await supabase
-      .from('leads').select('id').eq('website', lead.website).single();
+    // Scoped by org: two tenants scraping the same company each keep their own
+    // lead row, and neither can silently overwrite the other's.
+    const { data: existing } = await ctx.db
+      .from('leads').select('id').eq('website', lead.website).eq('org_id', ctx.orgId).single();
     if (existing) {
-      const updated = await updateLead(existing.id, { ...lead, updated_at: new Date().toISOString() });
+      const updated = await updateLead(ctx, existing.id, {
+        ...lead, updated_at: new Date().toISOString(),
+      });
       return { lead: updated, isNew: false };
     }
   }
-  const created = await createLead(lead);
+  const created = await createLead(ctx, lead);
   return { lead: created, isNew: true };
 }
 
@@ -249,20 +254,28 @@ export async function convertJobToLead(job: Job): Promise<Lead> {
 // SIGNALS
 // ============================================================
 
-export async function createLeadSignal(signal: Partial<LeadSignal>): Promise<LeadSignal> {
-  const { data, error } = await supabase.from('lead_signals').insert(signal).select().single();
+export async function createLeadSignal(ctx: TenantContext, signal: Partial<LeadSignal>): Promise<LeadSignal> {
+  const { data, error } = await ctx.db
+    .from('lead_signals').insert({ ...signal, org_id: ctx.orgId }).select().single();
   if (error) throw new Error(`createLeadSignal: ${error.message}`);
   return data as LeadSignal;
 }
 
-export async function updateLeadSignal(id: string, updates: Partial<LeadSignal>): Promise<LeadSignal> {
-  const { data, error } = await supabase.from('lead_signals').update(updates).eq('id', id).select().single();
+export async function updateLeadSignal(
+  ctx: TenantContext, id: string, updates: Partial<LeadSignal>,
+): Promise<LeadSignal> {
+  const { org_id: _ignored, ...safe } = updates as Partial<LeadSignal> & { org_id?: string };
+  const { data, error } = await ctx.db
+    .from('lead_signals').update(safe).eq('id', id).eq('org_id', ctx.orgId).select().single();
   if (error) throw new Error(`updateLeadSignal: ${error.message}`);
   return data as LeadSignal;
 }
 
-export async function getLeadSignals(leadId: string): Promise<LeadSignal[]> {
-  const { data, error } = await supabase.from('lead_signals').select('*').eq('lead_id', leadId).order('detected_at', { ascending: false });
+export async function getLeadSignals(ctx: TenantContext, leadId: string): Promise<LeadSignal[]> {
+  const { data, error } = await ctx.db
+    .from('lead_signals').select('*')
+    .eq('lead_id', leadId).eq('org_id', ctx.orgId)
+    .order('detected_at', { ascending: false });
   if (error) throw new Error(`getLeadSignals: ${error.message}`);
   return (data ?? []) as LeadSignal[];
 }
@@ -271,30 +284,38 @@ export async function getLeadSignals(leadId: string): Promise<LeadSignal[]> {
 // SCORES
 // ============================================================
 
-export async function createLeadScore(score: Partial<LeadScore>): Promise<LeadScore> {
-  const { data, error } = await supabase.from('lead_scores').insert(score).select().single();
+export async function createLeadScore(ctx: TenantContext, score: Partial<LeadScore>): Promise<LeadScore> {
+  const { data, error } = await ctx.db
+    .from('lead_scores').insert({ ...score, org_id: ctx.orgId }).select().single();
   if (error) throw new Error(`createLeadScore: ${error.message}`);
   return data as LeadScore;
 }
 
-export async function upsertLeadScore(score: Partial<LeadScore> & { lead_id: string }): Promise<LeadScore> {
-  const existing = await getLeadScore(score.lead_id);
+export async function upsertLeadScore(
+  ctx: TenantContext, score: Partial<LeadScore> & { lead_id: string },
+): Promise<LeadScore> {
+  const existing = await getLeadScore(ctx, score.lead_id);
   if (existing) {
-    const { data, error } = await supabase.from('lead_scores').update(score).eq('id', existing.id).select().single();
+    const { org_id: _ignored, ...safe } = score as Partial<LeadScore> & { org_id?: string };
+    const { data, error } = await ctx.db
+      .from('lead_scores').update(safe).eq('id', existing.id).eq('org_id', ctx.orgId).select().single();
     if (error) throw new Error(`upsertLeadScore: ${error.message}`);
     return data as LeadScore;
   }
-  return createLeadScore(score);
+  return createLeadScore(ctx, score);
 }
 
-export async function getLeadScore(leadId: string): Promise<LeadScore | null> {
-  const { data } = await supabase
-    .from('lead_scores').select('*').eq('lead_id', leadId).order('scored_at', { ascending: false }).limit(1).single();
+export async function getLeadScore(ctx: TenantContext, leadId: string): Promise<LeadScore | null> {
+  const { data } = await ctx.db
+    .from('lead_scores').select('*')
+    .eq('lead_id', leadId).eq('org_id', ctx.orgId)
+    .order('scored_at', { ascending: false }).limit(1).single();
   return data as LeadScore | null;
 }
 
-export async function getScorePercentile(score: number): Promise<number> {
-  const { data, error } = await supabase.from('lead_scores').select('overall_score');
+export async function getScorePercentile(ctx: TenantContext, score: number): Promise<number> {
+  const { data, error } = await ctx.db
+    .from('lead_scores').select('overall_score').eq('org_id', ctx.orgId);
   if (error || !data || data.length < 2) return 50;
   const scores = (data as { overall_score: number }[]).map(r => r.overall_score);
   const below = scores.filter(s => s < score).length;
