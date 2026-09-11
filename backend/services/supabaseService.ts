@@ -68,7 +68,10 @@ export async function createLead(ctx: TenantContext, lead: Partial<Lead>): Promi
 }
 
 export async function updateLead(ctx: TenantContext, id: string, updates: Partial<Lead>): Promise<Lead> {
-  const { org_id: _ignored, ...safe } = updates as Partial<Lead> & { org_id?: string };
+  // A caller-supplied org_id is dropped rather than forwarded: an update may
+  // not move a row between tenants, even its own.
+  const safe = { ...updates } as Partial<Lead> & { org_id?: string };
+  delete safe.org_id;
   const { data, error } = await ctx.db
     .from('leads').update(safe).eq('id', id).eq('org_id', ctx.orgId).select().single();
   if (error) throw new Error(`updateLead: ${error.message}`);
@@ -264,7 +267,8 @@ export async function createLeadSignal(ctx: TenantContext, signal: Partial<LeadS
 export async function updateLeadSignal(
   ctx: TenantContext, id: string, updates: Partial<LeadSignal>,
 ): Promise<LeadSignal> {
-  const { org_id: _ignored, ...safe } = updates as Partial<LeadSignal> & { org_id?: string };
+  const safe = { ...updates } as Partial<LeadSignal> & { org_id?: string };
+  delete safe.org_id;
   const { data, error } = await ctx.db
     .from('lead_signals').update(safe).eq('id', id).eq('org_id', ctx.orgId).select().single();
   if (error) throw new Error(`updateLeadSignal: ${error.message}`);
@@ -296,7 +300,8 @@ export async function upsertLeadScore(
 ): Promise<LeadScore> {
   const existing = await getLeadScore(ctx, score.lead_id);
   if (existing) {
-    const { org_id: _ignored, ...safe } = score as Partial<LeadScore> & { org_id?: string };
+    const safe = { ...score } as Partial<LeadScore> & { org_id?: string };
+    delete safe.org_id;
     const { data, error } = await ctx.db
       .from('lead_scores').update(safe).eq('id', existing.id).eq('org_id', ctx.orgId).select().single();
     if (error) throw new Error(`upsertLeadScore: ${error.message}`);

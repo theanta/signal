@@ -70,8 +70,13 @@ describe('writes', () => {
   });
 
   it('updateLead cannot touch another org’s lead', async () => {
+    // 'contacted', not the brief's 'archived': 'archived' is not a member of
+    // the lead_status enum, so that version of this test passed on a type
+    // violation whether or not updateLead scoped by org — it stayed green
+    // with the .eq('org_id', ...) filter deleted. A valid status makes the
+    // org scope the only thing standing between org A and org B's row.
     await expect(
-      db.updateLead(orgs.a.ctx, orgs.b.leadId, { status: 'archived' }),
+      db.updateLead(orgs.a.ctx, orgs.b.leadId, { status: 'contacted' }),
     ).rejects.toThrow();
 
     const { rows } = await sql(`SELECT status FROM leads WHERE id = $1`, [orgs.b.leadId]);
