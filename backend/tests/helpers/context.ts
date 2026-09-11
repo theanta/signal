@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { createTenantContext } from '../../services/tenantContext';
+import { supabaseAdmin } from '../../services/supabaseAdmin';
 import type { TenantContext } from '../../services/tenantContext';
 
 const ANY_USER = '00000000-0000-0000-0000-0000000000ff';
@@ -56,11 +57,37 @@ export function signLoginToken(claims: Record<string, unknown>): string {
 }
 
 /**
- * Build a TenantContext for a seeded org.
+ * Build a TenantContext for a seeded org, for the isolation suites.
  *
- * `userId` defaults to a fixed sentinel for tests that only care which org
- * they are acting as.
+ * DELIBERATELY NOT `createTenantContext`'s client. The brief specified
+ * `return createTenantContext(orgId, userId)`, which mints an anon-key client
+ * carrying a scoped JWT — the `authenticated` Postgres role. But RLS is
+ * already ENABLED on all 12 org-scoped tables (supabase/schema.sql, "ROW
+ * LEVEL SECURITY" section) and the only policies that exist so far are
+ * `service_role_all`. Section H grants `authenticated` table privileges but
+ * no policy admits it, so through that client every read returns [] and every
+ * write is refused with "new row violates row-level security policy".
+ *
+ * That makes the scoped client useless as an isolation harness *today*: the
+ * reads would pass vacuously (A cannot see B because A cannot see anything)
+ * and the writes cannot run at all. The org_isolation policies that make the
+ * scoped client work arrive in Task 14.
+ *
+ * A service-role client is the correct harness for what Task 7 actually
+ * proves. Service role bypasses RLS entirely, so the database filters
+ * nothing — the ONLY thing that can keep org A out of org B's rows is the
+ * application-layer `.eq('org_id', ctx.orgId)` in supabaseService. An
+ * unfiltered query here genuinely returns both orgs' rows, so these tests
+ * fail if the app-layer filter is dropped. Through the scoped client they
+ * would not.
+ *
+ * `orgId` still goes through `createTenantContext` so the OrgId branding and
+ * validation on the real path are exercised; only `db` is swapped.
+ *
+ * When Task 14 lands, flipping this back to `createTenantContext`'s own
+ * client should leave every assertion in tests/isolation/ green — at that
+ * point they assert defence in depth rather than the app layer alone.
  */
 export function makeTestContext(orgId: string, userId: string = ANY_USER): TenantContext {
-  return createTenantContext(orgId, userId);
+  return { ...createTenantContext(orgId, userId), db: supabaseAdmin };
 }

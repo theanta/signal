@@ -134,6 +134,32 @@ psql "$PSQL_DB_URL" -v ON_ERROR_STOP=1 -c "DROP SCHEMA public CASCADE; CREATE SC
 # those existed only to paper over schema.sql being incomplete.
 psql "$PSQL_DB_URL" -v ON_ERROR_STOP=1 -f supabase/schema.sql
 
+# Restore the privileges `DROP SCHEMA public CASCADE` above destroys.
+#
+# Supabase ships a project with USAGE on `public` and full table privileges
+# for postgres/anon/authenticated/service_role, plus ALTER DEFAULT PRIVILEGES
+# so new tables inherit them. All of that is attached to the schema and is
+# dropped with it. schema.sql re-grants only `authenticated` (its Section H)
+# because that is the grant the tenancy work introduced; the platform-default
+# service_role grant was never in schema.sql, since a real project never has
+# its public schema dropped.
+#
+# Without this, every service-role code path — authController, routes/cron.ts,
+# the engine callbacks, and the isolation suites' test harness — fails against
+# the test project with "permission denied for schema public", which looks
+# like an application bug and is not one. Kept here rather than in
+# schema.sql so supabase/schema-parity-check.sh keeps comparing like with
+# like: this is test-project repair, not part of the schema definition.
+psql "$PSQL_DB_URL" -v ON_ERROR_STOP=1 <<'SQL'
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES    IN SCHEMA public TO service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
+GRANT ALL ON ALL ROUTINES  IN SCHEMA public TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES    TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES  TO service_role;
+SQL
+
 # schema.sql creates no organizations row on purpose — a fresh multi-tenant
 # project has no tenant yet for a seed row to belong to. Create the one
 # design-partner org this test project needs, then seed platform_config's
