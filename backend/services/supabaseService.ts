@@ -13,9 +13,15 @@ import type { TenantContext } from './tenantContext';
 /**
  * Drop a caller-supplied `org_id` from a write payload.
  *
- * An update may not move a row between tenants — not even into its own — and
- * an insert's org comes from the context, never from the body. Every write
- * below funnels through here so the six call sites cannot drift apart.
+ * An update may not move a row between tenants, not even its own, so a
+ * caller-supplied org_id is dropped rather than forwarded. All seven updates
+ * below funnel through here so the call sites cannot drift apart.
+ *
+ * Inserts do not need it — they spread the payload first and set
+ * `org_id: ctx.orgId` last, so the context always wins. createOutreachHistory
+ * is the exception: its payload is an untyped req.body passed straight
+ * through, and stripping first means the org can never reach the insert at
+ * all, rather than being overwritten on the way past.
  */
 function stripOrgId<T extends object>(row: T): Omit<T, 'org_id'> {
   const safe = { ...row } as T & { org_id?: unknown };
@@ -238,14 +244,14 @@ export async function updateJob(ctx: TenantContext, id: string, updates: Partial
 
 export async function createJobSignal(ctx: TenantContext, signal: Partial<JobSignal>): Promise<JobSignal> {
   const { data, error } = await ctx.db
-    .from('job_signals').insert({ ...stripOrgId(signal), org_id: ctx.orgId }).select().single();
+    .from('job_signals').insert({ ...signal, org_id: ctx.orgId }).select().single();
   if (error) throw new Error(`createJobSignal: ${error.message}`);
   return data as JobSignal;
 }
 
 export async function createJobSubmission(ctx: TenantContext, sub: Partial<JobSubmission>): Promise<JobSubmission> {
   const { data, error } = await ctx.db
-    .from('job_submissions').insert({ ...stripOrgId(sub), org_id: ctx.orgId }).select().single();
+    .from('job_submissions').insert({ ...sub, org_id: ctx.orgId }).select().single();
   if (error) throw new Error(`createJobSubmission: ${error.message}`);
   return data as JobSubmission;
 }
@@ -358,7 +364,7 @@ export async function createOutreachMessage(
   ctx: TenantContext, msg: Partial<OutreachMessage>,
 ): Promise<OutreachMessage> {
   const { data, error } = await ctx.db
-    .from('outreach_messages').insert({ ...stripOrgId(msg), org_id: ctx.orgId }).select().single();
+    .from('outreach_messages').insert({ ...msg, org_id: ctx.orgId }).select().single();
   if (error) throw new Error(`createOutreachMessage: ${error.message}`);
   return data as OutreachMessage;
 }
@@ -407,7 +413,7 @@ export async function createOutreachHistory(
 
 export async function createScrapingLog(ctx: TenantContext, log: Partial<ScrapingLog>): Promise<ScrapingLog> {
   const { data, error } = await ctx.db
-    .from('scraping_logs').insert({ ...stripOrgId(log), org_id: ctx.orgId }).select().single();
+    .from('scraping_logs').insert({ ...log, org_id: ctx.orgId }).select().single();
   if (error) throw new Error(`createScrapingLog: ${error.message}`);
   return data as ScrapingLog;
 }
@@ -434,7 +440,7 @@ export async function createCronJobLog(
   ctx: TenantContext, log: Omit<CronJobLog, 'id' | 'created_at' | 'org_id'>,
 ): Promise<CronJobLog> {
   const { data, error } = await ctx.db
-    .from('cron_job_logs').insert({ ...stripOrgId(log), org_id: ctx.orgId }).select().single();
+    .from('cron_job_logs').insert({ ...log, org_id: ctx.orgId }).select().single();
   if (error) throw new Error(`createCronJobLog: ${error.message}`);
   return data as CronJobLog;
 }
