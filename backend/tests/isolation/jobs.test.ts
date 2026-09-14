@@ -21,6 +21,12 @@ let orgs: TwoOrgs;
 // lookup must find this one and only this one.
 let aSecondJobId: string;
 
+// A submission on that second posting. related.company_submissions keys on the
+// OTHER Shared Co jobs, never on the job being queried — so without a
+// submission on aSecondJobId that array is always empty for A, and every
+// assertion about it is trivially true.
+let aSecondSubmissionId: string;
+
 beforeAll(async () => {
   orgs = await seedTwoOrgs();
   // Both orgs now hold a job at a company with the same name, which is what
@@ -33,6 +39,13 @@ beforeAll(async () => {
     [orgs.a.orgId],
   );
   aSecondJobId = second.rows[0].id as string;
+
+  const secondSub = await sql(
+    `INSERT INTO job_submissions (job_id, profile_label, org_id)
+     VALUES ($1, 'Alpha second profile', $2) RETURNING id`,
+    [aSecondJobId, orgs.a.orgId],
+  );
+  aSecondSubmissionId = secondSub.rows[0].id as string;
 });
 
 afterAll(async () => {
@@ -76,11 +89,15 @@ describe('reads', () => {
   });
 
   it('getJobWithIntel does not surface another org’s submission at the same company', async () => {
-    // B's seeded submission hangs off B's 'Shared Co' job. Unscoped, the
-    // related-jobs list leaks B's job and the submission lookup then leaks
-    // who B put forward for it.
+    // The second hop of the leak the related-jobs test covers: B's job reaches
+    // A through the company_name lookup, and the submission query keyed on
+    // that list then leaks who B put forward for it.
     const intel = await db.getJobWithIntel(orgs.a.ctx, orgs.a.jobId);
     const subIds = intel!.related!.company_submissions.map(s => s.id);
+    // Positive control, and load-bearing: A's own submission on its other
+    // Shared Co posting is what this panel exists to show. Without it the
+    // array is empty for A and both assertions below pass on nothing.
+    expect(subIds).toContain(aSecondSubmissionId);
     expect(subIds).not.toContain(orgs.b.submissionId);
     expect(intel!.related!.company_submissions.every(s => s.org_id === orgs.a.orgId)).toBe(true);
   });
@@ -181,14 +198,21 @@ describe('writes', () => {
   });
 
   it('deleteJobSubmission cannot delete another org’s submission', async () => {
+    // A throwaway of its own, not orgs.a.submissionId: this test destroys what
+    // it deletes, and anything added after it that expects A to still have a
+    // seeded submission would then pass on an empty result.
+    const throwaway = await db.createJobSubmission(orgs.a.ctx, {
+      job_id: orgs.a.jobId, profile_label: 'Throwaway',
+    });
+
     // delete() reports no error for zero matched rows, so this is asserted on
     // the rows themselves: B's survives, A's own really does go.
     await db.deleteJobSubmission(orgs.a.ctx, orgs.b.submissionId);
     const theirs = await sql(`SELECT count(*)::int AS n FROM job_submissions WHERE id = $1`, [orgs.b.submissionId]);
     expect(theirs.rows[0].n).toBe(1);
 
-    await db.deleteJobSubmission(orgs.a.ctx, orgs.a.submissionId);
-    const mine = await sql(`SELECT count(*)::int AS n FROM job_submissions WHERE id = $1`, [orgs.a.submissionId]);
+    await db.deleteJobSubmission(orgs.a.ctx, throwaway.id);
+    const mine = await sql(`SELECT count(*)::int AS n FROM job_submissions WHERE id = $1`, [throwaway.id]);
     expect(mine.rows[0].n).toBe(0);
   });
 

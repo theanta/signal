@@ -72,6 +72,28 @@ describe('outreach', () => {
     expect(mine!.outreach_messages.map(m => m.id)).not.toContain(orgs.b.messageId);
   });
 
+  it('getOutreachQueue still returns a qualifying lead that has no messages', async () => {
+    // Guards the semantics of the embedded org filter added for F2: filtering
+    // an embedded resource must filter the embedded rows, not drop the parent.
+    // An `!inner` embed, or a filter applied to the parent by mistake, would
+    // make this lead vanish from the queue entirely.
+    const { rows } = await sql(
+      `INSERT INTO leads (company_name, source, lead_score, status, org_id)
+       VALUES ('Quiet Co', 'manual', 90, 'new', $1) RETURNING id`,
+      [orgs.a.orgId],
+    );
+    // Removed again in finally: this extra lead would otherwise shift the
+    // metrics suite's counts and averages out from under it.
+    try {
+      const queue = await db.getOutreachQueue(orgs.a.ctx);
+      const quiet = queue.find(r => r.id === rows[0].id);
+      expect(quiet).toBeDefined();
+      expect(quiet!.outreach_messages).toEqual([]);
+    } finally {
+      await sql(`DELETE FROM leads WHERE id = $1`, [rows[0].id]);
+    }
+  });
+
   it('createOutreachHistory referencing another org’s message is rejected', async () => {
     await expect(
       db.createOutreachHistory(orgs.a.ctx, {
