@@ -105,6 +105,9 @@ describe('reads', () => {
   });
 
   it('getJobWithIntel refuses another org’s job outright', async () => {
+    // The positive control is load-bearing here, not decoration: "B's job
+    // reads as null" is equally true of a context that can see nothing at all.
+    expect(await db.getJobWithIntel(orgs.a.ctx, orgs.a.jobId)).not.toBeNull();
     expect(await db.getJobWithIntel(orgs.a.ctx, orgs.b.jobId)).toBeNull();
   });
 });

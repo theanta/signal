@@ -160,11 +160,20 @@ describe('metrics', () => {
     // B's lead is dropped to 10 so an unscoped average (45) differs from the
     // scoped one (80). Without this the two orgs' identical seed scores make
     // the average blind to the scope.
+    //
+    // try/finally, not a trailing UPDATE: when this test FAILS the restore
+    // still has to run. Without it a failure here leaves B's lead at 10, and
+    // the getHotLeads test below then passes for the wrong reason — B's lead
+    // is out of range rather than out of scope. That is exactly how a mutation
+    // survives unnoticed.
     await sql(`UPDATE leads SET lead_score = 10 WHERE org_id = $1`, [orgs.b.orgId]);
-    const metrics = await db.getDashboardMetrics(orgs.a.ctx);
-    expect(metrics.avg_score).toBe(80);
-    expect(metrics.hot_leads).toBe(1);
-    await sql(`UPDATE leads SET lead_score = 80 WHERE org_id = $1`, [orgs.b.orgId]);
+    try {
+      const metrics = await db.getDashboardMetrics(orgs.a.ctx);
+      expect(metrics.avg_score).toBe(80);
+      expect(metrics.hot_leads).toBe(1);
+    } finally {
+      await sql(`UPDATE leads SET lead_score = 80 WHERE org_id = $1`, [orgs.b.orgId]);
+    }
   });
 
   it('getPipelineRows returns only the caller org’s leads', async () => {
