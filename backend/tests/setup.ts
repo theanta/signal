@@ -33,16 +33,29 @@ for (const key of REQUIRED) {
   }
 }
 
-// Extracts the Supabase project ref from either URL shape so an API URL and
-// a DB URL from the same project can be compared directly:
+// Extracts the Supabase project ref from any of three URL shapes so an API URL
+// and a DB URL from the same project can be compared directly:
 //   https://<ref>.supabase.co
 //   postgresql://postgres:<pw>@db.<ref>.supabase.co:5432/postgres
+//   postgresql://postgres.<ref>:<pw>@aws-0-<region>.pooler.supabase.com:5432/postgres
+//
+// The third shape is the connection pooler, where the ref moves out of the
+// hostname and into the username. It has to be parsed because the direct
+// `db.<ref>.supabase.co` host is IPv6-only and unreachable from an IPv4-only
+// network — see HANDOFF.md. Note this ADDS a recognised shape rather than
+// relaxing anything: an unrecognised URL still returns null, and the caller
+// still fails closed on null.
 export function projectRef(url: string | undefined): string | null {
   if (!url) return null;
   const apiMatch = url.match(/^https:\/\/([a-z0-9]+)\.supabase\.co/i);
   if (apiMatch) return apiMatch[1];
   const dbMatch = url.match(/@db\.([a-z0-9]+)\.supabase\.co/i);
   if (dbMatch) return dbMatch[1];
+  // `.*@` (greedy) rather than `[^@]*@`: this project's DB password contains a
+  // literal `@`, so anchoring on the FIRST `@` finds the one inside the password
+  // and never reaches the host. Greedy takes the last `@`, the real separator.
+  const poolerMatch = url.match(/:\/\/postgres\.([a-z0-9]+):.*@[^@]*\.pooler\.supabase\.com/i);
+  if (poolerMatch) return poolerMatch[1];
   return null;
 }
 

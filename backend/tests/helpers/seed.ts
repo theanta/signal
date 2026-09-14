@@ -8,6 +8,7 @@ export interface SeededOrg {
   leadId: string;
   jobId: string;
   messageId: string;
+  signalId: string;
   ctx: TenantContext;
 }
 
@@ -50,10 +51,12 @@ async function seedOrg(slug: string, label: string): Promise<SeededOrg> {
     [leadId, `${label} subject`, orgId],
   );
 
-  await sql(
-    `INSERT INTO lead_signals (lead_id, signal_type, confidence_score, org_id)
-     VALUES ($1, 'hiring', 0.7, $2)`,
-    [leadId, orgId],
+  // Returned as signalId: updateLeadSignal is an id-addressed write, so the
+  // isolation suite needs B's signal id to attack it with.
+  const signal = await sql(
+    `INSERT INTO lead_signals (lead_id, signal_type, signal_value, confidence_score, org_id)
+     VALUES ($1, 'hiring', $2, 0.7, $3) RETURNING id`,
+    [leadId, `${label} signal`, orgId],
   );
 
   await sql(
@@ -72,6 +75,7 @@ async function seedOrg(slug: string, label: string): Promise<SeededOrg> {
     leadId,
     jobId: job.rows[0].id,
     messageId: message.rows[0].id,
+    signalId: signal.rows[0].id,
     ctx: makeTestContext(orgId, user.rows[0].id),
   };
 }

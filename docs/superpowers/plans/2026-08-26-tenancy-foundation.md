@@ -1739,6 +1739,17 @@ writing new tests.
 The seed helper creates two complete orgs with the same-shaped data. Every
 assertion is the same shape: act as A, never see or touch B.
 
+**Three defects in this task's own reference code, found during execution and
+fixed in the implementation — do not copy the snippets below verbatim into
+Task 8:** (1) `'archived'` is not a member of the `lead_status` enum, so the
+`updateLead` assertion passed on a type violation and survived mutation — use
+`'contacted'`; (2) `getScorePercentile` cannot return 0 with one score per org,
+because `data.length < 2` forces 50 — the scoped sample needs a second score;
+(3) `lead_signals.confidence_score` is `FLOAT CHECK (>= 0 AND <= 1)`, so the
+seed's `70` fails outright — use `0.7`. The test list below also omits
+`updateLeadSignal`, an id-addressed write that is exactly the attack shape this
+task defines; it is covered in the addendum.
+
 **Files:**
 - Create: `backend/tests/helpers/context.ts`
 - Create: `backend/tests/helpers/seed.ts`
@@ -2198,8 +2209,28 @@ company — the most plausible real leak in the file.
 
 **Files:**
 - Modify: `backend/services/supabaseService.ts`
+- Modify: `backend/routes/outreach.ts`
 - Create: `backend/tests/isolation/jobs.test.ts`
 - Create: `backend/tests/isolation/outreach-and-logs.test.ts`
+
+**Blast radius correction (from the Task 7 review, 2026-09-14).** Task 7's
+dispatch sized the sanctioned breakage as "`routes/metrics.ts` imports the raw
+client and will break; jobsController, leadsController, routes/outreach,
+routes/cron and routes/signals import functions only." That was wrong in two
+places, and this task is bigger than the sentence above implies:
+
+- **`routes/outreach.ts:9` and `:63` call `db.supabase.from(...)` directly.**
+  These are inline PostgREST queries, not function calls, so Task 8 has to
+  rewrite them against a `TenantContext`, not merely re-point a call site.
+- **`supabaseService.ts:243` is an intra-file break**: `convertJobToLead` calls
+  the now-re-signatured `createLead` with one argument. Task 8's own file
+  depends on Task 8's own changes; it is not purely caller-side.
+
+The branch does not typecheck between Tasks 7 and 8 by design (61 errors, all
+attributed in the Task 7 review). **Task 8 must follow Task 7 immediately** —
+it is what closes the sanctioned broken window. Exactly one of the 61,
+`routes/cron.ts:24` (`createCronJobLog` object literal missing `org_id`),
+predates Task 7 and is fixed here too.
 
 **Interfaces:**
 - Consumes: `TenantContext` (Task 6); the seed helpers (Task 7).
@@ -4130,7 +4161,41 @@ filter, it is testing nothing.
 **Files:**
 - Create: `supabase/migrations/2026-08-26_rls_policies.sql`
 - Modify: `supabase/schema.sql`
+- Modify: `backend/tests/helpers/context.ts`
 - Create: `backend/tests/rls/org-isolation.test.ts`
+
+**Three obligations inherited from Task 7 (recorded 2026-09-14).** Task 7 could
+not use the scoped client the plan specified for `makeTestContext`, because RLS
+is already ENABLED with only `service_role_all` policies — through a scoped
+client every read returns `[]` and every write is refused, so all eleven
+isolation tests would have passed vacuously. It swapped `ctx.db` for
+`supabaseAdmin` (service role, no DB filtering) so the app-layer filter is the
+only thing under test. That was the right call, and it leaves three things
+owed here. **All three, in this order:**
+
+1. **Do not flip `makeTestContext` until the positive controls are confirmed
+   present.** Task 7's addendum added an "A can still reach A" assertion to
+   every test in `tests/isolation/leads.test.ts`, and Task 8 must carry the
+   same pattern into `jobs.test.ts` and `outreach-and-logs.test.ts`. Without
+   them, the negative assertions pass equally well when the scope matches
+   *nothing* — which is exactly what a subtly wrong policy produces (wrong
+   claim name, `USING` without a matching `WITH CHECK`, an `org_id` claim the
+   policy reads from the wrong place). Flip first and the suite goes green on
+   a policy that returns empty to everybody. Verify by mutation before
+   flipping: point `makeTestContext` at a nonexistent org id and confirm
+   **every** test in `tests/isolation/` fails. Task 7 verified this for
+   `leads.test.ts` — 12 of 12 fail.
+2. **Then flip `makeTestContext` back** to `createTenantContext(orgId, userId)`
+   unchanged and re-run `tests/isolation/`. Every assertion must stay green.
+   That run is the defence-in-depth proof: the same tests passing through the
+   client the production path actually uses.
+3. **Keep a service-role variant.** Do not simply replace the harness —
+   parameterise it (`harness: 'app' | 'rls'`) and run the isolation files under
+   both. Otherwise step 2 silently converts these tests from "the app layer
+   works" into "something works", and a regression that drops
+   `.eq('org_id', ctx.orgId)` becomes invisible behind a working policy. The
+   dual-enforcement decision requires each layer to be testable with the other
+   disabled; step 2 alone gives up that property.
 
 **Interfaces:**
 - Consumes: the org-scoped JWT from `createTenantContext` (Task 6); the seed helpers (Task 7).

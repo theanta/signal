@@ -1,7 +1,7 @@
 # Signal Repo — Session Handoff
 
-**Last updated:** 2026-09-09
-**Branch:** `feat/multi-tenant-saas` (21 commits, unpushed, clean tree)
+**Last updated:** 2026-09-14
+**Branch:** `feat/multi-tenant-saas` (unpushed; Task 7 addendum uncommitted at time of writing)
 
 ## What changed direction
 
@@ -29,7 +29,7 @@ migration so RAG is purely additive later. No speculative empty tables.
   Full design — data model, dual enforcement, job store, testing, sequencing.
 - **Plan 1:** `docs/superpowers/plans/2026-08-26-signal-engine-auth.md` — DONE
 - **Plan 2:** `docs/superpowers/plans/2026-08-26-tenancy-foundation.md` —
-  15 tasks, 4 complete.
+  15 tasks, 7 complete.
 - Plan 3 is **not yet written**.
 
 ## The three plans
@@ -37,7 +37,7 @@ migration so RAG is purely additive later. No speculative empty tables.
 | Plan | Deliverable | Days | Status |
 |---|---|---|---|
 | 1. Signal engine authentication | Engine rejects unauthenticated calls | 2 | **Complete** |
-| 2. Tenancy foundation | `org_id`, composite FKs, `TenantContext`, RLS, isolation suites | 18 | **In progress — 5 of 15 tasks** |
+| 2. Tenancy foundation | `org_id`, composite FKs, `TenantContext`, RLS, isolation suites | 18 | **In progress — 7 of 15 tasks** |
 | 3. Job durability + metering | Postgres job store, reaper, usage events, scrape cap | 9 | Not written |
 
 ## Key architectural decisions (locked)
@@ -121,7 +121,7 @@ Reviewed but NOT fixed, except where noted:
 - God files: `frontend/app/jobs/[id]/page.tsx` (1127 lines),
   `frontend/app/leads/[id]/page.tsx` (1034), `signal-engine/main.py` (874).
 
-## Plan 2 execution state (2026-09-09)
+## Plan 2 execution state (2026-09-14)
 
 Being executed task-by-task with fresh subagents and a review after each. The
 ledger — completed tasks with commit ranges, every ruling, every deferred
@@ -141,10 +141,62 @@ and do not re-run tasks it marks complete.**
   an ESLint failure. Two fence bypasses (`.js` specifier, dynamic `import()`)
   were found and closed; the fence is verified across 8 import shapes and
   confirmed not to over-block the four allowed service-role locations.
-- **Task 6 is next**, once `SUPABASE_TEST_JWT_SECRET` is corrected (see below).
-- 77 tests passing against the restored test project;
-  `npx tsc --noEmit` reports exactly 4 errors, all object literals missing
-  `org_id` in `authController.ts` and `routes/cron.ts`, which Tasks 7-11 fix.
+- **Task 6 complete.** `TenantContext`, `ctxOf(req)`, org-scoped Supabase JWTs,
+  and the tenantContext import fence. `SUPABASE_TEST_JWT_SECRET` was corrected
+  as part of it.
+- **Task 7 complete** (`005fa1d..118cc1a` + review addendum, reviewed
+  2026-09-14). The leads/signals/scores half of `supabaseService` takes a
+  `TenantContext` first, the raw `supabase` export is gone, and
+  `tests/isolation/leads.test.ts` holds a 12-test cross-tenant suite.
+  **110/110 passing.**
+- **Task 8 is next, and must follow immediately** — the branch does not
+  typecheck until it lands. See the sanctioned-breakage note below.
+
+### Task 7 review outcome (2026-09-14)
+
+Verdict: proceed with fixes, no Critical issues. All four flagged concerns were
+accepted — the `supabaseAdmin` harness swap is the correct reading of the
+dual-isolation decision, `reset-test-db.sh`'s Task 3 guards survived the edit
+intact (26 insertions, 0 deletions, all additive after the guards), and all 61
+tsc errors trace to a sanctioned cause.
+
+**The one real finding, fixed in the addendum:** nine of the eleven tests passed
+when the org scope matched *nothing*. The suite could not tell correct isolation
+from total blindness — which is precisely what a wrong RLS policy produces in
+Task 14. Every test now carries an "A can still reach A" positive control, and
+`updateLeadSignal` (an id-addressed write the plan's own test list omitted) is
+now covered. Mutation-verified both directions:
+
+| Mutation | Before | After |
+|---|---|---|
+| Strip `.eq('org_id', ctx.orgId)` | 9 of 11 fail | 10 of 12 fail |
+| Scope matches nothing (nil org) | 2 of 11 fail | **12 of 12 fail** |
+
+The two survivors of the first mutation are legitimate and should stay:
+`createLead stamps the caller's org` tests spread order, not filtering, and
+`createLeadSignal ... composite FK` asserts the database layer deliberately.
+
+Three obligations were written into Task 14 in the plan (flip the harness only
+after positive controls exist; re-run isolation through the scoped client; keep
+a service-role variant so the app layer stays independently testable). Task 8's
+blast radius was corrected in the plan too — `routes/outreach.ts:9` and `:63`
+call `db.supabase` inline and need rewriting, not just re-pointing.
+
+**Known, not fixed** (deferred minors from the review): `backend/.eslintrc.cjs:9`
+ignores `tests/`, so "lint exit 0" does not cover any test file — and
+`tests/helpers/context.ts` importing `supabaseAdmin` is outside the fence by
+accident rather than by decision; `schema.sql:224`'s
+`outreach_history_message_org_fkey` has no `ON DELETE` action, which will bite
+`teardownSeed` once Task 8 seeds history rows; and the `delete safe.org_id`
+dance is repeated three times and wants a `stripOrgId` helper in Task 8.
+
+### The branch does not typecheck between Tasks 7 and 8 — by design
+
+`npx tsc --noEmit` reports **61 errors**. This is sanctioned: the JOBS, OUTREACH,
+LOGS and METRICS sections of `supabaseService.ts` still reference the deleted
+`supabase` binding, and Task 8 closes them. Verified attribution: 60 are caused
+by Task 7, and exactly 1 (`routes/cron.ts:24`) predates it. Do not "fix" these
+individually — run Task 8.
 
 ### Environment restored 2026-09-09 — one item outstanding
 
@@ -157,14 +209,48 @@ ref back.
 
 `SUPABASE_JWT_SECRET` is now set in `.env` (88 chars, opaque — the right shape).
 
-**Outstanding: `SUPABASE_TEST_JWT_SECRET` in `.env.test` holds the wrong
-value.** It is byte-identical to `SUPABASE_TEST_SERVICE_ROLE_KEY` — a JWT whose
-payload decodes to `{"iss":"supabase","ref":"yvukeeszxokhrkjcstds",
-"role":"service_role"}`. That is an API key, not the signing secret. Task 6
-signs org-scoped tokens with `jwt.sign(payload, secret)` (HS256) and PostgREST
-verifies them against the project's real JWT secret, so tokens signed with this
-value will be rejected. Replace it with the test project's JWT secret from
-Project Settings → API before Task 6 is dispatched.
+**`SUPABASE_TEST_JWT_SECRET` — RESOLVED (verified 2026-09-14).** This file
+previously recorded it as holding the service-role API key rather than the
+signing secret. It was corrected during Task 6 and nobody updated this entry.
+It is now 88 characters and opaque (the right shape), and distinct from
+`SUPABASE_TEST_SERVICE_ROLE_KEY`, which is a 219-character JWT. Task 6's suite
+passes against PostgREST, which is the real proof. No action needed.
+
+### The test project's DB host is IPv6-only (found 2026-09-14)
+
+`db.yvukeeszxokhrkjcstds.supabase.co` now resolves to an **AAAA record only**.
+On an IPv4-only network the `pg` harness cannot connect and every DB-backed
+suite times out — a bare `npx vitest run` reports something like
+`1 failed | 31 passed | 75 skipped`, which looks like a test failure and is not
+one. The REST endpoint is unaffected (it answers over IPv4 through the CDN), so
+the project is fine.
+
+**Workaround — the IPv4 session pooler. APPLIED 2026-09-14, and it needed a
+code fix to work.** `.env.test` now uses the pooler URL. Two things were wrong
+when it was first applied: the URL had never actually been switched (it still
+named the direct host, which is why runs kept timing out), and `projectRef()`'s
+pooler branch anchored on the FIRST `@` — this project's DB password contains a
+literal `@`, so the ref came back null and `setup.ts` fail-closed on every
+DB-backed suite. The pattern is greedy now (last `@` = the real separator) and
+`setup-guard.test.ts` covers an `@`-bearing password in both directions. Full
+suite: **111/111 passing over the pooler.**
+
+Point `SUPABASE_TEST_DB_URL` at
+`postgresql://postgres.<ref>:<pw>@aws-0-us-east-2.pooler.supabase.com:5432/postgres`.
+Note the ref moves out of the hostname and into the username. `projectRef()` in
+`backend/tests/setup.ts` now parses that third shape, so the
+production-collision guard stays armed instead of failing closed on an
+unparseable ref; `tests/setup-guard.test.ts` covers it, including that a
+non-Supabase pooler host and a ref-less username still return null.
+
+**`reset-test-db.sh` still cannot run on an IPv4-only network.** Its `ref_of`
+deliberately refuses pooler URLs, and that guard was *not* loosened — it is the
+only destructive script in the repo. If the pooler becomes the normal path,
+extend `ref_of` the same way `projectRef` was extended rather than relaxing it.
+
+Also note: run vitest from `backend/`, not the repo root. The config lives at
+`backend/vitest.config.ts` and a root-level run silently skips `setupFiles`,
+which surfaces as `Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY`.
 
 The app's own project (`lgendecyizgfyajaooud`) is still gone. `.env` still names
 it, which is deliberate — `backend/tests/setup.ts`'s guard compares the test ref
