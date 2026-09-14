@@ -221,8 +221,16 @@ CREATE TABLE outreach_history (
   -- any referencing column is NULL, which is exactly the wanted behaviour:
   -- history rows with no generated message stay legal, and ones that name a
   -- message must name a message in their own org.
+  --
+  -- ON DELETE CASCADE, unlike the default NO ACTION it carried until Task 8:
+  -- outreach_messages are only ever deleted when their lead is, and that same
+  -- delete reaches this row through outreach_history_lead_org_fkey. Left at NO
+  -- ACTION, the two paths race inside one statement and any teardown that
+  -- deletes outreach_messages before outreach_history fails outright. SET NULL
+  -- is unavailable: it would null org_id too, which is NOT NULL.
   CONSTRAINT outreach_history_message_org_fkey
     FOREIGN KEY (message_id, org_id) REFERENCES outreach_messages (id, org_id)
+      ON DELETE CASCADE
 );
 
 CREATE INDEX idx_outreach_history_lead ON outreach_history(lead_id);

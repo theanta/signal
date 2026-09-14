@@ -151,10 +151,18 @@ ALTER TABLE outreach_history
 -- referencing column is NULL, which is exactly the wanted behaviour: history
 -- rows with no generated message stay legal, and ones that name a message must
 -- name a message in their own org.
+--
+-- ON DELETE CASCADE, unlike the default NO ACTION: outreach_messages are only
+-- ever deleted when their lead is, and that same delete reaches this row
+-- through outreach_history_lead_org_fkey. Left at NO ACTION the two paths race
+-- inside one statement, and any delete ordering that takes outreach_messages
+-- first fails. SET NULL is unavailable: it would null org_id too, which is
+-- NOT NULL.
 ALTER TABLE outreach_history
   DROP CONSTRAINT outreach_history_message_id_fkey,
   ADD CONSTRAINT outreach_history_message_org_fkey
-    FOREIGN KEY (message_id, org_id) REFERENCES outreach_messages (id, org_id);
+    FOREIGN KEY (message_id, org_id) REFERENCES outreach_messages (id, org_id)
+      ON DELETE CASCADE;
 
 ALTER TABLE job_signals
   DROP CONSTRAINT job_signals_job_id_fkey,
