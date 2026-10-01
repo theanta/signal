@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { z } from 'zod';
 import * as db from '../services/supabaseService';
 import { ctxOf } from '../api/middleware/auth';
+import { persistAnalysis } from '../services/persistAnalysis';
 import { analyzeLeadSignals, getAnalyzeStreamResponse } from '../services/signalEngineService';
 import { generateOutreach, analyzeOpportunity } from '../services/claudeService';
 import type { Lead, LeadFilters, LeadSignal, LeadSource, OutreachChannel, SignalAnalysisResult } from '../../shared/types';
@@ -102,65 +103,6 @@ export async function updateLead(req: Request, res: Response): Promise<void> {
   }
 }
 
-// Shared helper: write analysis results to DB. Used by both analyzeLead and streamAnalyzeLead.
-async function _persistAnalysisResult(
-  ctx: ReturnType<typeof ctxOf>,
-  lead: Lead,
-  existingSignals: LeadSignal[],
-  signals: SignalAnalysisResult,
-): Promise<void> {
-  const leadUpdate: Record<string, unknown> = {
-    lead_score: signals.lead_score,
-    status: 'analyzed',
-    analyzed_at: new Date().toISOString(),
-  };
-  if (signals.industry)                  leadUpdate.industry                 = signals.industry;
-  if (signals.verified_website)          leadUpdate.website                  = signals.verified_website;
-  if (signals.contact?.name)             leadUpdate.contact_name             = signals.contact.name;
-  if (signals.contact?.title)            leadUpdate.contact_title            = signals.contact.title;
-  if (signals.contact?.linkedin_url)     leadUpdate.contact_linkedin_url     = signals.contact.linkedin_url;
-  if (signals.contact?.email) {
-    leadUpdate.contact_email            = signals.contact.email;
-    leadUpdate.contact_email_confidence = signals.contact.email_confidence ?? 'unknown';
-  } else if (signals.contact?.fallback_generic_email) {
-    // No personal inbox found — a generic one (info@ …) is still a usable
-    // point of contact for small businesses that expose nothing else.
-    leadUpdate.contact_email            = signals.contact.fallback_generic_email;
-    leadUpdate.contact_email_confidence = 'generic';
-  }
-
-  const latestSignal = existingSignals[0];
-  const signalPayload = {
-    lead_id: lead.id,
-    signal_type: signals.signal_type,
-    confidence_score: signals.confidence_score,
-    likely_pain_points: signals.likely_pain_points,
-    recommended_anta_service: signals.recommended_anta_service,
-    outreach_angle: signals.outreach_angle,
-    operational_maturity: signals.operational_maturity,
-    growth_indicators: signals.growth_indicators,
-    digital_maturity_score: signals.digital_maturity_score,
-    tech_stack: signals.tech_stack ?? [],
-    tech_gaps: signals.tech_gaps ?? [],
-  };
-
-  await Promise.all([
-    latestSignal?.signal_type === signals.signal_type
-      ? db.updateLeadSignal(ctx, latestSignal.id, { ...signalPayload, detected_at: new Date().toISOString() })
-      : db.createLeadSignal(ctx, signalPayload),
-    db.upsertLeadScore(ctx, {
-      lead_id: lead.id,
-      overall_score: signals.lead_score,
-      company_size_score: signals.scoring_breakdown.company_size_score,
-      hiring_urgency_score: signals.scoring_breakdown.hiring_urgency_score,
-      complexity_score: signals.scoring_breakdown.complexity_score,
-      digital_score: signals.scoring_breakdown.digital_score,
-      scoring_rationale: signals.scoring_rationale,
-    }),
-    db.updateLead(ctx, lead.id, leadUpdate),
-  ]);
-}
-
 // Build the ScrapedLeadRaw payload for the signal engine from a stored lead + existing signals.
 function _buildLeadPayload(lead: Lead, existingSignals: LeadSignal[]) {
   const cachedSignal = existingSignals[0];
@@ -209,7 +151,7 @@ export async function analyzeLead(req: Request, res: Response): Promise<void> {
 
     const existingSignals = await db.getLeadSignals(ctx, lead.id);
     const signals = await analyzeLeadSignals(_buildLeadPayload(lead, existingSignals));
-    await _persistAnalysisResult(ctx, lead, existingSignals, signals);
+    await persistAnalysis(ctx, lead, existingSignals, signals);
 
     res.json({ success: true, data: signals });
   } catch (err) {
@@ -278,7 +220,7 @@ export async function streamAnalyzeLead(req: Request, res: Response): Promise<vo
             // lead the moment it sees this event, so the signal/score rows must
             // already be committed or the UI shows "not analysed yet".
             try {
-              await _persistAnalysisResult(ctx, lead, existingSignals, completeResult);
+              await persistAnalysis(ctx, lead, existingSignals, completeResult);
             } catch (persistErr) {
               console.error('[streamAnalyzeLead] DB persist failed:', persistErr);
               res.write(`data: ${JSON.stringify({ phase: 'error', message: 'Analysis finished but saving failed' })}\n\n`);
