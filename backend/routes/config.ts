@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import { getConfig, saveConfig } from '../services/configService';
+import { ctxOf } from '../api/middleware/auth';
 
 const router = Router();
 
-router.get('/', async (_req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const config = await getConfig();
+    const config = await getConfig(ctxOf(req));
     res.json({ success: true, data: config });
   } catch (err) {
     console.error('[Config] GET error:', err);
@@ -19,7 +20,7 @@ router.put('/', async (req, res) => {
     if (!updates || typeof updates !== 'object' || Array.isArray(updates)) {
       return res.status(400).json({ success: false, error: 'Invalid config body' });
     }
-    const saved = await saveConfig(updates);
+    const saved = await saveConfig(ctxOf(req), updates);
     res.json({ success: true, data: saved });
   } catch (err) {
     console.error('[Config] PUT error:', err);

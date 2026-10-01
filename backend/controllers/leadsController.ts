@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import * as db from '../services/supabaseService';
+import { ctxOf } from '../api/middleware/auth';
 import { analyzeLeadSignals, getAnalyzeStreamResponse } from '../services/signalEngineService';
 import { generateOutreach, analyzeOpportunity } from '../services/claudeService';
 import type { Lead, LeadFilters, LeadSignal, LeadSource, OutreachChannel, SignalAnalysisResult } from '../../shared/types';
@@ -40,8 +41,9 @@ const LeadFilterSchema = z.object({
 
 export async function listLeads(req: Request, res: Response): Promise<void> {
   try {
+    const ctx = ctxOf(req);
     const filters = LeadFilterSchema.parse(req.query) as LeadFilters;
-    const result = await db.getLeads(filters);
+    const result = await db.getLeads(ctx, filters);
     res.json({ success: true, ...result });
   } catch (err) {
     res.status(400).json({ success: false, error: (err as Error).message });
@@ -50,22 +52,23 @@ export async function listLeads(req: Request, res: Response): Promise<void> {
 
 export async function getLead(req: Request, res: Response): Promise<void> {
   try {
+    const ctx = ctxOf(req);
     const { id } = req.params;
-    const lead = await db.getLeadById(id);
+    const lead = await db.getLeadById(ctx, id);
     if (!lead) {
       res.status(404).json({ success: false, error: 'Lead not found' });
       return;
     }
 
     const [signals, score, outreach_messages] = await Promise.all([
-      db.getLeadSignals(id),
-      db.getLeadScore(id),
-      db.getOutreachMessages(id),
+      db.getLeadSignals(ctx, id),
+      db.getLeadScore(ctx, id),
+      db.getOutreachMessages(ctx, id),
     ]);
 
     let score_detail = score;
     if (score) {
-      const percentile = await db.getScorePercentile(score.overall_score);
+      const percentile = await db.getScorePercentile(ctx, score.overall_score);
       score_detail = { ...score, score_percentile: percentile };
     }
 
@@ -77,7 +80,8 @@ export async function getLead(req: Request, res: Response): Promise<void> {
 
 export async function createLead(req: Request, res: Response): Promise<void> {
   try {
-    const lead = await db.createLead({ ...req.body, source: req.body.source ?? 'manual' });
+    const ctx = ctxOf(req);
+    const lead = await db.createLead(ctx, { ...req.body, source: req.body.source ?? 'manual' });
     res.status(201).json({ success: true, data: lead });
   } catch (err) {
     res.status(500).json({ success: false, error: (err as Error).message });
@@ -86,11 +90,12 @@ export async function createLead(req: Request, res: Response): Promise<void> {
 
 export async function updateLead(req: Request, res: Response): Promise<void> {
   try {
+    const ctx = ctxOf(req);
     const updates = { ...req.body };
     if (updates.status === 'contacted' && !updates.contacted_at) {
       updates.contacted_at = new Date().toISOString();
     }
-    const lead = await db.updateLead(req.params.id, updates);
+    const lead = await db.updateLead(ctx, req.params.id, updates);
     res.json({ success: true, data: lead });
   } catch (err) {
     res.status(500).json({ success: false, error: (err as Error).message });
@@ -99,6 +104,7 @@ export async function updateLead(req: Request, res: Response): Promise<void> {
 
 // Shared helper: write analysis results to DB. Used by both analyzeLead and streamAnalyzeLead.
 async function _persistAnalysisResult(
+  ctx: ReturnType<typeof ctxOf>,
   lead: Lead,
   existingSignals: LeadSignal[],
   signals: SignalAnalysisResult,
@@ -140,9 +146,9 @@ async function _persistAnalysisResult(
 
   await Promise.all([
     latestSignal?.signal_type === signals.signal_type
-      ? db.updateLeadSignal(latestSignal.id, { ...signalPayload, detected_at: new Date().toISOString() })
-      : db.createLeadSignal(signalPayload),
-    db.upsertLeadScore({
+      ? db.updateLeadSignal(ctx, latestSignal.id, { ...signalPayload, detected_at: new Date().toISOString() })
+      : db.createLeadSignal(ctx, signalPayload),
+    db.upsertLeadScore(ctx, {
       lead_id: lead.id,
       overall_score: signals.lead_score,
       company_size_score: signals.scoring_breakdown.company_size_score,
@@ -151,7 +157,7 @@ async function _persistAnalysisResult(
       digital_score: signals.scoring_breakdown.digital_score,
       scoring_rationale: signals.scoring_rationale,
     }),
-    db.updateLead(lead.id, leadUpdate),
+    db.updateLead(ctx, lead.id, leadUpdate),
   ]);
 }
 
@@ -194,15 +200,16 @@ function _buildLeadPayload(lead: Lead, existingSignals: LeadSignal[]) {
 
 export async function analyzeLead(req: Request, res: Response): Promise<void> {
   try {
-    const lead = await db.getLeadById(req.params.id);
+    const ctx = ctxOf(req);
+    const lead = await db.getLeadById(ctx, req.params.id);
     if (!lead) {
       res.status(404).json({ success: false, error: 'Lead not found' });
       return;
     }
 
-    const existingSignals = await db.getLeadSignals(lead.id);
+    const existingSignals = await db.getLeadSignals(ctx, lead.id);
     const signals = await analyzeLeadSignals(_buildLeadPayload(lead, existingSignals));
-    await _persistAnalysisResult(lead, existingSignals, signals);
+    await _persistAnalysisResult(ctx, lead, existingSignals, signals);
 
     res.json({ success: true, data: signals });
   } catch (err) {
@@ -212,13 +219,14 @@ export async function analyzeLead(req: Request, res: Response): Promise<void> {
 
 export async function streamAnalyzeLead(req: Request, res: Response): Promise<void> {
   try {
-    const lead = await db.getLeadById(req.params.id);
+    const ctx = ctxOf(req);
+    const lead = await db.getLeadById(ctx, req.params.id);
     if (!lead) {
       res.status(404).json({ success: false, error: 'Lead not found' });
       return;
     }
 
-    const existingSignals = await db.getLeadSignals(lead.id);
+    const existingSignals = await db.getLeadSignals(ctx, lead.id);
     const leadPayload = _buildLeadPayload(lead, existingSignals);
 
     res.setHeader('Content-Type', 'text/event-stream');
@@ -270,7 +278,7 @@ export async function streamAnalyzeLead(req: Request, res: Response): Promise<vo
             // lead the moment it sees this event, so the signal/score rows must
             // already be committed or the UI shows "not analysed yet".
             try {
-              await _persistAnalysisResult(lead, existingSignals, completeResult);
+              await _persistAnalysisResult(ctx, lead, existingSignals, completeResult);
             } catch (persistErr) {
               console.error('[streamAnalyzeLead] DB persist failed:', persistErr);
               res.write(`data: ${JSON.stringify({ phase: 'error', message: 'Analysis finished but saving failed' })}\n\n`);
@@ -298,14 +306,15 @@ export async function streamAnalyzeLead(req: Request, res: Response): Promise<vo
 
 export async function generateLeadOutreach(req: Request, res: Response): Promise<void> {
   try {
-    const lead = await db.getLeadById(req.params.id);
+    const ctx = ctxOf(req);
+    const lead = await db.getLeadById(ctx, req.params.id);
     if (!lead) {
       res.status(404).json({ success: false, error: 'Lead not found' });
       return;
     }
 
     const channel: OutreachChannel = req.body.channel ?? 'email';
-    const signals = await db.getLeadSignals(lead.id);
+    const signals = await db.getLeadSignals(ctx, lead.id);
 
     let signalData;
     if (signals.length > 0) {
@@ -351,9 +360,9 @@ export async function generateLeadOutreach(req: Request, res: Response): Promise
       });
     }
 
-    const outreach = await generateOutreach(lead, signalData as Parameters<typeof generateOutreach>[1], channel);
+    const outreach = await generateOutreach(ctx, lead, signalData as Parameters<typeof generateOutreach>[2], channel);
 
-    const saved = await db.createOutreachMessage({
+    const saved = await db.createOutreachMessage(ctx, {
       lead_id: lead.id,
       channel,
       subject: outreach.subject,
@@ -370,13 +379,14 @@ export async function generateLeadOutreach(req: Request, res: Response): Promise
 
 export async function getLeadAnalysis(req: Request, res: Response): Promise<void> {
   try {
-    const lead = await db.getLeadById(req.params.id);
+    const ctx = ctxOf(req);
+    const lead = await db.getLeadById(ctx, req.params.id);
     if (!lead) {
       res.status(404).json({ success: false, error: 'Lead not found' });
       return;
     }
 
-    const analysis = await analyzeOpportunity(lead);
+    const analysis = await analyzeOpportunity(ctx, lead);
     res.json({ success: true, data: analysis });
   } catch (err) {
     res.status(500).json({ success: false, error: (err as Error).message });

@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { triggerScrape, getScrapeStatus, getScrapeStreamResponse, healthCheck } from '../services/signalEngineService';
 import { getScrapingLogs } from '../services/supabaseService';
+import { ctxOf } from '../api/middleware/auth';
 
 const router = Router();
 
@@ -75,7 +76,7 @@ router.get('/scrape/:jobId/stream', async (req: Request, res: Response) => {
 router.get('/logs', async (req: Request, res: Response) => {
   try {
     const limit = parseInt(req.query.limit as string) || 20;
-    const logs = await getScrapingLogs(limit);
+    const logs = await getScrapingLogs(ctxOf(req), limit);
     res.json({ success: true, data: logs });
   } catch (err) {
     res.status(500).json({ success: false, error: (err as Error).message });

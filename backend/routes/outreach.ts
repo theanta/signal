@@ -36,7 +36,7 @@ router.post('/:leadId/followup', async (req: Request, res: Response) => {
     }
 
     const { original_message, days_since_sent = 5 } = req.body;
-    const followUp = await generateFollowUp(lead, original_message, days_since_sent);
+    const followUp = await generateFollowUp(ctx, lead, original_message, days_since_sent);
 
     const saved = await db.createOutreachMessage(ctx, {
       lead_id: lead.id,

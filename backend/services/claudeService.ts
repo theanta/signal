@@ -1,8 +1,8 @@
 import Groq from 'groq-sdk';
 import { z } from 'zod';
 import type { Job, JobSignal, Lead, SignalAnalysisResult, OutreachChannel, PlatformConfig } from '../../shared/types';
-import { DEFAULT_PLATFORM_CONFIG } from '../../shared/types';
 import { getConfig } from './configService';
+import type { TenantContext } from './tenantContext';
 
 const client = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const MODEL = process.env.GROQ_MODEL ?? 'llama-3.3-70b-versatile';
@@ -22,14 +22,13 @@ healthcare operations, SaaS startups, and operationally inefficient businesses.
 `;
 }
 
-async function loadConfig(): Promise<{ ctx: string; config: PlatformConfig }> {
-  try {
-    const config = await getConfig();
-    return { ctx: buildAgencyContext(config), config };
-  } catch {
-    const config = { ...DEFAULT_PLATFORM_CONFIG };
-    return { ctx: buildAgencyContext(config), config };
-  }
+// The agency identity in every prompt (name, sign-off, tone, services) is the
+// tenant's own. A failed config read is an error, not a cue to fall back to
+// ANTA's defaults — that would send one tenant's outreach under another's name.
+// An org with no config row still gets defaults, from getConfig itself.
+async function loadConfig(tenant: TenantContext): Promise<{ ctx: string; config: PlatformConfig }> {
+  const config = await getConfig(tenant);
+  return { ctx: buildAgencyContext(config), config };
 }
 
 async function callGroq(prompt: string, maxTokens: number): Promise<string> {
@@ -54,10 +53,11 @@ function extractJson<T>(text: string, context: string): T {
 // ============================================================
 
 export async function generateColdEmail(
+  tenant: TenantContext,
   lead: Lead,
   signals: SignalAnalysisResult,
 ): Promise<{ subject: string; body: string }> {
-  const { ctx, config } = await loadConfig();
+  const { ctx, config } = await loadConfig(tenant);
 
   const contactLine = signals.contact?.name
     ? `- Contact: ${signals.contact.name}${signals.contact.title ? `, ${signals.contact.title}` : ''}`
@@ -121,10 +121,11 @@ Respond ONLY with valid JSON in this exact format:
 // ============================================================
 
 export async function generateLinkedInMessage(
+  tenant: TenantContext,
   lead: Lead,
   signals: SignalAnalysisResult,
 ): Promise<{ body: string }> {
-  const { ctx, config } = await loadConfig();
+  const { ctx, config } = await loadConfig(tenant);
 
   const contactName = signals.contact?.name?.split(' ')[0];
   const techGap = signals.tech_gaps?.[0] ?? '';
@@ -162,11 +163,12 @@ Respond ONLY with valid JSON:
 // ============================================================
 
 export async function generateFollowUp(
+  tenant: TenantContext,
   lead: Lead,
   originalMessage: string,
   daysSinceSent: number,
 ): Promise<{ subject: string; body: string }> {
-  const { ctx, config } = await loadConfig();
+  const { ctx, config } = await loadConfig(tenant);
 
   const prompt = `${ctx}
 
@@ -198,14 +200,14 @@ Respond ONLY with valid JSON:
 // ANALYZE OPERATIONAL OPPORTUNITY
 // ============================================================
 
-export async function analyzeOpportunity(lead: Lead): Promise<{
+export async function analyzeOpportunity(tenant: TenantContext, lead: Lead): Promise<{
   summary: string;
   pain_points: string[];
   recommended_service: string;
   opportunity_quality: 'high' | 'medium' | 'low';
   reasoning: string;
 }> {
-  const { ctx, config } = await loadConfig();
+  const { ctx, config } = await loadConfig(tenant);
 
   const prompt = `${ctx}
 
@@ -296,8 +298,8 @@ export const JobIntelSchema = z.object({
 
 export type JobIntelResult = z.infer<typeof JobIntelSchema> & { model_version: string };
 
-export async function generateJobIntel(job: Job): Promise<JobIntelResult> {
-  const { config } = await loadConfig();
+export async function generateJobIntel(tenant: TenantContext, job: Job): Promise<JobIntelResult> {
+  const { config } = await loadConfig(tenant);
 
   const agencyStack = config.remote_technologies.filter(Boolean);
   const agencyRoles = config.remote_job_roles.filter(Boolean);
@@ -407,6 +409,7 @@ export function jobIntelToSignal(jobId: string, intel: JobIntelResult): Partial<
 // ============================================================
 
 export async function generateOutreach(
+  tenant: TenantContext,
   lead: Lead,
   signals: SignalAnalysisResult,
   channel: OutreachChannel,
@@ -414,12 +417,12 @@ export async function generateOutreach(
   let result;
 
   if (channel === 'email') {
-    result = await generateColdEmail(lead, signals);
+    result = await generateColdEmail(tenant, lead, signals);
   } else if (channel === 'linkedin') {
-    const lr = await generateLinkedInMessage(lead, signals);
+    const lr = await generateLinkedInMessage(tenant, lead, signals);
     result = { subject: undefined, body: lr.body };
   } else {
-    result = await generateColdEmail(lead, signals);
+    result = await generateColdEmail(tenant, lead, signals);
   }
 
   return { ...result, model_version: MODEL };
