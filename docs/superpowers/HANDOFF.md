@@ -1,7 +1,8 @@
 # Signal Repo — Session Handoff
 
-**Last updated:** 2026-09-14
-**Branch:** `feat/multi-tenant-saas` (unpushed; Task 7 addendum uncommitted at time of writing)
+**Last updated:** 2026-10-01
+**Branch:** `claude/multi-tenant-saas-review-rfyb78` — `feat/multi-tenant-saas`
+plus the Task 8 follow-up through Task 15. Plan 2 is complete.
 
 ## What changed direction
 
@@ -28,16 +29,18 @@ migration so RAG is purely additive later. No speculative empty tables.
 - **Spec:** `docs/superpowers/specs/2026-08-26-multi-tenant-saas-design.md`
   Full design — data model, dual enforcement, job store, testing, sequencing.
 - **Plan 1:** `docs/superpowers/plans/2026-08-26-signal-engine-auth.md` — DONE
-- **Plan 2:** `docs/superpowers/plans/2026-08-26-tenancy-foundation.md` —
-  15 tasks, 7 complete.
-- Plan 3 is **not yet written**.
+- **Plan 2:** `docs/superpowers/plans/2026-08-26-tenancy-foundation.md` — DONE
+  (15 of 15). Where the code departs from the plan's text, the commit message
+  and "Plan 2 completion" below say why; trust the code.
+- **Runbook:** `docs/runbooks/tenancy-cutover.md` — deploy, rollback, onboarding.
+- Plan 3 is **not yet written**. It is the next step.
 
 ## The three plans
 
 | Plan | Deliverable | Days | Status |
 |---|---|---|---|
 | 1. Signal engine authentication | Engine rejects unauthenticated calls | 2 | **Complete** |
-| 2. Tenancy foundation | `org_id`, composite FKs, `TenantContext`, RLS, isolation suites | 18 | **In progress — 7 of 15 tasks** |
+| 2. Tenancy foundation | `org_id`, composite FKs, `TenantContext`, RLS, isolation suites | 18 | **Complete** |
 | 3. Job durability + metering | Postgres job store, reaper, usage events, scrape cap | 9 | Not written |
 
 ## Key architectural decisions (locked)
@@ -76,9 +79,17 @@ while holding `SUPABASE_SERVICE_ROLE_KEY` and writing directly to `jobs`.
 
 ## Before deploying this branch
 
-`ENGINE_API_KEY` must be set on **both** Render services, identical values.
-Deploy the engine first — it starts rejecting immediately, and the old backend
-will 401 until it follows. A key was added to the local `.env` (gitignored).
+Follow `docs/runbooks/tenancy-cutover.md`. In short:
+
+- `ENGINE_API_KEY` on **both** Render services, identical values.
+- `SUPABASE_ANON_KEY` and `SUPABASE_JWT_SECRET` on the Render backend. Without
+  the JWT secret the backend cannot mint org-scoped clients and every
+  authenticated request returns 500.
+- Deploy the backend and engine **together**: the engine now 422s any
+  `/analyze` or `/scrape` without an `org_id`, and an old backend sends none.
+- The production Supabase project is gone, so the real path is the runbook's
+  Path A: build a fresh project from `schema.sql` alone (it includes the RLS
+  policies), then `npm run create-org` for ANTA.
 
 ## Known issues not yet addressed
 
@@ -97,10 +108,10 @@ Reviewed but NOT fixed, except where noted:
 
 1. `signal-engine/main.py:268` — 45s `find_contact` budget vs ~100s worst case;
    on timeout the whole contact is discarded including the LinkedIn person.
-2. `backend/controllers/leadsController.ts:118` and `backend/routes/cron.ts:112`
-   — `contact_email_confidence` written only inside email branches, so a
-   re-analysis returning a different person leaves a stale address badged
-   `verified`. **Plan 2 fixes this** by collapsing both into `persistAnalysis`.
+2. **FIXED** (Task 11) — `contact_email_confidence` was written only inside
+   the email branches, in two copies of the persistence code. Both are now
+   `backend/services/persistAnalysis.ts`, which writes the contact block as a
+   whole and clears a stale email.
 3. `contact_finder.py:373` — Stage 3a matches email to person by bare substring
    (`'dan' in 'danielle'`), assigning another employee's inbox at `verified`.
 4. `contact_finder.py:189` — company guard is substring-based and short-circuits
@@ -113,15 +124,87 @@ Reviewed but NOT fixed, except where noted:
 
 ## Pre-existing architecture drift (documented, not fixed)
 
-- Only 3 of 9 backend route files use a controller; `cron.ts` holds 273 lines of
-  orchestration inline and duplicates `leadsController`'s persistence logic.
-- Three independent `createClient` calls (`supabaseService.ts:15`,
-  `configService.ts:6`, `routes/health.ts:13`). Plan 2 consolidates these.
+- Only 3 of 9 backend route files use a controller.
+- ~~`cron.ts` inline orchestration~~ — RESOLVED: job bodies live in
+  `services/cronRunner.ts` (Task 13); `routes/cron.ts` is HTTP wiring only.
+- ~~Three independent `createClient` calls~~ — RESOLVED: one `supabaseAdmin`
+  (Task 5); `configService` now uses the tenant's scoped client (Task 9).
 - 6 frontend files bypass `frontend/services/` and hit `@/lib/api` directly.
 - God files: `frontend/app/jobs/[id]/page.tsx` (1127 lines),
   `frontend/app/leads/[id]/page.tsx` (1034), `signal-engine/main.py` (874).
 
-## Plan 2 execution state (2026-09-14)
+## Plan 2 completion (2026-10-01)
+
+The Task 8 follow-up through Task 15 landed on top of `20743ef`. `npx tsc --noEmit` is
+clean, `npm run lint` exits 0, and `npm test` runs every suite under the app
+harness (215 tests) and then the isolation, service and RLS suites again
+through the real RLS-scoped client (106 tests). Engine: 21 pytest tests.
+
+**Where these were verified.** Not against `anta-signal-test` — its
+credentials were not available in that session. The suites ran against a
+local stand-in: Postgres 16 + pgvector, PostgREST 12.2.3 behind a `/rest/v1`
+proxy, the Supabase roles (`anon`, `authenticated`, `service_role` with
+BYPASSRLS), `auth.jwt()`, and Supabase's default grants on `public`. That is
+the same supabase-js → PostgREST → RLS path, but **run `npm test` against the
+hosted test project once before cutover**, after applying
+`2026-08-26_rls_policies.sql` to it.
+
+The backend was also booted against that stand-in and driven over HTTP as a
+partner created by `create-org`: own leads only, a body-supplied `org_id`
+ignored, another org's lead 404 by id and untouched by PATCH, own config and
+metrics, a manual cron run logged only in the partner's org. The runbook's RLS
+rollback and re-apply were exercised the same way.
+
+### Departures from the plan, and why
+
+- **`claudeService` takes the tenant (Task 10).** The plan missed it: every
+  outreach generator reads `platform_config` for agency name, tone and
+  sign-off. Its `loadConfig` also no longer swallows errors into ANTA's
+  defaults, which would have sent one tenant's outreach under ANTA's name.
+- **`getConfig` throws on a query error (Task 9)** instead of returning
+  defaults, so a failed read can't be merged and saved over a real config.
+- **Streaming analysis sent no engine key** (fixed separately, `d319aa0`):
+  `streamAnalyzeLead` used a bare `fetch` without `X-Engine-Key`, so it has
+  401'd since Plan 1. It now goes through `signalEngineService`.
+- **`jobs_external_id_key` (Task 12).** The plan named a partial index that no
+  longer exists. The real constraint became `jobs_org_external_id_key UNIQUE
+  (org_id, external_id)` in both `schema.sql` and the tenancy migration, and
+  the engine upserts on `org_id,external_id`. Parity check clean. This settles
+  the "Task 12 owes this file a debt" item from Task 4.
+- **Manual cron triggers run only for the caller's org (Task 13).** The plan
+  ran them for every org; they sit behind tenant login, so one tenant could
+  have started (and spent scrape credits on) everyone's jobs.
+- **Cron re-mints its context per lead (Task 13).** The scoped token lives five
+  minutes, and a 20-lead analysis batch runs far longer.
+- **RLS is tighter than the plan (Task 14)**, because Supabase grants every
+  `public` table and view to `anon` and `authenticated` by default:
+  `organizations` had RLS off (readable with the anon key) and is now
+  SELECT-only, so a tenant cannot lift its own cap; `users` is SELECT-only
+  without `password_hash`; `hot_leads` and `lead_pipeline_summary` ran with
+  owner rights and returned every tenant's data to any session, anon
+  included, and are now `security_invoker`; `anon` has no access to tenant
+  data.
+- **`create-org` rolls back on a failed config insert (Task 15)** — otherwise
+  the partner logs in with ANTA's identity from the defaults. It also refuses
+  an email already in use and validates the slug.
+
+### Known, not fixed
+
+- A PATCH to a lead id that isn't yours (or doesn't exist) returns 500, not
+  404 — `updateLead`'s `.single()` error is not mapped. Data is untouched.
+- Scrape job status (`GET /api/signals/scrape/:jobId`) reads the engine's
+  in-memory job by id with no org check. Ids are random UUIDs; Plan 3 moves
+  the job store into Postgres and scopes it there.
+- `backend/.eslintrc.cjs` still ignores `tests/` (deferred minor from Task 7).
+- The open `contact_finder.py` findings (#1, #3–#6 above) are untouched.
+
+## Earlier Plan 2 notes (2026-09-14)
+
+Kept for the record. Where they conflict with the section above, the section
+above is current — in particular, the branch typechecks again and Task 8 is
+done.
+
+### Plan 2 execution state (2026-09-14)
 
 Being executed task-by-task with fresh subagents and a review after each. The
 ledger — completed tasks with commit ranges, every ruling, every deferred
