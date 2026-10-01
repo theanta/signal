@@ -51,6 +51,20 @@ export function getScrapeStreamResponse(jobId: string, signal: AbortSignal): Pro
   });
 }
 
+/**
+ * Raw fetch so the analysis SSE stream can be piped through as it arrives.
+ * Lives here, not in the controller, so it carries the engine key like every
+ * other engine call — the engine rejects any request without it.
+ */
+export function getAnalyzeStreamResponse(lead: ScrapedLeadRaw, signal: AbortSignal): Promise<Response> {
+  return fetch(`${SIGNAL_ENGINE_URL}/analyze/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...engineHeaders },
+    body: JSON.stringify({ lead }),
+    signal,
+  });
+}
+
 export async function healthCheck(): Promise<boolean> {
   try {
     const { data } = await axios.get(`${SIGNAL_ENGINE_URL}/health`, { timeout: 65_000 });

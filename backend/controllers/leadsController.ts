@@ -1,11 +1,9 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import * as db from '../services/supabaseService';
-import { analyzeLeadSignals } from '../services/signalEngineService';
+import { analyzeLeadSignals, getAnalyzeStreamResponse } from '../services/signalEngineService';
 import { generateOutreach, analyzeOpportunity } from '../services/claudeService';
 import type { Lead, LeadFilters, LeadSignal, LeadSource, OutreachChannel, SignalAnalysisResult } from '../../shared/types';
-
-const SIGNAL_ENGINE_URL = process.env.SIGNAL_ENGINE_URL ?? 'http://localhost:8001';
 
 // Mirrors signal-engine/enrichment/url_utils.py — a social/aggregator page is
 // never a company's own website, so it must not be treated as verified.
@@ -228,14 +226,9 @@ export async function streamAnalyzeLead(req: Request, res: Response): Promise<vo
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
 
-    const pyResponse = await fetch(`${SIGNAL_ENGINE_URL}/analyze/stream`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lead: leadPayload }),
-      // Generous: must cover a Render free-tier cold start (~50s) plus the
-      // full enrichment + Groq analysis pipeline.
-      signal: AbortSignal.timeout(180_000),
-    });
+    // Generous: must cover a Render free-tier cold start (~50s) plus the
+    // full enrichment + Groq analysis pipeline.
+    const pyResponse = await getAnalyzeStreamResponse(leadPayload, AbortSignal.timeout(180_000));
 
     if (!pyResponse.ok || !pyResponse.body) {
       res.write(`data: ${JSON.stringify({ phase: 'error', message: 'Signal engine unavailable' })}\n\n`);
