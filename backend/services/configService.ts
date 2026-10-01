@@ -1,23 +1,29 @@
-import { createClient } from '@supabase/supabase-js';
 import type { PlatformConfig } from '../../shared/types';
 import { DEFAULT_PLATFORM_CONFIG } from '../../shared/types';
+import type { TenantContext } from './tenantContext';
 
-function getSupabase() {
-  return createClient(
-    process.env.SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  );
-}
+/**
+ * platform_config was a global singleton holding ANTA's own identity, and it
+ * feeds both scraping targets and outreach copy. It is now one row per org,
+ * keyed by the UNIQUE (org_id) constraint from the tenancy migration — so an
+ * upsert is a single statement with no read-then-write race.
+ */
 
-export async function getConfig(): Promise<PlatformConfig> {
-  const supabase = getSupabase();
-  const { data, error } = await supabase
+export async function getConfig(ctx: TenantContext): Promise<PlatformConfig> {
+  const { data, error } = await ctx.db
     .from('platform_config')
     .select('config')
-    .limit(1)
-    .single();
+    .eq('org_id', ctx.orgId)
+    .maybeSingle();
 
-  if (error || !data) {
+  // A query error is not "no config". Returning defaults here would let
+  // saveConfig merge an update onto ANTA's defaults and overwrite the tenant's
+  // real row with them.
+  if (error) throw new Error(`Config load failed: ${error.message}`);
+
+  if (!data) {
+    // A newly onboarded org may have no row yet. Defaults keep the app usable
+    // until create-org.ts or the settings page writes one.
     return { ...DEFAULT_PLATFORM_CONFIG };
   }
 
@@ -26,33 +32,21 @@ export async function getConfig(): Promise<PlatformConfig> {
   return merged;
 }
 
-export async function saveConfig(updates: Partial<PlatformConfig>): Promise<PlatformConfig> {
-  const supabase = getSupabase();
-
-  const current = await getConfig();
+export async function saveConfig(
+  ctx: TenantContext,
+  updates: Partial<PlatformConfig>,
+): Promise<PlatformConfig> {
+  const current = await getConfig(ctx);
   const merged = { ...current, ...updates };
   if (Array.isArray(merged.active_sources)) {
     merged.active_sources = [...new Set(merged.active_sources)];
   }
 
-  const { data: existing } = await supabase
+  const { error } = await ctx.db
     .from('platform_config')
-    .select('id')
-    .limit(1)
-    .single();
+    .upsert({ org_id: ctx.orgId, config: merged }, { onConflict: 'org_id' });
 
-  if (existing?.id) {
-    const { error } = await supabase
-      .from('platform_config')
-      .update({ config: merged })
-      .eq('id', existing.id);
-    if (error) throw new Error(`Config update failed: ${error.message}`);
-  } else {
-    const { error } = await supabase
-      .from('platform_config')
-      .insert({ config: merged });
-    if (error) throw new Error(`Config insert failed: ${error.message}`);
-  }
+  if (error) throw new Error(`Config save failed: ${error.message}`);
 
   return merged;
 }
