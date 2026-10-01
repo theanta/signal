@@ -14,7 +14,7 @@ router.get('/health', async (_req: Request, res: Response) => {
 router.post('/scrape', async (req: Request, res: Response) => {
   try {
     const { sources = ['linkedin', 'crunchbase', 'job_board', 'local_business', 'remote_jobs'] } = req.body;
-    const result = await triggerScrape(sources);
+    const result = await triggerScrape(ctxOf(req), sources);
     res.json({ success: true, data: result });
   } catch (err) {
     res.status(500).json({ success: false, error: (err as Error).message });

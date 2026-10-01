@@ -1,6 +1,7 @@
 import axios from 'axios';
 import type { ScrapedLeadRaw, SignalAnalysisResult } from '../../shared/types';
 import { getConfig } from './configService';
+import type { TenantContext } from './tenantContext';
 
 const SIGNAL_ENGINE_URL = process.env.SIGNAL_ENGINE_URL ?? 'http://localhost:8001';
 
@@ -13,23 +14,31 @@ if (!ENGINE_API_KEY) {
 
 const engineHeaders = { 'X-Engine-Key': ENGINE_API_KEY };
 
-export async function analyzeLeadSignals(lead: ScrapedLeadRaw): Promise<SignalAnalysisResult> {
+// The engine writes with the service-role key and requires an org_id on every
+// mutating call. It always comes from ctx — never from req.body — because a
+// client-supplied org id is not an authenticated one.
+
+export async function analyzeLeadSignals(
+  ctx: TenantContext, lead: ScrapedLeadRaw,
+): Promise<SignalAnalysisResult> {
   const { data } = await axios.post<SignalAnalysisResult>(
     `${SIGNAL_ENGINE_URL}/analyze`,
-    { lead },
+    { lead, org_id: ctx.orgId },
     { timeout: 60_000, headers: engineHeaders },
   );
   return data;
 }
 
-export async function triggerScrape(sources: string[]): Promise<{ job_id: string; status: string; sources: string[] }> {
+export async function triggerScrape(
+  ctx: TenantContext, sources: string[],
+): Promise<{ job_id: string; status: string; sources: string[] }> {
   // Forward the saved platform config so scraper settings (target locations,
   // remote job roles/technologies/regions, etc.) actually take effect —
   // without this every scrape silently falls back to hardcoded defaults.
-  const config = await getConfig();
+  const config = await getConfig(ctx);
   const { data } = await axios.post(
     `${SIGNAL_ENGINE_URL}/scrape`,
-    { sources, config },
+    { sources, config, org_id: ctx.orgId },
     { timeout: 10_000, headers: engineHeaders },
   );
   return data;
@@ -56,11 +65,13 @@ export function getScrapeStreamResponse(jobId: string, signal: AbortSignal): Pro
  * Lives here, not in the controller, so it carries the engine key like every
  * other engine call — the engine rejects any request without it.
  */
-export function getAnalyzeStreamResponse(lead: ScrapedLeadRaw, signal: AbortSignal): Promise<Response> {
+export function getAnalyzeStreamResponse(
+  ctx: TenantContext, lead: ScrapedLeadRaw, signal: AbortSignal,
+): Promise<Response> {
   return fetch(`${SIGNAL_ENGINE_URL}/analyze/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...engineHeaders },
-    body: JSON.stringify({ lead }),
+    body: JSON.stringify({ lead, org_id: ctx.orgId }),
     signal,
   });
 }

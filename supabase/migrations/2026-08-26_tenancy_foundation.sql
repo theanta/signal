@@ -260,4 +260,12 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON
   platform_config
 TO authenticated;
 
+-- ---- external_id is unique per tenant, not globally ----
+-- The engine upserts jobs ON CONFLICT (org_id, external_id). With the old
+-- global key, the second tenant to scrape a posting would collide with the
+-- first tenant's row. Kept a full constraint (not a partial index) because
+-- ON CONFLICT cannot infer a partial index as its arbiter.
+ALTER TABLE jobs DROP CONSTRAINT IF EXISTS jobs_external_id_key;
+ALTER TABLE jobs ADD CONSTRAINT jobs_org_external_id_key UNIQUE (org_id, external_id);
+
 COMMIT;

@@ -335,10 +335,12 @@ CREATE TABLE jobs (
   CONSTRAINT jobs_status_check CHECK (status IN
     ('new', 'reviewed', 'applied', 'interviewing', 'placed', 'rejected', 'archived', 'converted')),
   CONSTRAINT jobs_verdict_check CHECK (verdict IN ('apply', 'caution', 'skip')),
-  -- A real UNIQUE constraint, not the original partial unique index: ON
-  -- CONFLICT (external_id) cannot infer a partial index as its arbiter.
-  -- See fix_jobs_external_id_unique_constraint.sql.
-  CONSTRAINT jobs_external_id_key UNIQUE (external_id),
+  -- A real UNIQUE constraint, not a partial unique index: ON CONFLICT cannot
+  -- infer a partial index as its arbiter (fix_jobs_external_id_unique_constraint.sql).
+  -- Unique per tenant, not globally: two tenants scraping the same job board
+  -- must each get their own row for the same posting. NULL external_ids stay
+  -- unconstrained, as before.
+  CONSTRAINT jobs_org_external_id_key UNIQUE (org_id, external_id),
   CONSTRAINT jobs_id_org_uniq UNIQUE (id, org_id),
   -- converted_lead_id is a nullable sibling reference. MATCH SIMPLE (the
   -- default) skips the check when any referencing column is NULL, so an

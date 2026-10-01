@@ -150,7 +150,7 @@ export async function analyzeLead(req: Request, res: Response): Promise<void> {
     }
 
     const existingSignals = await db.getLeadSignals(ctx, lead.id);
-    const signals = await analyzeLeadSignals(_buildLeadPayload(lead, existingSignals));
+    const signals = await analyzeLeadSignals(ctx, _buildLeadPayload(lead, existingSignals));
     await persistAnalysis(ctx, lead, existingSignals, signals);
 
     res.json({ success: true, data: signals });
@@ -178,7 +178,7 @@ export async function streamAnalyzeLead(req: Request, res: Response): Promise<vo
 
     // Generous: must cover a Render free-tier cold start (~50s) plus the
     // full enrichment + Groq analysis pipeline.
-    const pyResponse = await getAnalyzeStreamResponse(leadPayload, AbortSignal.timeout(180_000));
+    const pyResponse = await getAnalyzeStreamResponse(ctx, leadPayload, AbortSignal.timeout(180_000));
 
     if (!pyResponse.ok || !pyResponse.body) {
       res.write(`data: ${JSON.stringify({ phase: 'error', message: 'Signal engine unavailable' })}\n\n`);
@@ -286,7 +286,7 @@ export async function generateLeadOutreach(req: Request, res: Response): Promise
         } : null,
       };
     } else {
-      signalData = await analyzeLeadSignals({
+      signalData = await analyzeLeadSignals(ctx, {
         company_name: lead.company_name,
         website: lead.website,
         location: lead.location,

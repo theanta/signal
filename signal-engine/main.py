@@ -8,6 +8,7 @@ import re
 import uuid
 from datetime import datetime
 from typing import AsyncGenerator, Optional
+from uuid import UUID
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException
@@ -165,11 +166,15 @@ class PlatformConfig(BaseModel):
 class AnalysisRequest(BaseModel):
     lead: RawLead
     config: Optional[PlatformConfig] = None
+    # Required, and a UUID: the engine holds the service-role key and can write
+    # into any org, so it never picks one. An authenticated backend supplies it.
+    org_id: UUID
 
 
 class ScrapeRequest(BaseModel):
     sources: list[str] = ["linkedin", "crunchbase", "job_board", "local_business", "remote_jobs"]
     config: Optional[PlatformConfig] = None
+    org_id: UUID
 
 
 # ============================================================
@@ -188,6 +193,9 @@ def health():
 async def _analyze_lead_core(
     lead: RawLead,
     config: Optional[PlatformConfig],
+    # Present so that any persistence added here inherits the caller's org
+    # rather than reaching for a global default.
+    org_id: str,
 ) -> AsyncGenerator[tuple[str, object], None]:
     """
     Core analysis logic expressed as an async generator.
@@ -375,7 +383,7 @@ async def _analyze_lead_core(
 async def analyze_lead(request: AnalysisRequest):
     """Analyze a raw lead and return signals, score, pain points, tech stack, and contact."""
     result = None
-    async for phase, payload in _analyze_lead_core(request.lead, request.config):
+    async for phase, payload in _analyze_lead_core(request.lead, request.config, str(request.org_id)):
         if phase == "complete":
             result = payload
     return result
@@ -385,7 +393,7 @@ async def analyze_lead(request: AnalysisRequest):
 async def analyze_lead_stream(request: AnalysisRequest):
     """Same as /analyze but streams SSE progress events as each phase completes."""
     async def event_stream():
-        gen = _analyze_lead_core(request.lead, request.config)
+        gen = _analyze_lead_core(request.lead, request.config, str(request.org_id))
         while True:
             next_event = asyncio.ensure_future(anext(gen))
             # Long quiet gaps (the Groq phase can run 30s+) get idle-killed by
@@ -435,6 +443,7 @@ async def trigger_scrape(request: ScrapeRequest, background_tasks: BackgroundTas
 
     scrape_jobs[job_id] = {
         "status": "running",
+        "org_id": str(request.org_id),
         "started_at": datetime.utcnow().isoformat(),
         "results": 0,
         "sources": {s: {"status": "pending"} for s in effective_sources},
@@ -442,7 +451,7 @@ async def trigger_scrape(request: ScrapeRequest, background_tasks: BackgroundTas
     }
     scrape_conditions[job_id] = asyncio.Condition()
 
-    background_tasks.add_task(run_scrape_job, job_id, effective_sources, cfg)
+    background_tasks.add_task(run_scrape_job, job_id, str(request.org_id), effective_sources, cfg)
 
     return {"job_id": job_id, "status": "running", "sources": effective_sources}
 
@@ -506,12 +515,16 @@ def _chunked(items: list, size: int):
         yield items[i:i + size]
 
 
-def _persist_job_postings(supabase, postings: list[dict]) -> tuple[int, int]:
-    """Upsert job postings into the `jobs` table (one row per posting).
-    Returns (new_count, updated_count)."""
+def _persist_job_postings(supabase, org_id: str, postings: list[dict]) -> tuple[int, int]:
+    """Upsert job postings into the `jobs` table (one row per posting), all
+    owned by `org_id`. Returns (new_count, updated_count).
+
+    Every lookup is org-scoped as well as every write: matching a posting
+    against another tenant's row would make this scrape update their job."""
     now = datetime.utcnow().isoformat()
     # Triage every posting at ingest — verdict/reasons/posted_at land on the row.
-    postings = [{**p, **qualify_job(p)} for p in postings]
+    # org_id is stamped last so a value carried in by a scraper can never win.
+    postings = [{**p, **qualify_job(p), "org_id": org_id} for p in postings]
     with_ext = [p for p in postings if p.get("external_id")]
     without_ext = [p for p in postings if not p.get("external_id")]
 
@@ -526,13 +539,15 @@ def _persist_job_postings(supabase, postings: list[dict]) -> tuple[int, int]:
     if with_ext:
         existing_ids: set[str] = set()
         for chunk in _chunked([p["external_id"] for p in with_ext], 200):
-            existing = supabase.table("jobs").select("external_id").in_(
-                "external_id", chunk
-            ).execute()
+            existing = supabase.table("jobs").select("external_id").eq(
+                "org_id", org_id
+            ).in_("external_id", chunk).execute()
             existing_ids.update(row["external_id"] for row in (existing.data or []))
         rows = [{**p, "scraped_at": now, "updated_at": now} for p in with_ext]
         for chunk in _chunked(rows, 500):
-            supabase.table("jobs").upsert(chunk, on_conflict="external_id").execute()
+            # external_id is unique per tenant (jobs_org_external_id_key):
+            # two tenants scraping the same board each own their own row.
+            supabase.table("jobs").upsert(chunk, on_conflict="org_id,external_id").execute()
         for p in with_ext:
             if p["external_id"] in existing_ids:
                 updated_count += 1
@@ -545,13 +560,18 @@ def _persist_job_postings(supabase, postings: list[dict]) -> tuple[int, int]:
         urls = [p["source_url"] for p in without_ext if p.get("source_url")]
         existing_by_url: dict[str, str] = {}
         for chunk in _chunked(urls, 50):
-            existing = supabase.table("jobs").select("id, source_url").in_("source_url", chunk).execute()
+            existing = (
+                supabase.table("jobs").select("id, source_url")
+                .eq("org_id", org_id).in_("source_url", chunk).execute()
+            )
             existing_by_url.update({row["source_url"]: row["id"] for row in (existing.data or [])})
         for p in without_ext:
             url = p.get("source_url")
             existing_id = existing_by_url.get(url) if url else None
             if existing_id:
-                supabase.table("jobs").update({**p, "updated_at": now}).eq("id", existing_id).execute()
+                supabase.table("jobs").update({**p, "updated_at": now}).eq(
+                    "id", existing_id
+                ).eq("org_id", org_id).execute()
                 updated_count += 1
             else:
                 supabase.table("jobs").insert({**p, "scraped_at": now, "created_at": now, "updated_at": now}).execute()
@@ -560,8 +580,13 @@ def _persist_job_postings(supabase, postings: list[dict]) -> tuple[int, int]:
     return new_count, updated_count
 
 
-async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[PlatformConfig] = None):
-    """Background task: runs all scrapers, saves leads, and writes scraping_logs rows."""
+async def run_scrape_job(job_id: str, org_id: str, sources: list[str], cfg: Optional[PlatformConfig] = None):
+    """Background task: runs all scrapers, saves leads, and writes scraping_logs rows.
+
+    Runs with the service-role key, which can write into any org — so every
+    row written here is stamped with `org_id`, and every lookup and update is
+    filtered by it. The org comes from the authenticated backend, never from
+    scraped data."""
     from supabase import create_client
     import os
 
@@ -619,7 +644,7 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
                 try:
                     postings = await asyncio.to_thread(scraper.scrape)
                     leads_found = len(postings)
-                    new_count, updated_count = await asyncio.to_thread(_persist_job_postings, supabase, postings)
+                    new_count, updated_count = await asyncio.to_thread(_persist_job_postings, supabase, org_id, postings)
                     log_status = "completed"
                     any_success = True
                 except Exception as e:
@@ -642,6 +667,7 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
                 duration_ms = int((datetime.utcnow() - source_started).total_seconds() * 1000)
                 try:
                     supabase.table("scraping_logs").insert({
+                        "org_id": org_id,
                         "job_id": job_id,
                         "source": source,
                         "status": log_status,
@@ -703,6 +729,7 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
             persisted_status = "finalizing" if log_status == "completed" else log_status
             try:
                 log_insert = supabase.table("scraping_logs").insert({
+                    "org_id": org_id,
                     "job_id": job_id,
                     "source": source,
                     "status": persisted_status,
@@ -753,7 +780,12 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
         for i in range(0, len(all_urls_flat), URL_LOOKUP_CHUNK):
             chunk = all_urls_flat[i:i + URL_LOOKUP_CHUNK]
             try:
-                res = supabase.table("leads").select("id, source_url").in_("source_url", chunk).execute()
+                # Org-scoped: without it, one tenant's scrape silently skips a
+                # company because a *different* tenant already has it.
+                res = (
+                    supabase.table("leads").select("id, source_url")
+                    .eq("org_id", org_id).in_("source_url", chunk).execute()
+                )
                 for row in res.data or []:
                     existing_by_url[row["source_url"]] = row["id"]
             except Exception as e:
@@ -789,6 +821,7 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
             else:
                 new_rows.append({
                     **lead_data,
+                    "org_id": org_id,
                     "status": "new",
                     "scraped_at": datetime.utcnow().isoformat(),
                     "created_at": datetime.utcnow().isoformat(),
@@ -829,7 +862,8 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
             async with update_semaphore:
                 try:
                     await asyncio.to_thread(
-                        lambda: supabase.table("leads").update(refresh).eq("id", existing_id).execute()
+                        lambda: supabase.table("leads").update(refresh)
+                        .eq("id", existing_id).eq("org_id", org_id).execute()
                     )
                     return True
                 except Exception as e:
@@ -859,7 +893,9 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
             if source in finalizing_sources:
                 update_payload["status"] = "completed"
             try:
-                supabase.table("scraping_logs").update(update_payload).eq("id", log_id).execute()
+                supabase.table("scraping_logs").update(update_payload).eq(
+                    "id", log_id
+                ).eq("org_id", org_id).execute()
             except Exception as e:
                 logger.error(f"[Scraper] Failed to patch log counts for {source}: {e}")
 
