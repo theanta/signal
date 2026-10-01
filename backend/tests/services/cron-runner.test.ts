@@ -3,12 +3,13 @@ import { closePool, sql } from '../helpers/db';
 import { seedTwoOrgs, teardownSeed, TwoOrgs } from '../helpers/seed';
 import type { SignalAnalysisResult } from '../../../shared/types';
 
-// Until the org_isolation policies exist (Task 14), a real scoped client sees
-// nothing, so cron's contexts get the service-role client here — the same
-// swap makeTestContext makes. The app-layer org filter is then the only thing
-// keeping orgs apart, which is what these tests are about.
+// Under the app harness, cron's contexts get the service-role client — the
+// same swap makeTestContext makes — so the app-layer org filter is the only
+// thing keeping orgs apart. Under TEST_HARNESS=rls they keep the real scoped
+// client and both layers are active.
 vi.mock('../../services/tenantContext', async (importOriginal) => {
   const real = await importOriginal<typeof import('../../services/tenantContext')>();
+  if (process.env.TEST_HARNESS === 'rls') return real;
   const { supabaseAdmin } = await import('../../services/supabaseAdmin');
   return {
     ...real,

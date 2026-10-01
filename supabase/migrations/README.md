@@ -131,7 +131,7 @@ touches a Supabase project) and diffs `pg_dump --schema-only` output of
 
 1. a database built from the pre-tenancy `schema.sql` + every file in this
    directory in the order in section 1 + `2026-08-26_tenancy_foundation.sql`
-   (the "production upgrade" path), against
+   + `2026-08-26_rls_policies.sql` (the "production upgrade" path), against
 2. a database built from the current `supabase/schema.sql` alone.
 
 That diff is empty except for **one enumerated divergence**: `org_id`'s

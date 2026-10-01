@@ -528,62 +528,10 @@ CREATE TRIGGER platform_config_updated_at
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- ============================================================
--- ROW LEVEL SECURITY (RLS) - enable for production
+-- ROW LEVEL SECURITY (RLS)
 -- ============================================================
-
-ALTER TABLE leads ENABLE ROW LEVEL SECURITY;
-ALTER TABLE lead_signals ENABLE ROW LEVEL SECURITY;
-ALTER TABLE lead_scores ENABLE ROW LEVEL SECURITY;
-ALTER TABLE outreach_messages ENABLE ROW LEVEL SECURITY;
-ALTER TABLE outreach_history ENABLE ROW LEVEL SECURITY;
-ALTER TABLE scraping_logs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE platform_config ENABLE ROW LEVEL SECURITY;
-ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE refresh_tokens ENABLE ROW LEVEL SECURITY;
-ALTER TABLE jobs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE cron_job_logs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE job_signals ENABLE ROW LEVEL SECURITY;
-ALTER TABLE job_submissions ENABLE ROW LEVEL SECURITY;
-
--- Policy: service role has full access (used by backend)
-CREATE POLICY "service_role_all" ON leads
-  FOR ALL USING (auth.role() = 'service_role');
-
-CREATE POLICY "service_role_all" ON lead_signals
-  FOR ALL USING (auth.role() = 'service_role');
-
-CREATE POLICY "service_role_all" ON lead_scores
-  FOR ALL USING (auth.role() = 'service_role');
-
-CREATE POLICY "service_role_all" ON outreach_messages
-  FOR ALL USING (auth.role() = 'service_role');
-
-CREATE POLICY "service_role_all" ON outreach_history
-  FOR ALL USING (auth.role() = 'service_role');
-
-CREATE POLICY "service_role_all" ON scraping_logs
-  FOR ALL USING (auth.role() = 'service_role');
-
-CREATE POLICY "service_role_all" ON platform_config
-  FOR ALL USING (auth.role() = 'service_role');
-
-CREATE POLICY "service_role_all" ON users
-  FOR ALL USING (auth.role() = 'service_role');
-
-CREATE POLICY "service_role_all" ON refresh_tokens
-  FOR ALL USING (auth.role() = 'service_role');
-
-CREATE POLICY "service_role_all" ON jobs
-  FOR ALL USING (auth.role() = 'service_role');
-
-CREATE POLICY "service_role_all" ON cron_job_logs
-  FOR ALL USING (auth.role() = 'service_role');
-
-CREATE POLICY "service_role_all" ON job_signals
-  FOR ALL USING (auth.role() = 'service_role');
-
-CREATE POLICY "service_role_all" ON job_submissions
-  FOR ALL USING (auth.role() = 'service_role');
+-- The org_isolation policies are at the end of this file, after the
+-- privileges they depend on. See "ROW LEVEL SECURITY: org isolation" below.
 
 -- ============================================================
 -- SEED: Example lead for development
@@ -614,11 +562,8 @@ CREATE POLICY "service_role_all" ON job_submissions
 -- "empty result", which is what the RLS work in Task 14 then narrows to the
 -- caller's own org.
 --
--- Deliberately NOT granted:
---   * organizations  — RLS is not enabled on it, so a SELECT grant would let
---                      any logged-in user read every tenant's row. It gets
---                      grants together with its policy in Task 14.
---   * refresh_tokens — auth infrastructure, service-role only by design.
+-- organizations, refresh_tokens and the users column list are granted (or
+-- revoked) together with their policies in the RLS section below.
 --
 -- The role is a Supabase platform role; a plain local postgres (the
 -- schema-parity harness) has no such role, so create it there if absent.
@@ -647,3 +592,102 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON
   platform_config
 TO authenticated;
 
+-- ============================================================
+-- ROW LEVEL SECURITY: org isolation
+-- ============================================================
+-- Identical to supabase/migrations/2026-08-26_rls_policies.sql (minus its
+-- transaction wrapper), so a fresh project comes up with isolation already
+-- on. Change both or neither; run supabase/schema-parity-check.sh after.
+
+-- Supabase platform roles. A plain local postgres (the schema-parity harness)
+-- has none of them, so create any that are missing.
+DO $$
+DECLARE r TEXT;
+BEGIN
+  FOREACH r IN ARRAY ARRAY['anon', 'authenticated', 'service_role'] LOOP
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
+      EXECUTE format('CREATE ROLE %I NOLOGIN NOINHERIT', r);
+    END IF;
+  END LOOP;
+END
+$$;
+
+-- ---- Tenant tables: full read/write within the caller's org ----
+DO $$
+DECLARE t TEXT;
+BEGIN
+  FOREACH t IN ARRAY ARRAY[
+    'leads', 'jobs', 'scraping_logs', 'cron_job_logs',
+    'lead_signals', 'lead_scores', 'outreach_messages', 'outreach_history',
+    'job_signals', 'job_submissions', 'platform_config'
+  ] LOOP
+    EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
+    EXECUTE format('DROP POLICY IF EXISTS "service_role_all" ON %I', t);
+    EXECUTE format('DROP POLICY IF EXISTS "org_isolation" ON %I', t);
+
+    -- WITH CHECK matters as much as USING: without it a tenant can write a row
+    -- stamped with another org's id, which it then cannot see or fix.
+    EXECUTE format($p$
+      CREATE POLICY "org_isolation" ON %I FOR ALL TO authenticated
+        USING (org_id = (SELECT (auth.jwt() ->> 'org_id')::uuid))
+        WITH CHECK (org_id = (SELECT (auth.jwt() ->> 'org_id')::uuid))
+    $p$, t);
+    EXECUTE format($p$
+      CREATE POLICY "service_role_all" ON %I FOR ALL TO service_role
+        USING (true) WITH CHECK (true)
+    $p$, t);
+
+    -- Tenant data is never public. anon gets nothing at all.
+    EXECUTE format('REVOKE ALL ON %I FROM anon', t);
+    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON %I TO authenticated', t);
+  END LOOP;
+END
+$$;
+
+-- ---- users: read-only, own org, no password hashes ----
+-- Users are created and changed only by the auth controller and create-org,
+-- both service_role. A tenant session may list its own org's members, but
+-- never write them (that would be self-service privilege escalation) and never
+-- read password_hash.
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all" ON users;
+DROP POLICY IF EXISTS "org_isolation" ON users;
+CREATE POLICY "org_isolation" ON users FOR SELECT TO authenticated
+  USING (org_id = (SELECT (auth.jwt() ->> 'org_id')::uuid));
+CREATE POLICY "service_role_all" ON users FOR ALL TO service_role
+  USING (true) WITH CHECK (true);
+REVOKE ALL ON users FROM anon, authenticated;
+GRANT SELECT (id, org_id, email, name, role, is_active, created_at, last_login)
+  ON users TO authenticated;
+
+-- ---- organizations: read-only, own row ----
+-- Read-only on purpose: status and monthly_scrape_cap live here, and a tenant
+-- able to update its own row could unsuspend itself or lift its own cap.
+ALTER TABLE organizations ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all" ON organizations;
+DROP POLICY IF EXISTS "org_isolation" ON organizations;
+CREATE POLICY "org_isolation" ON organizations FOR SELECT TO authenticated
+  USING (id = (SELECT (auth.jwt() ->> 'org_id')::uuid));
+CREATE POLICY "service_role_all" ON organizations FOR ALL TO service_role
+  USING (true) WITH CHECK (true);
+REVOKE ALL ON organizations FROM anon, authenticated;
+GRANT SELECT ON organizations TO authenticated;
+
+-- ---- refresh_tokens: service_role only ----
+-- Session material, reachable only by the auth controller. No authenticated
+-- policy and no grant, so a tenant session cannot even name the table.
+ALTER TABLE refresh_tokens ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "service_role_all" ON refresh_tokens;
+CREATE POLICY "service_role_all" ON refresh_tokens FOR ALL TO service_role
+  USING (true) WITH CHECK (true);
+REVOKE ALL ON refresh_tokens FROM anon, authenticated;
+
+-- ---- Views: run as the caller so RLS applies ----
+-- A view runs with its owner's privileges by default, and the owner bypasses
+-- RLS — so through the API these returned every tenant's leads (hot_leads) and
+-- cross-tenant counts (lead_pipeline_summary) to any session, anon included.
+-- security_invoker (Postgres 15+) makes them evaluate RLS as the caller.
+ALTER VIEW hot_leads SET (security_invoker = true);
+ALTER VIEW lead_pipeline_summary SET (security_invoker = true);
+REVOKE ALL ON hot_leads, lead_pipeline_summary FROM anon;
+GRANT SELECT ON hot_leads, lead_pipeline_summary TO authenticated;

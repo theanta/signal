@@ -57,37 +57,32 @@ export function signLoginToken(claims: Record<string, unknown>): string {
 }
 
 /**
+ * Which layer the isolation suites exercise. Set with TEST_HARNESS.
+ *
+ * Isolation is dual — the app-layer `.eq('org_id', ctx.orgId)` AND the
+ * org_isolation RLS policies — and each layer has to be testable with the
+ * other out of the way, or a regression in one hides behind the other.
+ *
+ *   app (default) — `db` is the service-role client, which bypasses RLS. The
+ *                   app-layer filter is the ONLY thing keeping org A out of
+ *                   org B's rows, so a dropped `.eq('org_id', ...)` fails here.
+ *   rls           — `db` is the real scoped client createTenantContext mints,
+ *                   the one production uses. Both layers are active, so this
+ *                   run proves defence in depth on the production path.
+ *
+ * tests/rls/ covers the third case — RLS with no app filter at all.
+ * `npm test` runs the suites under both harnesses.
+ */
+export const HARNESS: 'app' | 'rls' = process.env.TEST_HARNESS === 'rls' ? 'rls' : 'app';
+
+/**
  * Build a TenantContext for a seeded org, for the isolation suites.
  *
- * DELIBERATELY NOT `createTenantContext`'s client. The brief specified
- * `return createTenantContext(orgId, userId)`, which mints an anon-key client
- * carrying a scoped JWT — the `authenticated` Postgres role. But RLS is
- * already ENABLED on all 12 org-scoped tables (supabase/schema.sql, "ROW
- * LEVEL SECURITY" section) and the only policies that exist so far are
- * `service_role_all`. Section H grants `authenticated` table privileges but
- * no policy admits it, so through that client every read returns [] and every
- * write is refused with "new row violates row-level security policy".
- *
- * That makes the scoped client useless as an isolation harness *today*: the
- * reads would pass vacuously (A cannot see B because A cannot see anything)
- * and the writes cannot run at all. The org_isolation policies that make the
- * scoped client work arrive in Task 14.
- *
- * A service-role client is the correct harness for what Task 7 actually
- * proves. Service role bypasses RLS entirely, so the database filters
- * nothing — the ONLY thing that can keep org A out of org B's rows is the
- * application-layer `.eq('org_id', ctx.orgId)` in supabaseService. An
- * unfiltered query here genuinely returns both orgs' rows, so these tests
- * fail if the app-layer filter is dropped. Through the scoped client they
- * would not.
- *
- * `orgId` still goes through `createTenantContext` so the OrgId branding and
- * validation on the real path are exercised; only `db` is swapped.
- *
- * When Task 14 lands, flipping this back to `createTenantContext`'s own
- * client should leave every assertion in tests/isolation/ green — at that
- * point they assert defence in depth rather than the app layer alone.
+ * `orgId` always goes through `createTenantContext` so the OrgId branding and
+ * validation on the real path are exercised; under the app harness only `db`
+ * is swapped for the service-role client.
  */
 export function makeTestContext(orgId: string, userId: string = ANY_USER): TenantContext {
-  return { ...createTenantContext(orgId, userId), db: supabaseAdmin };
+  const ctx = createTenantContext(orgId, userId);
+  return HARNESS === 'rls' ? ctx : { ...ctx, db: supabaseAdmin };
 }

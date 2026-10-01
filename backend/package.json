@@ -9,8 +9,9 @@
     "build": "tsc",
     "start": "node dist/backend/api/server.js",
     "lint": "eslint . --ext .ts",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "vitest run && npm run test:rls",
+    "test:watch": "vitest",
+    "test:rls": "TEST_HARNESS=rls vitest run tests/isolation tests/services tests/rls"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

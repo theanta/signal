@@ -5,7 +5,7 @@
 #
 #   DB_A ("production upgrade" path): the pre-tenancy schema.sql, plus every
 #         migration in supabase/migrations/README.md's chronological order,
-#         plus 2026-08-26_tenancy_foundation.sql.
+#         plus 2026-08-26_tenancy_foundation.sql and 2026-08-26_rls_policies.sql.
 #   DB_B ("fresh build" path):        the current supabase/schema.sql, alone.
 #
 # Then it diffs `pg_dump --schema-only` of the two. See
@@ -33,6 +33,8 @@ cat > "$WORK/bootstrap.sql" <<'SQL'
 CREATE SCHEMA IF NOT EXISTS auth;
 CREATE OR REPLACE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE
   AS $$ SELECT 'service_role'::text $$;
+CREATE OR REPLACE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE
+  AS $$ SELECT '{}'::jsonb $$;
 SQL
 
 git show "$PRE_TENANCY_REV:supabase/schema.sql" > "$WORK/schema_pre_tenancy.sql" || {
@@ -69,6 +71,7 @@ done
 psql -q -d "$DB_A" -v ON_ERROR_STOP=1 -c \
   "DELETE FROM platform_config WHERE id NOT IN (SELECT id FROM platform_config ORDER BY created_at ASC LIMIT 1);" || exit 1
 psql -q -d "$DB_A" -v ON_ERROR_STOP=1 -f supabase/migrations/2026-08-26_tenancy_foundation.sql || exit 1
+psql -q -d "$DB_A" -v ON_ERROR_STOP=1 -f supabase/migrations/2026-08-26_rls_policies.sql >/dev/null || exit 1
 
 echo "=== DB_B ($DB_B): schema.sql alone ==="
 psql -q -d "$DB_B" -v ON_ERROR_STOP=1 -f "$WORK/bootstrap.sql" || exit 1
