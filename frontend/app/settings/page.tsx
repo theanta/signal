@@ -422,6 +422,23 @@ export default function SettingsPage() {
                 {ALL_SOURCES.filter(s => draft.active_sources.includes(s.id)).length} of {ALL_SOURCES.length} sources active.
                 Changes take effect on the next scrape run.
               </p>
+
+              <div className="card p-5">
+                <Field label="Leads analyzed per day">
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={draft.daily_analysis_limit ?? 20}
+                    onChange={e => patch({ daily_analysis_limit: Math.min(100, Math.max(1, Number(e.target.value) || 1)) })}
+                    className="w-28 px-3 py-2 text-sm text-ink bg-canvas border border-hairline rounded-md"
+                  />
+                </Field>
+                <p className="text-xs text-muted mt-2">
+                  The morning run analyzes up to this many new leads (1–100). Each analysis uses AI and search
+                  credits, so a higher number costs more.
+                </p>
+              </div>
             </section>
           )}
 

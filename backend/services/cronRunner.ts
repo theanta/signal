@@ -5,6 +5,7 @@ import { persistAnalysis } from './persistAnalysis';
 import { analyzeLeadSignals, triggerScrape, healthCheck } from './signalEngineService';
 import { ScrapeAlreadyRunningError } from './engineErrors';
 import { generateOutreach } from './claudeService';
+import { getConfig } from './configService';
 import type { Lead, LeadSignal, LeadSource, SignalAnalysisResult } from '../../shared/types';
 
 /**
@@ -107,23 +108,47 @@ export async function withAudit(
 }
 
 /**
- * Run one job for each target org, sequentially.
+ * How many orgs a scheduled run works on at once. Sequential orgs meant the
+ * 07:00 analysis for the fifth tenant finished hours after the first's; one
+ * org per slot keeps a slow org from holding up the rest.
+ */
+export const CRON_CONCURRENCY = {
+  orgs: Math.max(1, Number(process.env.CRON_ORG_CONCURRENCY ?? 3)),
+};
+
+/** Run `work` for every item, at most `limit` at a time. */
+async function inPool<T>(items: T[], limit: number, work: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  const lanes = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const item = items[next++];
+      await work(item);
+    }
+  });
+  await Promise.all(lanes);
+}
+
+/**
+ * Run `perOrg` for each target org, CRON_CONCURRENCY.orgs at a time.
  *
  * Scheduled runs target every active org. A manual run targets only the org of
  * the user who pressed the button: the trigger endpoints sit behind tenant
  * login, and one tenant must not be able to start (and spend scrape credits
  * on) another tenant's jobs.
  */
+async function eachOrg(only: TenantContext | undefined, perOrg: (ctx: TenantContext) => Promise<void>): Promise<void> {
+  const targets = only ? [only] : await listActiveOrgContexts();
+  await inPool(targets, CRON_CONCURRENCY.orgs, perOrg);
+}
+
+/** One audited job per target org. withAudit never throws, so orgs are independent. */
 async function forEachOrg(
   jobName: string,
   trigger: CronTrigger,
   only: TenantContext | undefined,
   fn: (ctx: TenantContext) => Promise<number | void>,
 ): Promise<void> {
-  const targets = only ? [only] : await listActiveOrgContexts();
-  for (const ctx of targets) {
-    await withAudit(ctx, jobName, trigger, () => fn(ctx));
-  }
+  await eachOrg(only, ctx => withAudit(ctx, jobName, trigger, () => fn(ctx)));
 }
 
 /**
@@ -169,38 +194,62 @@ export async function runBiweeklyScrape(trigger: CronTrigger = 'scheduled', only
   });
 }
 
-export async function runLeadAnalysis(trigger: CronTrigger = 'scheduled', only?: TenantContext): Promise<void> {
-  await forEachOrg('analyze_leads', trigger, only, async (ctx) => {
-    const { data: leads } = await db.getLeads(ctx, { status: 'new', per_page: 20 });
+/** The org's daily_analysis_limit setting, clamped to 1..100. */
+export async function dailyAnalysisLimit(ctx: TenantContext): Promise<number> {
+  const raw = Number((await getConfig(ctx)).daily_analysis_limit);
+  if (!Number.isFinite(raw)) return DEFAULT_DAILY_ANALYSIS_LIMIT;
+  return Math.min(MAX_DAILY_ANALYSIS_LIMIT, Math.max(1, Math.round(raw)));
+}
 
-    for (const lead of leads) {
-      // Each analysis can take a minute; a fresh context keeps the scoped
-      // token valid for the whole of this lead's writes.
-      const leadCtx = renew(ctx);
-      try {
-        const signals = await analyzeLeadSignals(leadCtx, {
-          company_name: lead.company_name,
-          website: lead.website,
-          location: lead.location,
-          job_title: lead.job_title,
-          hiring_signal: lead.hiring_signal,
-          source_url: lead.source_url ?? '',
-          source: lead.source as LeadSource,
-          scraped_at: lead.scraped_at ?? new Date().toISOString(),
-          description: lead.description,
-          industry: lead.industry,
-          company_size: lead.company_size,
-          source_count: lead.source_count ?? 1,
-        });
+export const DEFAULT_DAILY_ANALYSIS_LIMIT = 20;
+export const MAX_DAILY_ANALYSIS_LIMIT = 100;
 
-        const writeCtx = renew(ctx);
-        const existing = await db.getLeadSignals(writeCtx, lead.id);
-        await persistAnalysis(writeCtx, lead, existing, signals);
-      } catch (err) {
-        console.error(`[CRON] Failed to analyze lead ${lead.id}:`, (err as Error).message);
-      }
+async function analyzeNewLeads(ctx: TenantContext): Promise<number> {
+  const limit = await dailyAnalysisLimit(ctx);
+  const { data: leads } = await db.getLeads(ctx, { status: 'new', per_page: limit });
+
+  for (const lead of leads) {
+    // Each analysis can take a minute; a fresh context keeps the scoped
+    // token valid for the whole of this lead's writes.
+    const leadCtx = renew(ctx);
+    try {
+      const signals = await analyzeLeadSignals(leadCtx, {
+        company_name: lead.company_name,
+        website: lead.website,
+        location: lead.location,
+        job_title: lead.job_title,
+        hiring_signal: lead.hiring_signal,
+        source_url: lead.source_url ?? '',
+        source: lead.source as LeadSource,
+        scraped_at: lead.scraped_at ?? new Date().toISOString(),
+        description: lead.description,
+        industry: lead.industry,
+        company_size: lead.company_size,
+        source_count: lead.source_count ?? 1,
+      });
+
+      const writeCtx = renew(ctx);
+      const existing = await db.getLeadSignals(writeCtx, lead.id);
+      await persistAnalysis(writeCtx, lead, existing, signals);
+    } catch (err) {
+      console.error(`[CRON] Failed to analyze lead ${lead.id}:`, (err as Error).message);
     }
-    return leads.length;
+  }
+  return leads.length;
+}
+
+/**
+ * Analyze each org's new leads. A scheduled run then drafts that org's
+ * outreach as soon as its own analysis finishes, rather than at a fixed hour
+ * every org's analysis may not have reached; the 08:00 outreach job stays as
+ * a catch-up for anything still missing a draft.
+ */
+export async function runLeadAnalysis(trigger: CronTrigger = 'scheduled', only?: TenantContext): Promise<void> {
+  await eachOrg(only, async (ctx) => {
+    await withAudit(ctx, 'analyze_leads', trigger, () => analyzeNewLeads(ctx));
+    if (trigger === 'scheduled') {
+      await withAudit(renew(ctx), 'generate_outreach', trigger, () => draftOutreach(renew(ctx)));
+    }
   });
 }
 
@@ -241,34 +290,37 @@ function signalToAnalysisResult(lead: Lead, sig: LeadSignal): SignalAnalysisResu
   } as SignalAnalysisResult;
 }
 
-export async function runOutreachGeneration(trigger: CronTrigger = 'scheduled', only?: TenantContext): Promise<void> {
-  await forEachOrg('generate_outreach', trigger, only, async (ctx) => {
-    const { data: leads } = await db.getLeads(ctx, { status: 'analyzed', min_score: 65, per_page: 50 });
+/** Draft an email for each of the org's analyzed leads (score 65+) that has none yet. */
+async function draftOutreach(ctx: TenantContext): Promise<number> {
+  const { data: leads } = await db.getLeads(ctx, { status: 'analyzed', min_score: 65, per_page: 50 });
 
-    for (const lead of leads) {
-      const leadCtx = renew(ctx);
-      try {
-        const signals = await db.getLeadSignals(leadCtx, lead.id);
-        if (signals.length === 0) continue;
+  for (const lead of leads) {
+    const leadCtx = renew(ctx);
+    try {
+      const signals = await db.getLeadSignals(leadCtx, lead.id);
+      if (signals.length === 0) continue;
 
-        const existing = await db.getOutreachMessages(leadCtx, lead.id);
-        if (existing.length > 0) continue;
+      const existing = await db.getOutreachMessages(leadCtx, lead.id);
+      if (existing.length > 0) continue;
 
-        const outreach = await generateOutreach(leadCtx, lead, signalToAnalysisResult(lead, signals[0]), 'email');
-        await db.createOutreachMessage(renew(ctx), {
-          lead_id: lead.id,
-          channel: 'email',
-          subject: outreach.subject,
-          body: outreach.body,
-          generated_by: 'claude',
-          model_version: outreach.model_version,
-        });
-      } catch (err) {
-        console.error(`[CRON] Failed outreach for ${lead.id}:`, (err as Error).message);
-      }
+      const outreach = await generateOutreach(leadCtx, lead, signalToAnalysisResult(lead, signals[0]), 'email');
+      await db.createOutreachMessage(renew(ctx), {
+        lead_id: lead.id,
+        channel: 'email',
+        subject: outreach.subject,
+        body: outreach.body,
+        generated_by: 'claude',
+        model_version: outreach.model_version,
+      });
+    } catch (err) {
+      console.error(`[CRON] Failed outreach for ${lead.id}:`, (err as Error).message);
     }
-    return leads.length;
-  });
+  }
+  return leads.length;
+}
+
+export async function runOutreachGeneration(trigger: CronTrigger = 'scheduled', only?: TenantContext): Promise<void> {
+  await forEachOrg('generate_outreach', trigger, only, draftOutreach);
 }
 
 export async function pingSignalEngine(): Promise<void> {

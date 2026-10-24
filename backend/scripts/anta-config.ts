@@ -27,4 +27,5 @@ export const ANTA_PLATFORM_CONFIG: PlatformConfig = {
     'software engineer', 'full stack developer',
   ],
   active_sources: ['linkedin', 'crunchbase', 'job_board', 'local_business'],
+  daily_analysis_limit: 20,
 };

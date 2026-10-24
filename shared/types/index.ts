@@ -308,6 +308,8 @@ export interface PlatformConfig {
   // the engine's generic defaults.
   target_roles: string[];
   active_sources: string[];
+  // How many new leads the 07:00 run analyzes for this org (1-100).
+  daily_analysis_limit: number;
 }
 
 // What a tenant has before it fills in Settings. Deliberately no agency's
@@ -328,6 +330,7 @@ export const DEFAULT_PLATFORM_CONFIG: PlatformConfig = {
   target_industries: [],
   target_roles: [],
   active_sources: ['linkedin', 'crunchbase', 'job_board', 'local_business'],
+  daily_analysis_limit: 20,
 };
 
 // ---- Auth ----

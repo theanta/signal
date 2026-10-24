@@ -33,8 +33,9 @@ vi.mock('../../services/claudeService', () => ({
 import * as engine from '../../services/signalEngineService';
 import { ScrapeAlreadyRunningError } from '../../services/engineErrors';
 import {
-  listActiveOrgContexts, runDailyScrape, runLeadAnalysis, SCRAPE_RETRY,
+  CRON_CONCURRENCY, dailyAnalysisLimit, listActiveOrgContexts, runDailyScrape, runLeadAnalysis, SCRAPE_RETRY,
 } from '../../services/cronRunner';
+import { saveConfig } from '../../services/configService';
 
 let orgs: TwoOrgs;
 const triggerScrape = vi.mocked(engine.triggerScrape);
@@ -220,5 +221,78 @@ describe('manual runs', () => {
     expect((await cronLogs(orgs.a.orgId, 'biweekly_scrape')).at(-1))
       .toMatchObject({ status: 'success', trigger_type: 'manual' });
     expect(await cronLogs(orgs.b.orgId, 'biweekly_scrape')).toHaveLength(bLogsBefore);
+  });
+});
+
+describe('scaling past one org', () => {
+  async function peakConcurrency(limit: number): Promise<number> {
+    const saved = CRON_CONCURRENCY.orgs;
+    CRON_CONCURRENCY.orgs = limit;
+    let inFlight = 0;
+    let peak = 0;
+    triggerScrape.mockImplementation(async () => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise(r => setTimeout(r, 30));
+      inFlight--;
+      return { job_id: 'j', status: 'running', sources: [] };
+    });
+    try {
+      await runDailyScrape('scheduled');
+    } finally {
+      CRON_CONCURRENCY.orgs = saved;
+    }
+    return peak;
+  }
+
+  it('works on several orgs at once, never more than the limit', async () => {
+    expect(await peakConcurrency(1)).toBe(1);
+    expect(await peakConcurrency(2)).toBe(2);
+  });
+
+  it('a scheduled analysis drafts each org’s outreach right after that org’s analysis', async () => {
+    await sql(`UPDATE leads SET status = 'new' WHERE id = $1`, [orgs.a.leadId]);
+    analyzeLeadSignals.mockResolvedValue(ANALYSIS);
+    await runLeadAnalysis('scheduled');
+
+    const { rows } = await sql(
+      `SELECT job_name, started_at, completed_at FROM cron_job_logs
+       WHERE org_id = $1 AND trigger_type = 'scheduled' AND job_name IN ('analyze_leads', 'generate_outreach')
+       ORDER BY started_at DESC LIMIT 2`, [orgs.a.orgId]);
+    const [outreach, analysis] = rows;
+    expect(outreach.job_name).toBe('generate_outreach');
+    expect(analysis.job_name).toBe('analyze_leads');
+    expect(new Date(outreach.started_at) >= new Date(analysis.completed_at)).toBe(true);
+  });
+
+  it('a manual analysis does not also draft outreach', async () => {
+    const before = (await cronLogs(orgs.a.orgId, 'generate_outreach')).length;
+    analyzeLeadSignals.mockResolvedValue(ANALYSIS);
+    await runLeadAnalysis('manual', orgs.a.ctx);
+    expect(await cronLogs(orgs.a.orgId, 'generate_outreach')).toHaveLength(before);
+  });
+
+  it('analyzes at most the org’s daily_analysis_limit new leads', async () => {
+    await saveConfig(orgs.a.ctx, { daily_analysis_limit: 1 });
+    await sql(
+      `INSERT INTO leads (company_name, source, status, org_id)
+       VALUES ('Limit One', 'manual', 'new', $1), ('Limit Two', 'manual', 'new', $1)`, [orgs.a.orgId]);
+    analyzeLeadSignals.mockResolvedValue(ANALYSIS);
+    try {
+      await runLeadAnalysis('manual', orgs.a.ctx);
+      expect(analyzeLeadSignals.mock.calls).toHaveLength(1);
+    } finally {
+      await sql(`DELETE FROM leads WHERE company_name IN ('Limit One', 'Limit Two')`);
+      await sql(`DELETE FROM platform_config WHERE org_id = $1`, [orgs.a.orgId]);
+    }
+  });
+
+  it('clamps the daily limit to 1..100', async () => {
+    await saveConfig(orgs.b.ctx, { daily_analysis_limit: 500 });
+    expect(await dailyAnalysisLimit(orgs.b.ctx)).toBe(100);
+    await saveConfig(orgs.b.ctx, { daily_analysis_limit: 'lots' as unknown as number });
+    expect(await dailyAnalysisLimit(orgs.b.ctx)).toBe(20);
+    await sql(`DELETE FROM platform_config WHERE org_id = $1`, [orgs.b.orgId]);
+    expect(await dailyAnalysisLimit(orgs.b.ctx)).toBe(20);
   });
 });

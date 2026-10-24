@@ -90,7 +90,7 @@ export default function SystemPage() {
           {[
             { job: 'scrape',    label: 'Run Daily Scrape',       desc: 'Scrape LinkedIn and job boards now' },
             { job: 'biweekly', label: 'Run Bi-weekly Scrape',   desc: 'Scrape Crunchbase and local business sources now' },
-            { job: 'analyze',  label: 'Analyze New Leads',      desc: 'Run signal detection on unanalyzed leads (batch of 20)' },
+            { job: 'analyze',  label: 'Analyze New Leads',      desc: 'Run signal detection on unanalyzed leads (up to your daily limit in Settings)' },
             { job: 'outreach', label: 'Generate Outreach',      desc: 'Generate cold emails for top-scored analyzed leads' },
           ].map(({ job, label, desc }) => (
             <div key={job} className="flex items-center justify-between p-4 bg-surface-soft rounded-md">
