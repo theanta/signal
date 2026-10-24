@@ -56,7 +56,10 @@ on the MANUAL list. Baseline before task 2: 215 + 106 passing.
       note: an org waiting out an active scrape now holds one lane, not
       the whole run. With 3 lanes, three orgs all waiting would still
       delay the rest.
-- [ ] 9. contact_finder fixes #3, #1, #4, #5, #6
+- [x] 9. contact_finder fixes #3, #1, #4, #5, #6 — `b2b1d61`
+      Engine 85 green; 19 of the 21 new tests fail on the old code. Bare
+      first-name inboxes (dan@) are no longer matched when the person has a
+      last name — fewer 'verified' emails, none of them someone else's.
 - [ ] 10. `updateLead` on a foreign or missing id returns 404
 - [ ] 11. Update HANDOFF.md and the cutover runbook
 
