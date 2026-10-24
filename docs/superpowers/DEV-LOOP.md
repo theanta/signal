@@ -39,7 +39,11 @@ on the MANUAL list. Baseline before task 2: 215 + 106 passing.
       Engine 39 green; reaper checked against the local Postgres; backend
       unchanged. The reaper runs in every engine instance; the conditional
       UPDATE makes concurrent sweeps safe.
-- [ ] 6. Usage metering and the monthly scrape cap
+- [x] 6. Usage metering and the monthly scrape cap — `7c5e1c5`
+      Backend 197 + 107 green; engine 47 green; parity clean. Found for
+      task 7: the backend's buildAgencyContext also hardcodes "software
+      consultancy" and a software-buyer audience, and analyzeLeadSignals
+      sends no config to the engine.
 - [ ] 7. Remove ANTA/Michigan hardcoding from the engine
 - [ ] 8. Cron: parallel orgs, outreach chained to analysis, per-org analysis limit
 - [ ] 9. contact_finder fixes #3, #1, #4, #5, #6
