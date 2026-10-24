@@ -60,7 +60,8 @@ on the MANUAL list. Baseline before task 2: 215 + 106 passing.
       Engine 85 green; 19 of the 21 new tests fail on the old code. Bare
       first-name inboxes (dan@) are no longer matched when the person has a
       last name — fewer 'verified' emails, none of them someone else's.
-- [ ] 10. `updateLead` on a foreign or missing id returns 404
+- [x] 10. `updateLead` on a foreign or missing id returns 404 — `9f2d465`
+      Backend 211 + 115 green.
 - [ ] 11. Update HANDOFF.md and the cutover runbook
 
 ## MANUAL (Anadi, after the loop)
