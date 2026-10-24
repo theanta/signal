@@ -4,7 +4,7 @@ backend or the request is rejected."""
 import asyncio
 
 import main
-from tests.conftest import VALID_KEY
+from tests.conftest import VALID_KEY, TEST_CONFIG, tenant_config
 
 HEADERS = {"X-Engine-Key": VALID_KEY}
 
@@ -119,7 +119,7 @@ def test_run_scrape_job_stamps_every_write(monkeypatch):
     monkeypatch.setattr(main, "JobBoardScraper", _Fake)
 
     job_id = main.get_store().create_run(ORG, ["job_board"], {})
-    asyncio.run(main.run_scrape_job(job_id, ORG, ["job_board"]))
+    asyncio.run(main.run_scrape_job(job_id, ORG, ["job_board"], tenant_config()))
 
     writes = [c for c in sb.calls if c[1] in ("insert", "update", "upsert")]
     tables = {c[0] for c in writes}

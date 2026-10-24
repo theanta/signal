@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import {
   triggerScrape, getScrapeStatus, getScrapeStreamResponse, healthCheck,
-  ScrapeAlreadyRunningError, ScrapeCapReachedError, ScrapeRunNotFoundError,
+  NotConfiguredError, ScrapeAlreadyRunningError, ScrapeCapReachedError, ScrapeRunNotFoundError,
 } from '../services/signalEngineService';
 import { getScrapingLogs } from '../services/supabaseService';
 import { ctxOf } from '../api/middleware/auth';
@@ -26,6 +26,10 @@ router.post('/scrape', async (req: Request, res: Response) => {
     }
     if (err instanceof ScrapeCapReachedError) {
       res.status(429).json({ success: false, error: err.message });
+      return;
+    }
+    if (err instanceof NotConfiguredError) {
+      res.status(400).json({ success: false, error: err.message });
       return;
     }
     res.status(500).json({ success: false, error: (err as Error).message });

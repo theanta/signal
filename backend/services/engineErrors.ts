@@ -10,6 +10,14 @@ export class ScrapeAlreadyRunningError extends Error {
   }
 }
 
+/** The engine refused to scrape: the org has not set its target locations. */
+export class NotConfiguredError extends Error {
+  constructor() {
+    super('Set target locations in Settings before scraping.');
+    this.name = 'NotConfiguredError';
+  }
+}
+
 /** The engine refused to start a scrape: the org has used its monthly cap. */
 export class ScrapeCapReachedError extends Error {
   constructor(message = 'This organization has used all of its scrapes for this month.') {

@@ -728,7 +728,7 @@ export default function LeadDetailPage() {
                     {latestSignal.operational_maturity}
                   </p>
                   <p className="text-xs text-muted mt-2">
-                    Falls outside ANTA&apos;s SMB target market. No outreach will be generated.
+                    Falls outside the SMB target market. No outreach will be generated.
                   </p>
                 </div>
               </div>

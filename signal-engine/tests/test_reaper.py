@@ -4,6 +4,7 @@ import asyncio
 from datetime import timedelta
 
 import main
+from tests.conftest import TEST_CONFIG, tenant_config
 
 ORG = "11111111-1111-1111-1111-111111111111"
 
@@ -60,7 +61,7 @@ def test_a_running_scrape_heartbeats(store, monkeypatch):
     monkeypatch.setattr(main, "_run_scrape_job_body", slow_body)
     monkeypatch.setattr("supabase.create_client", lambda *_a, **_k: object())
     run_id = store.create_run(ORG, ["linkedin"], {})
-    asyncio.run(main.run_scrape_job(run_id, ORG, ["linkedin"]))
+    asyncio.run(main.run_scrape_job(run_id, ORG, ["linkedin"], tenant_config()))
     assert store.heartbeats.count(run_id) >= 3
 
 
@@ -75,7 +76,7 @@ def test_the_heartbeat_stops_when_the_run_ends(store, monkeypatch):
     run_id = store.create_run(ORG, ["linkedin"], {})
 
     async def run_then_wait():
-        await main.run_scrape_job(run_id, ORG, ["linkedin"])
+        await main.run_scrape_job(run_id, ORG, ["linkedin"], tenant_config())
         n = len(store.heartbeats)
         await asyncio.sleep(0.05)
         return n

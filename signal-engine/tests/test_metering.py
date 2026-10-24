@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import main
 import metering
-from tests.conftest import VALID_KEY
+from tests.conftest import VALID_KEY, TEST_CONFIG, tenant_config
 
 ORG = "11111111-1111-1111-1111-111111111111"
 H = {"X-Engine-Key": VALID_KEY}
@@ -80,7 +80,7 @@ def test_a_scrape_run_binds_its_org_and_run_id(usage, store, monkeypatch):
     monkeypatch.setattr(main, "_run_scrape_job_body", body)
     monkeypatch.setattr("supabase.create_client", lambda *_a, **_k: object())
     run_id = store.create_run(ORG, ["linkedin"], {})
-    asyncio.run(main.run_scrape_job(run_id, ORG, ["linkedin"]))
+    asyncio.run(main.run_scrape_job(run_id, ORG, ["linkedin"], tenant_config()))
     assert seen["bound"] == (ORG, run_id)
 
 
@@ -90,9 +90,9 @@ def test_scrape_over_the_monthly_cap_is_429(client, store, monkeypatch):
     monkeypatch.setattr(main, "run_scrape_job", _noop)
     store.caps[ORG] = 2
     for _ in range(2):
-        run_id = client.post("/scrape", headers=H, json={"sources": ["job_board"], "org_id": ORG}).json()["job_id"]
+        run_id = client.post("/scrape", headers=H, json={"sources": ["job_board"], "org_id": ORG, "config": TEST_CONFIG}).json()["job_id"]
         store.finish(run_id, ORG, "completed", 0)
-    r = client.post("/scrape", headers=H, json={"sources": ["job_board"], "org_id": ORG})
+    r = client.post("/scrape", headers=H, json={"sources": ["job_board"], "org_id": ORG, "config": TEST_CONFIG})
     assert r.status_code == 429
     assert r.json()["detail"]["error"] == "scrape_cap_reached"
 

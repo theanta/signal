@@ -2,9 +2,11 @@ import axios from 'axios';
 import type { ScrapedLeadRaw, SignalAnalysisResult } from '../../shared/types';
 import { getConfig } from './configService';
 import type { TenantContext } from './tenantContext';
-import { ScrapeAlreadyRunningError, ScrapeCapReachedError, ScrapeRunNotFoundError } from './engineErrors';
+import {
+  NotConfiguredError, ScrapeAlreadyRunningError, ScrapeCapReachedError, ScrapeRunNotFoundError,
+} from './engineErrors';
 
-export { ScrapeAlreadyRunningError, ScrapeCapReachedError, ScrapeRunNotFoundError };
+export { NotConfiguredError, ScrapeAlreadyRunningError, ScrapeCapReachedError, ScrapeRunNotFoundError };
 
 const SIGNAL_ENGINE_URL = process.env.SIGNAL_ENGINE_URL ?? 'http://localhost:8001';
 
@@ -29,9 +31,11 @@ function engineStatus(err: unknown): number | undefined {
 export async function analyzeLeadSignals(
   ctx: TenantContext, lead: ScrapedLeadRaw,
 ): Promise<SignalAnalysisResult> {
+  // The analysis is written for this tenant: its name, services and market.
+  const config = await getConfig(ctx);
   const { data } = await axios.post<SignalAnalysisResult>(
     `${SIGNAL_ENGINE_URL}/analyze`,
-    { lead, org_id: ctx.orgId },
+    { lead, config, org_id: ctx.orgId },
     { timeout: 60_000, headers: engineHeaders },
   );
   return data;
@@ -53,6 +57,7 @@ export async function triggerScrape(
     return data;
   } catch (err) {
     if (engineStatus(err) === 409) throw new ScrapeAlreadyRunningError();
+    if (engineStatus(err) === 400) throw new NotConfiguredError();
     if (engineStatus(err) === 429) {
       const detail = axios.isAxiosError(err) ? err.response?.data?.detail : undefined;
       throw new ScrapeCapReachedError(detail?.message);
@@ -99,13 +104,14 @@ export function getScrapeStreamResponse(
  * Lives here, not in the controller, so it carries the engine key like every
  * other engine call — the engine rejects any request without it.
  */
-export function getAnalyzeStreamResponse(
+export async function getAnalyzeStreamResponse(
   ctx: TenantContext, lead: ScrapedLeadRaw, signal: AbortSignal,
 ): Promise<Response> {
+  const config = await getConfig(ctx);
   return fetch(`${SIGNAL_ENGINE_URL}/analyze/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...engineHeaders },
-    body: JSON.stringify({ lead, org_id: ctx.orgId }),
+    body: JSON.stringify({ lead, config, org_id: ctx.orgId }),
     signal,
   });
 }

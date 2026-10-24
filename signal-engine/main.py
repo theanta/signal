@@ -25,7 +25,7 @@ from scrapers.job_boards import JobBoardScraper
 from scrapers.local_business import LocalBusinessScraper
 from analyzers.signal_detector import SignalDetector
 from scoring.lead_scorer import LeadScorer
-from analyzers.pain_point_analyzer import PainPointAnalyzer
+from analyzers.pain_point_analyzer import AgencyProfile, PainPointAnalyzer
 from classifiers.industry_classifier import IndustryClassifier
 from enrichment.website_verifier import verify_website
 from enrichment.tech_stack_detector import detect_tech_stack, infer_gaps
@@ -39,7 +39,7 @@ from jobstore import ActiveRunExists, ScrapeCapReached, TERMINAL_STATUSES, get_s
 
 # ============================================================
 # ENTERPRISE DISQUALIFICATION
-# Companies too large for ANTA's SMB target market.
+# Companies too large to be a small or mid-sized agency's client.
 # Matched after stripping common legal suffixes (Inc, LLC, Corp…).
 # ============================================================
 
@@ -54,7 +54,7 @@ ENTERPRISE_BRANDS: frozenset[str] = frozenset([
     "ibm", "intel", "cisco", "dell", "hp", "hewlett packard", "nvidia",
     "qualcomm", "broadcom", "amd", "texas instruments",
     "salesforce", "sap", "servicenow", "workday", "snowflake", "palantir",
-    # Michigan auto
+    # Automotive
     "general motors", "ford", "stellantis", "chrysler", "fiat chrysler",
     "toyota", "honda", "hyundai", "kia", "bmw", "mercedes", "volkswagen",
     # Defense / industrial
@@ -85,10 +85,10 @@ ENTERPRISE_BRANDS: frozenset[str] = frozenset([
 def _is_enterprise_company(company_name: str, company_size: str | None) -> tuple[bool, str]:
     """Return (True, reason) when a lead should be disqualified as enterprise."""
     if (company_size or "").lower() == "1000+":
-        return True, "company size is 1,000+ employees — outside ANTA's SMB target market"
+        return True, "company size is 1,000+ employees — outside the SMB target market"
     normalized = _CORP_SUFFIX_RE.sub("", company_name.lower()).strip()
     if normalized in ENTERPRISE_BRANDS:
-        return True, f"{company_name} is a known enterprise company — outside ANTA's SMB target market"
+        return True, f"{company_name} is a known enterprise company — outside the SMB target market"
     return False, ""
 
 
@@ -166,21 +166,37 @@ class RawLead(BaseModel):
 
 
 class PlatformConfig(BaseModel):
-    agency_name: str = "ANTA"
-    agency_location: str = "Detroit, Michigan"
+    """The tenant's settings, sent by the backend on every call. No field
+    defaults to any one agency: an unset value is empty, not ANTA's."""
+    agency_name: str
+    agency_location: str = ""
+    agency_tagline: str = ""
     services: list[str] = []
-    outreach_tone: str = "intelligent, consultative, NOT salesy"
-    cta_style: str = "15-min call"
-    sign_off: str = "ANTA Team"
-    target_locations: list[str] = ["Detroit", "Michigan", "MI", "Dearborn", "Warren", "Troy", "Ann Arbor", "Livonia", "Sterling Heights"]
-    target_company_sizes: list[str] = ["11-50", "51-200", "201-500"]
+    outreach_tone: str = ""
+    cta_style: str = ""
+    sign_off: str = ""
+    target_locations: list[str] = []
+    target_company_sizes: list[str] = []
     target_industries: list[str] = []
+    # Hiring roles that signal a need for the agency's services. Empty means
+    # the generic defaults in scrapers/targeting.py.
+    target_roles: list[str] = []
     active_sources: list[str] = ["linkedin", "crunchbase", "job_board", "local_business"]
+
+    def agency(self) -> AgencyProfile:
+        return AgencyProfile(
+            name=self.agency_name,
+            location=self.agency_location,
+            tagline=self.agency_tagline,
+            services=tuple(self.services),
+        )
 
 
 class AnalysisRequest(BaseModel):
     lead: RawLead
-    config: Optional[PlatformConfig] = None
+    # Required: the analysis is written for this agency (its name, services
+    # and target market), and there is no one agency to default to.
+    config: PlatformConfig
     # Required, and a UUID: the engine holds the service-role key and can write
     # into any org, so it never picks one. An authenticated backend supplies it.
     org_id: UUID
@@ -188,7 +204,8 @@ class AnalysisRequest(BaseModel):
 
 class ScrapeRequest(BaseModel):
     sources: list[str] = ["linkedin", "crunchbase", "job_board", "local_business"]
-    config: Optional[PlatformConfig] = None
+    # Required: every scraper's geography and roles come from it.
+    config: PlatformConfig
     org_id: UUID
 
 
@@ -207,7 +224,7 @@ def health():
 
 async def _analyze_lead_core(
     lead: RawLead,
-    config: Optional[PlatformConfig],
+    config: PlatformConfig,
     # Present so that any persistence added here inherits the caller's org
     # rather than reaching for a global default.
     org_id: str,
@@ -238,7 +255,7 @@ async def _analyze_lead_core(
             "likely_pain_points": [],
             "recommended_anta_service": "N/A — Enterprise",
             "outreach_angle": "",
-            "operational_maturity": "N/A — Enterprise company, not ANTA's target market",
+            "operational_maturity": "N/A — Enterprise company, outside the target market",
             "growth_indicators": [],
             "digital_maturity_score": 10,
             "signal_type": "disqualified",
@@ -257,10 +274,10 @@ async def _analyze_lead_core(
         })
         return
 
-    target_locations = config.target_locations if config else None
+    target_locations = config.target_locations
     detector = SignalDetector(target_locations=target_locations)
     scorer = LeadScorer(target_locations=target_locations)
-    pain_analyzer = PainPointAnalyzer()
+    pain_analyzer = PainPointAnalyzer(config.agency())
     classifier = IndustryClassifier()
 
     # ---- Step 1: Parallel enrichment ----
@@ -460,13 +477,17 @@ async def trigger_scrape(request: ScrapeRequest, background_tasks: BackgroundTas
     # this call (e.g. a cron job's cadence-specific list) AND currently toggled
     # on in Settings — so a per-cadence trigger can't run a source the user disabled.
     cfg = request.config
-    effective_sources = (
-        [s for s in request.sources if s in cfg.active_sources] if cfg else request.sources
-    )
+    if not cfg.target_locations:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "not_configured",
+                    "message": "Set target locations in Settings before scraping."},
+        )
+    effective_sources = [s for s in request.sources if s in cfg.active_sources]
 
     try:
         job_id = await asyncio.to_thread(
-            get_store().create_run, org_id, effective_sources, cfg.model_dump() if cfg else {},
+            get_store().create_run, org_id, effective_sources, cfg.model_dump(),
         )
     except ActiveRunExists:
         raise HTTPException(
@@ -588,7 +609,7 @@ async def stream_scrape_job(
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
-async def run_scrape_job(job_id: str, org_id: str, sources: list[str], cfg: Optional[PlatformConfig] = None):
+async def run_scrape_job(job_id: str, org_id: str, sources: list[str], cfg: PlatformConfig):
     """Background task: runs all scrapers, saves leads, and writes scraping_logs rows.
 
     Runs with the service-role key, which can write into any org — so every
@@ -624,18 +645,15 @@ async def _heartbeat_loop(job_id: str, org_id: str) -> None:
 
 
 async def _run_scrape_job_body(job_id: str, org_id: str, sources: list[str],
-                               cfg: Optional[PlatformConfig], supabase) -> None:
-    target_locations = cfg.target_locations if cfg else None
-    target_industries = cfg.target_industries if cfg else None
-    agency_location = cfg.agency_location if cfg else None
-
+                               cfg: PlatformConfig, supabase) -> None:
     scrapers = {
-        "linkedin": LinkedInJobsScraper(target_locations=target_locations),
-        "crunchbase": CrunchbaseScraper(),
-        "job_board": JobBoardScraper(target_locations=target_locations, agency_location=agency_location),
+        "linkedin": LinkedInJobsScraper(target_locations=cfg.target_locations, target_roles=cfg.target_roles),
+        "crunchbase": CrunchbaseScraper(target_locations=cfg.target_locations,
+                                        target_industries=cfg.target_industries),
+        "job_board": JobBoardScraper(target_locations=cfg.target_locations, target_roles=cfg.target_roles),
         "local_business": LocalBusinessScraper(
-            target_locations=target_locations,
-            target_industries=target_industries,
+            target_locations=cfg.target_locations,
+            target_industries=cfg.target_industries,
         ),
     }
 

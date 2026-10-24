@@ -101,7 +101,7 @@ export default function NewLeadPage() {
                 <label className="block text-xs text-muted mb-1">Location</label>
                 <input
                   className="input w-full"
-                  placeholder="Detroit, MI"
+                  placeholder="e.g. Austin, TX"
                   value={form.location ?? ''}
                   onChange={e => set('location', e.target.value)}
                 />

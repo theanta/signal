@@ -15,6 +15,10 @@ const router = Router();
 // ---- Job state ----
 const jobs: Record<string, cron.ScheduledTask> = {};
 
+// One schedule for every tenant, in this time zone. Per-tenant schedules
+// (each agency's own morning) are not built yet.
+const CRON_TIMEZONE = process.env.CRON_TIMEZONE ?? 'America/Detroit';
+
 // ---- Initialize cron jobs ----
 export function initCronJobs(): void {
   const scrapeSchedule = process.env.CRON_DAILY_SCRAPE ?? '0 6 * * *';
@@ -22,10 +26,10 @@ export function initCronJobs(): void {
   const outreachSchedule = process.env.CRON_GENERATE_OUTREACH ?? '0 8 * * *';
   const biweeklySchedule = process.env.CRON_BIWEEKLY_SCRAPE ?? '0 6 1,15 * *';
 
-  jobs['daily_scrape'] = cron.schedule(scrapeSchedule, () => runDailyScrape('scheduled').catch(console.error), { timezone: 'America/Detroit' });
-  jobs['analyze_leads'] = cron.schedule(analyzeSchedule, () => runLeadAnalysis('scheduled').catch(console.error), { timezone: 'America/Detroit' });
-  jobs['generate_outreach'] = cron.schedule(outreachSchedule, () => runOutreachGeneration('scheduled').catch(console.error), { timezone: 'America/Detroit' });
-  jobs['biweekly_scrape'] = cron.schedule(biweeklySchedule, () => runBiweeklyScrape('scheduled').catch(console.error), { timezone: 'America/Detroit' });
+  jobs['daily_scrape'] = cron.schedule(scrapeSchedule, () => runDailyScrape('scheduled').catch(console.error), { timezone: CRON_TIMEZONE });
+  jobs['analyze_leads'] = cron.schedule(analyzeSchedule, () => runLeadAnalysis('scheduled').catch(console.error), { timezone: CRON_TIMEZONE });
+  jobs['generate_outreach'] = cron.schedule(outreachSchedule, () => runOutreachGeneration('scheduled').catch(console.error), { timezone: CRON_TIMEZONE });
+  jobs['biweekly_scrape'] = cron.schedule(biweeklySchedule, () => runBiweeklyScrape('scheduled').catch(console.error), { timezone: CRON_TIMEZONE });
   jobs['signal_engine_ping'] = cron.schedule('*/14 * * * *', pingSignalEngine);
 
   console.log('[CRON] Jobs initialized:', Object.keys(jobs).join(', '));

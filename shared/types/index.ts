@@ -304,28 +304,29 @@ export interface PlatformConfig {
   target_locations: string[];
   target_company_sizes: string[];
   target_industries: string[];
+  // Hiring roles that signal a need for the agency's services. Empty means
+  // the engine's generic defaults.
+  target_roles: string[];
   active_sources: string[];
 }
 
+// What a tenant has before it fills in Settings. Deliberately no agency's
+// identity or market: getConfig merges a tenant's saved row over this, and any
+// key the tenant has not set must come out empty, not as ANTA's value. ANTA's
+// own settings live in backend/scripts/anta-config.ts.
 export const DEFAULT_PLATFORM_CONFIG: PlatformConfig = {
-  agency_name: 'ANTA',
-  agency_location: 'Detroit, Michigan',
+  agency_name: '',
+  agency_location: '',
   agency_website: '',
-  agency_tagline: 'Software consultancy specializing in operational modernization',
-  services: [
-    'SaaS development and React/Next.js systems',
-    'AI automation systems and intelligent workflows',
-    'Operational dashboards and internal tools',
-    'CRM systems and AI-powered operational software',
-    'Startup MVP development',
-    'Workflow automation and process optimization',
-  ],
-  outreach_tone: 'intelligent, consultative, NOT salesy, operationally focused',
+  agency_tagline: '',
+  services: [],
+  outreach_tone: 'consultative and specific, not salesy',
   cta_style: '15-min call',
-  sign_off: 'ANTA Team',
-  target_locations: ['Detroit', 'Michigan', 'MI', 'Dearborn', 'Warren', 'Troy', 'Ann Arbor', 'Livonia', 'Sterling Heights'],
+  sign_off: '',
+  target_locations: [],
   target_company_sizes: ['11-50', '51-200', '201-500'],
   target_industries: [],
+  target_roles: [],
   active_sources: ['linkedin', 'crunchbase', 'job_board', 'local_business'],
 };
 

@@ -14,9 +14,11 @@ afterAll(async () => {
   await closePool();
 });
 
-it('returns defaults for an org with no config row', async () => {
+it('returns neutral defaults for an org with no config row — never ANTA’s', async () => {
   const cfg = await getConfig(orgs.a.ctx);
-  expect(cfg.agency_name).toBe('ANTA');
+  expect(cfg.agency_name).toBe('');
+  expect(cfg.target_locations).toEqual([]);
+  expect(cfg.services).toEqual([]);
 });
 
 it('saving for org A does not change org B', async () => {

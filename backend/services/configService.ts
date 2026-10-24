@@ -22,8 +22,8 @@ export async function getConfig(ctx: TenantContext): Promise<PlatformConfig> {
   if (error) throw new Error(`Config load failed: ${error.message}`);
 
   if (!data) {
-    // A newly onboarded org may have no row yet. Defaults keep the app usable
-    // until create-org.ts or the settings page writes one.
+    // A newly onboarded org may have no row yet. The neutral defaults keep
+    // the app usable until create-org.ts or the settings page writes one.
     return { ...DEFAULT_PLATFORM_CONFIG };
   }
 

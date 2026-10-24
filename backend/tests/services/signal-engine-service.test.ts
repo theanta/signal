@@ -1,5 +1,10 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import axios from 'axios';
 import type { TenantContext } from '../../services/tenantContext';
+import type { PlatformConfig, ScrapedLeadRaw } from '../../../shared/types';
+
+const TENANT_CONFIG = { agency_name: 'Harbor Growth Partners', target_locations: ['Austin'] } as PlatformConfig;
+vi.mock('../../services/configService', () => ({ getConfig: vi.fn(async () => TENANT_CONFIG) }));
 
 // The engine client reads ENGINE_API_KEY at import, so set it first.
 process.env.ENGINE_API_KEY = process.env.ENGINE_API_KEY || 'test-engine-key';
@@ -42,5 +47,23 @@ describe('getScrapeStreamResponse', () => {
     await engine.getScrapeStreamResponse(ctx, 'run-1', new AbortController().signal);
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(init.headers as Record<string, string>).not.toHaveProperty('Last-Event-ID');
+  });
+});
+
+describe('analysis calls carry the tenant’s config', () => {
+  const lead = { company_name: 'Acme' } as ScrapedLeadRaw;
+
+  it('analyzeLeadSignals sends config and org', async () => {
+    const post = vi.spyOn(axios, 'post').mockResolvedValue({ data: {} });
+    await engine.analyzeLeadSignals(ctx, lead);
+    expect(post.mock.calls[0][1]).toEqual({ lead, config: TENANT_CONFIG, org_id: ctx.orgId });
+    post.mockRestore();
+  });
+
+  it('getAnalyzeStreamResponse sends config and org', async () => {
+    const fetchMock = captureFetch();
+    await engine.getAnalyzeStreamResponse(ctx, lead, new AbortController().signal);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ lead, config: TENANT_CONFIG, org_id: ctx.orgId });
   });
 });

@@ -4,7 +4,7 @@ import asyncio
 import json
 
 import main
-from tests.conftest import VALID_KEY
+from tests.conftest import VALID_KEY, TEST_CONFIG, tenant_config
 
 ORG_A = "11111111-1111-1111-1111-111111111111"
 ORG_B = "22222222-2222-2222-2222-222222222222"
@@ -12,7 +12,7 @@ H = {"X-Engine-Key": VALID_KEY}
 
 
 def _start(client, org, monkeypatch=None):
-    return client.post("/scrape", headers=H, json={"sources": ["job_board"], "org_id": org})
+    return client.post("/scrape", headers=H, json={"sources": ["job_board"], "org_id": org, "config": TEST_CONFIG})
 
 
 def _no_background(monkeypatch):
@@ -97,7 +97,7 @@ def test_run_scrape_job_records_progress_and_finishes(store, monkeypatch):
     monkeypatch.setattr(main, "JobBoardScraper", _Fake)
     monkeypatch.setattr("supabase.create_client", lambda *_a, **_k: _NullDb())
     run_id = store.create_run(ORG_A, ["job_board"], {})
-    asyncio.run(main.run_scrape_job(run_id, ORG_A, ["job_board"]))
+    asyncio.run(main.run_scrape_job(run_id, ORG_A, ["job_board"], tenant_config()))
 
     run = store.get_run(run_id, ORG_A)
     assert run["status"] == "failed"

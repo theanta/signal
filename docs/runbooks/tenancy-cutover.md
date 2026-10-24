@@ -52,9 +52,9 @@ pre-tenancy data.
      "ANTA" anta <your@email> "<Your Name>" "ANTA"
    ```
 
-   Then set ANTA's own settings (target locations, services, sign-off) from
-   the Settings page after logging in — `create-org` starts every tenant from
-   the defaults with only the agency name changed.
+   The `anta` slug starts with ANTA's own settings (Detroit-area targets,
+   services, sign-off; see `backend/scripts/anta-config.ts`). Check them on
+   the Settings page after logging in.
 
 4. Point the Render services at the new project, deploy the engine and the
    backend, and run the smoke test below.
@@ -193,6 +193,10 @@ failed run leaves nothing to clean up.
 
 Send the credentials over a secure channel, then confirm the partner can log
 in and sees an empty dashboard and their own agency name in Settings — not
-ANTA's. Have them set their target locations, services and sign-off in
-Settings before the first scheduled scrape (06:00 America/Detroit), or it
-will run with the default targets.
+ANTA's. A new partner starts with neutral settings: no services, no target
+locations, no hiring roles. Scraping is refused (manual: "Set target locations
+in Settings before scraping"; scheduled: a failed run in the activity log)
+until they set target locations, and their analysis and outreach describe
+them only through what they write in Settings. Have them fill in agency
+details, services, target locations, industries and hiring roles before the
+first scheduled scrape (06:00 in `CRON_TIMEZONE`, default America/Detroit).

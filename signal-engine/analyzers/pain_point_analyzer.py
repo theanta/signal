@@ -1,5 +1,8 @@
 """
-Analyze operational pain points and map to ANTA services.
+Analyze a lead's operational pain points and map them to the services of the
+agency doing the prospecting. The agency is the tenant: its name, location,
+tagline and services come from its platform_config, never from this file.
+
 Uses Groq (Llama 3.3-70B) to synthesize evidence from scraped company data.
 Falls back to rule-based analysis when Groq is unavailable or rate-limited.
 """
@@ -10,29 +13,44 @@ import logging
 import metering
 import os
 import re
+from dataclasses import dataclass
 from typing import Tuple
 
 from pydantic import BaseModel, field_validator, ValidationError
 
 logger = logging.getLogger(__name__)
 
-ANTA_SERVICES = [
-    "AI Automation Systems",
-    "SaaS Development",
-    "Operational Dashboard",
-    "Workflow Automation",
-    "Custom Internal Tools",
-    "CRM System",
-    "Startup MVP Development",
-    "React/Next.js Frontend Modernization",
+@dataclass(frozen=True)
+class AgencyProfile:
+    """The tenant doing the prospecting, as its Settings describe it."""
+    name: str
+    location: str = ""
+    tagline: str = ""
+    services: tuple[str, ...] = ()
+
+
+# Ways a vendor-type lead (one that itself sells technology) can work with the
+# agency. Generic on purpose: the agency's own services are listed separately.
+PARTNERSHIP_ENGAGEMENTS = [
+    "Delivery Partnership",
+    "Project Outsourcing",
+    "White-label Delivery",
+    "Subcontracting",
 ]
 
-ANTA_PARTNERSHIP_SERVICES = [
-    "Development Partnership",
-    "Project Outsourcing",
-    "White-label Development",
-    "AI Feature Subcontracting",
-]
+
+def _agency_intro(agency: AgencyProfile) -> str:
+    where = f", based in {agency.location}" if agency.location else ""
+    what = f" ({agency.tagline})" if agency.tagline else ""
+    return f"You are a B2B analyst for {agency.name}{where}{what}."
+
+
+def _services_block(agency: AgencyProfile) -> str:
+    if agency.services:
+        services_list = "\n".join(f"- {s}" for s in agency.services)
+        return f"{agency.name} services (pick exactly one as recommended_service):\n{services_list}"
+    return (f"{agency.name} has not listed its services. For recommended_service, name in a few "
+            f"words the single service {agency.name} could most credibly offer this company.")
 
 _GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 _MODEL = "llama-3.3-70b-versatile"
@@ -60,6 +78,7 @@ class _PainPointResponse(BaseModel):
 
 
 def _build_prompt(
+    agency: AgencyProfile,
     company_name: str,
     industry: str,
     location: str,
@@ -72,12 +91,9 @@ def _build_prompt(
     stack_str = ", ".join(tech_stack) if tech_stack else "none detected"
     content_str = website_content.strip() if website_content else "not available"
 
-    services_list = "\n".join(f"- {s}" for s in ANTA_SERVICES)
+    return f"""{_agency_intro(agency)}
 
-    return f"""You are a B2B analyst for ANTA, a Detroit-based software agency that builds custom operational software for SMBs.
-
-ANTA services (pick exactly one as recommended_service):
-{services_list}
+{_services_block(agency)}
 
 Evidence observed about this lead:
 - Company: {company_name}
@@ -104,6 +120,7 @@ Return only a valid JSON object with exactly these keys: pain_points (array of s
 
 
 def _build_partnership_prompt(
+    agency: AgencyProfile,
     company_name: str,
     industry: str,
     location: str,
@@ -115,14 +132,15 @@ def _build_partnership_prompt(
 ) -> str:
     stack_str = ", ".join(tech_stack) if tech_stack else "none detected"
     content_str = website_content.strip() if website_content else "not available"
-    partnership_services = "\n".join(f"- {s}" for s in ANTA_PARTNERSHIP_SERVICES)
+    engagements = "\n".join(f"- {s}" for s in PARTNERSHIP_ENGAGEMENTS)
+    services = ", ".join(agency.services) if agency.services else "not listed"
 
-    return f"""You are a B2B analyst for ANTA, a Detroit-based software agency specialising in React/Next.js, AI automation, and custom operational tools.
+    return f"""{_agency_intro(agency)} {agency.name}'s services: {services}.
 
-ANTA is evaluating {company_name} as a potential PARTNER or OUTSOURCING client — NOT as a software buyer. This company is in {industry}, meaning they build or sell technology themselves. ANTA is looking for opportunities to collaborate: subcontracting overflow work, white-label development, or joint delivery on client projects.
+{agency.name} is evaluating {company_name} as a potential PARTNER or OUTSOURCING client — NOT as a buyer. This company is in {industry}, meaning they build or sell technology themselves. {agency.name} is looking for opportunities to collaborate: subcontracting overflow work, white-label delivery, or joint delivery on client projects.
 
-Partnership engagement types ANTA can offer (pick the best fit as recommended_service):
-{partnership_services}
+Partnership engagement types {agency.name} can offer (pick the best fit as recommended_service):
+{engagements}
 
 Evidence observed:
 - Company: {company_name}
@@ -136,7 +154,7 @@ Evidence observed:
 {content_str}
 
 Your task:
-1. Identify up to 3 partnership opportunity signals — specific observations that suggest this company has overflow dev work, capability gaps ANTA can fill, or project outsourcing needs. Ground each in the evidence (e.g. hiring contractors = variable load, specific tech in job posting ANTA specialises in, service areas that require dev partners).
+1. Identify up to 3 partnership opportunity signals — specific observations that suggest this company has overflow dev work, capability gaps {agency.name} can fill, or project outsourcing needs. Ground each in the evidence (e.g. hiring contractors = variable load, specific needs in the job posting that match {agency.name}'s services, service areas that require dev partners).
 2. Pick the single best partnership engagement type from the list above.
 3. Write a 2-3 sentence outreach angle framed as a partnership pitch — reference specific signals observed. The tone should be peer-to-peer ("collaborate", "partner", "support your pipeline"), NOT a sales pitch.
 
@@ -187,7 +205,6 @@ _INDUSTRY_FALLBACK: dict[str, dict] = {
             "Disconnected ERP from shop floor data",
         ],
         "service": "Operational Dashboard",
-        "angle": "ANTA builds operational dashboards that give manufacturing teams real-time visibility into production and inventory.",
     },
     "logistics": {
         "pain_points": [
@@ -196,7 +213,6 @@ _INDUSTRY_FALLBACK: dict[str, dict] = {
             "Paper-based proof of delivery",
         ],
         "service": "Operational Dashboard",
-        "angle": "ANTA builds logistics ops platforms — route optimization, shipment tracking, driver portals.",
     },
     "healthcare": {
         "pain_points": [
@@ -205,7 +221,6 @@ _INDUSTRY_FALLBACK: dict[str, dict] = {
             "Disconnected billing and care workflows",
         ],
         "service": "Workflow Automation",
-        "angle": "ANTA builds healthcare ops tools that reduce administrative burden through digital intake and scheduling.",
     },
     "legal": {
         "pain_points": [
@@ -214,7 +229,6 @@ _INDUSTRY_FALLBACK: dict[str, dict] = {
             "No client portal",
         ],
         "service": "Custom Internal Tools",
-        "angle": "ANTA builds legal ops tools — case management, client portals, document workflows.",
     },
     "staffing": {
         "pain_points": [
@@ -223,7 +237,6 @@ _INDUSTRY_FALLBACK: dict[str, dict] = {
             "Manual client reporting",
         ],
         "service": "CRM System",
-        "angle": "ANTA builds staffing CRMs that automate candidate tracking and placement coordination.",
     },
     "saas": {
         "pain_points": [
@@ -232,7 +245,6 @@ _INDUSTRY_FALLBACK: dict[str, dict] = {
             "Needs AI feature integration",
         ],
         "service": "SaaS Development",
-        "angle": "ANTA helps SaaS founders move fast — from MVP to scalable product architecture.",
     },
 }
 
@@ -252,11 +264,18 @@ _DEFAULT_FALLBACK = {
         "Scaling without software infrastructure",
     ],
     "service": "Workflow Automation",
-    "angle": "ANTA builds the operational software layer your business needs to scale.",
 }
 
 
+def _same_area(agency_location: str, lead_location: str) -> bool:
+    """True when the lead is in the agency's own city or state/region."""
+    lead = lead_location.lower()
+    parts = [p.strip().lower() for p in agency_location.split(",") if len(p.strip()) > 2]
+    return bool(lead) and any(part in lead for part in parts)
+
+
 def _fallback_analyze(
+    agency: AgencyProfile,
     industry: str,
     hiring_signal: str,
     job_title: str,
@@ -272,7 +291,6 @@ def _fallback_analyze(
 
     pain_points = list(data["pain_points"])
     service = data["service"]
-    angle = data["angle"]
 
     for pattern, pain, svc in _JOB_SIGNAL_FALLBACK:
         if re.search(pattern, text, re.IGNORECASE):
@@ -281,8 +299,15 @@ def _fallback_analyze(
             service = svc
             break
 
-    if any(loc in location.lower() for loc in ["detroit", "michigan", "dearborn", "warren"]):
-        angle = f"As Detroit-based engineers, ANTA understands Michigan business operations. {angle}"
+    # Recommend only what this agency sells: the generic suggestion when it is
+    # on the agency's list, otherwise the agency's first listed service.
+    if agency.services and service not in agency.services:
+        service = agency.services[0]
+
+    angle = (f"{pain_points[0]} is a common gap for {industry or 'growing'} teams, "
+             f"and {service} from {agency.name} is built to close it.")
+    if agency.location and _same_area(agency.location, location):
+        angle = f"As a {agency.location}-based team, {agency.name} knows the local market. {angle}"
 
     return pain_points[:4], service, angle
 
@@ -292,6 +317,9 @@ def _fallback_analyze(
 # ============================================================
 
 class PainPointAnalyzer:
+    def __init__(self, agency: AgencyProfile):
+        self.agency = agency
+
     def analyze(
         self,
         industry: str,
@@ -311,6 +339,7 @@ class PainPointAnalyzer:
             prompt = (
                 _build_partnership_prompt if is_vendor_company else _build_prompt
             )(
+                agency=self.agency,
                 company_name=company_name,
                 industry=industry,
                 location=location,
@@ -331,9 +360,9 @@ class PainPointAnalyzer:
         if is_vendor_company:
             return (
                 ["Hiring contract developers signals variable project load"],
-                "Development Partnership",
-                "ANTA specialises in React/Next.js and AI — we can support your client delivery pipeline as a development partner.",
+                "Delivery Partnership",
+                f"{self.agency.name} can support your delivery pipeline as a partner when demand outruns your team.",
             )
 
         logger.info("[PainPointAnalyzer] Using rule-based fallback")
-        return _fallback_analyze(industry, hiring_signal, job_title, location)
+        return _fallback_analyze(self.agency, industry, hiring_signal, job_title, location)

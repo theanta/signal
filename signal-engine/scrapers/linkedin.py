@@ -2,45 +2,44 @@
 
 import logging
 from .apify_base import ApifyBaseScraper
+from .targeting import hiring_roles, search_locations
 
 logger = logging.getLogger(__name__)
 
 # bebity/linkedin-jobs-scraper required a $15/month rental; worldunboxer is free
 LINKEDIN_ACTOR = "worldunboxer/rapid-linkedin-scraper"
 
-# Roles that signal either operational pain or active tech build
-TARGET_ROLES = [
-    "software engineer",
-    "frontend developer",
-    "react developer",
-    "full stack developer",
-    "operations manager",
-    "operations coordinator",
-    "backend engineer",
-]
-
-
 class LinkedInJobsScraper(ApifyBaseScraper):
     """
-    Pulls LinkedIn job postings via Apify.
-    Location-filtered to Michigan and date-filtered to last 24 hours.
+    Pulls LinkedIn job postings via Apify for the tenant's hiring roles, in
+    up to two of its target locations, posted in the last 24 hours.
     """
 
-    def __init__(self, target_locations: list[str] | None = None, **kwargs):
+    # Split across the locations searched, so the Apify cost of a run does not
+    # grow with the number of locations.
+    TOTAL_LIMIT = 50
+
+    def __init__(self, target_locations: list[str] | None = None,
+                 target_roles: list[str] | None = None, **kwargs):
         super().__init__(**kwargs)
-        locs = target_locations or ["Michigan, United States"]
-        self.location = locs[0]
+        self.locations = search_locations(target_locations)
+        self.roles = hiring_roles(target_roles, limit=7)
 
     def scrape(self) -> list[dict]:
+        if not self.locations:
+            raise RuntimeError("No target locations configured — set them in Settings")
+        per_location = max(1, self.TOTAL_LIMIT // len(self.locations))
         # Let actor failures propagate — the caller (main.py) records them as a
         # real "failed" status instead of us silently reporting "0 leads found".
-        items = self._run_actor(LINKEDIN_ACTOR, {
-            "keywords": TARGET_ROLES,
-            "location": self.location,
-            # r86400 = LinkedIn's native filter code for "past 24 hours"
-            "datePosted": "r86400",
-            "limit": 50,
-        })
+        items = []
+        for location in self.locations:
+            items.extend(self._run_actor(LINKEDIN_ACTOR, {
+                "keywords": self.roles,
+                "location": location,
+                # r86400 = LinkedIn's native filter code for "past 24 hours"
+                "datePosted": "r86400",
+                "limit": per_location,
+            }))
 
         leads = []
         for item in items:

@@ -220,14 +220,14 @@ export default function SettingsPage() {
                   <TextInput
                     value={draft.agency_name}
                     onChange={v => patch({ agency_name: v })}
-                    placeholder="ANTA"
+                    placeholder="e.g. Harbor Growth Partners"
                   />
                 </Field>
                 <Field label="Location">
                   <TextInput
                     value={draft.agency_location}
                     onChange={v => patch({ agency_location: v })}
-                    placeholder="Detroit, Michigan"
+                    placeholder="e.g. Austin, Texas"
                   />
                 </Field>
                 <Field label="Website">
@@ -282,7 +282,7 @@ export default function SettingsPage() {
                   <TextInput
                     value={draft.sign_off}
                     onChange={v => patch({ sign_off: v })}
-                    placeholder="e.g. ANTA Team"
+                    placeholder="e.g. The Harbor Team"
                   />
                   <p className="text-xs text-muted mt-1">How emails are signed off.</p>
                 </Field>
@@ -316,9 +316,26 @@ export default function SettingsPage() {
                 <div className="pt-1 border-t border-hairline">
                   <p className="text-xs text-muted">
                     Leads matching any of these locations get a +5 score bonus and higher confidence signal.
-                    Scrapers use the first two locations as their primary search geography.
+                    Scrapers search the first two full place names (abbreviations like &quot;TX&quot; are used
+                    only when nothing longer is listed). Scraping is paused until at least one is set.
                   </p>
                 </div>
+              </div>
+
+              <div>
+                <h2 className="text-sm font-medium text-ink mb-0.5">Hiring Signals</h2>
+                <p className="text-xs text-muted">
+                  Job titles whose postings suggest a company needs what you sell. LinkedIn and Indeed search for these.
+                </p>
+              </div>
+              <div className="card p-5 space-y-4">
+                <TagList
+                  label="Hiring Roles"
+                  values={draft.target_roles ?? []}
+                  onChange={v => patch({ target_roles: v })}
+                  placeholder="e.g. marketing coordinator, operations manager"
+                />
+                <p className="text-xs text-muted">Leave empty to search a general set of operations and engineering roles.</p>
               </div>
             </section>
           )}

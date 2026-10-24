@@ -22,6 +22,21 @@ from tests.fake_store import FakeStore
 
 VALID_KEY = os.environ["ENGINE_API_KEY"]
 
+# A non-ANTA tenant, so a test that passes only with ANTA's values fails.
+TEST_CONFIG = {
+    "agency_name": "Harbor Growth Partners",
+    "agency_location": "Austin, Texas",
+    "services": ["Paid Social Campaigns", "Marketing Automation"],
+    "target_locations": ["Austin", "Texas", "TX"],
+    "target_industries": ["dental clinics"],
+    "target_roles": ["marketing coordinator"],
+    "active_sources": ["linkedin", "crunchbase", "job_board", "local_business"],
+}
+
+
+def tenant_config():
+    return main.PlatformConfig(**TEST_CONFIG)
+
 
 @pytest.fixture
 def client() -> TestClient:

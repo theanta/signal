@@ -1,4 +1,4 @@
-"""Lead scoring engine - scores 0-100 based on ANTA opportunity signals."""
+"""Lead scoring engine - scores 0-100 based on the opportunity signals a lead shows."""
 
 import re
 
@@ -37,10 +37,8 @@ GROWTH_SIGNALS = [
     r"just launched|recently launched|product hunt",
 ]
 
-DEFAULT_GEO_BONUS = [
-    "detroit", "michigan", "mi", "dearborn", "warren", "troy", "ann arbor",
-    "livonia", "sterling heights", "grand rapids", "lansing",
-]
+# The geo bonus applies to the tenant's target_locations; with none, no bonus.
+DEFAULT_GEO_BONUS: list[str] = []
 
 
 class LeadScorer:
@@ -137,7 +135,7 @@ class LeadScorer:
         # ---- Rationale ----
         rationale_parts = []
         if company_size_score >= 18:
-            rationale_parts.append(f"company size ({company_size}) is in ANTA's ideal range")
+            rationale_parts.append(f"company size ({company_size}) is in the target range")
         if hiring_urgency_score >= 20:
             rationale_parts.append("high-urgency hiring signal detected")
         if complexity_score >= 20:

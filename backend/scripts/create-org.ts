@@ -1,6 +1,8 @@
 import bcrypt from 'bcryptjs';
 import { supabaseAdmin } from '../services/supabaseAdmin';
 import { DEFAULT_PLATFORM_CONFIG } from '../../shared/types';
+import type { PlatformConfig } from '../../shared/types';
+import { ANTA_PLATFORM_CONFIG } from './anta-config';
 
 export interface CreateOrgInput {
   name: string;
@@ -33,6 +35,16 @@ const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
  * tenant (an org with no admin, or an admin with no config and therefore
  * ANTA's identity) is worse than none.
  */
+/**
+ * A new tenant's first config. ANTA keeps its own settings through the
+ * cutover; every other tenant starts neutral, under its own name, and fills in
+ * Settings (scraping waits until it sets target locations).
+ */
+export function initialConfig(slug: string, agencyName: string): PlatformConfig {
+  const base = slug === 'anta' ? ANTA_PLATFORM_CONFIG : DEFAULT_PLATFORM_CONFIG;
+  return { ...base, agency_name: agencyName };
+}
+
 export async function createOrg(input: CreateOrgInput): Promise<CreateOrgResult> {
   if (input.adminPassword.length < MIN_PASSWORD_LENGTH) {
     throw new Error(`Admin password must be at least ${MIN_PASSWORD_LENGTH} characters`);
@@ -90,13 +102,13 @@ export async function createOrg(input: CreateOrgInput): Promise<CreateOrgResult>
     .from('platform_config')
     .insert({
       org_id: org.id,
-      config: { ...DEFAULT_PLATFORM_CONFIG, agency_name: input.agencyName?.trim() || input.name.trim() },
+      config: initialConfig(input.slug, input.agencyName?.trim() || input.name.trim()),
     });
 
   if (configError) {
-    // Without a config row the partner would log in and get ANTA's defaults —
-    // ANTA's name on their outreach and ANTA's target locations on their
-    // scrapes. Undo rather than leave that behind.
+    // Without a config row the partner would log in with no agency name at
+    // all, and outreach would go out unsigned. Undo rather than leave that
+    // behind.
     await supabaseAdmin.from('users').delete().eq('id', user.id);
     await supabaseAdmin.from('organizations').delete().eq('id', org.id);
     throw new Error(`Failed to create platform_config: ${configError.message}`);

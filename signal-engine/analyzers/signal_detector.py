@@ -35,7 +35,8 @@ KEYWORD_SIGNAL_MAP = {
 }
 
 
-DEFAULT_GEO_TARGETS = ["detroit", "michigan", "mi", "dearborn", "warren", "troy"]
+# Geo targets are the tenant's target_locations; with none, nothing is in-market.
+DEFAULT_GEO_TARGETS: list[str] = []
 
 
 class SignalDetector:

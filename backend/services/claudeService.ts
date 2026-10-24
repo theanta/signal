@@ -7,19 +7,24 @@ import { recordUsage } from './usageService';
 const client = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const MODEL = process.env.GROQ_MODEL ?? 'llama-3.3-70b-versatile';
 
+// Everything here is the tenant's own Settings. Nothing describes what kind
+// of agency it is beyond what the tenant wrote.
 function buildAgencyContext(config: PlatformConfig): string {
-  const serviceList = config.services.map(s => `- ${s}`).join('\n');
-  const locationList = config.target_locations.slice(0, 5).join(', ');
-  return `
-${config.agency_name} is a ${config.agency_location}-based software consultancy specializing in:
-${serviceList}
-
-${config.agency_name}'s ideal clients are businesses experiencing operational friction: companies still running on spreadsheets,
-outdated systems, manual processes, or who are scaling fast and need software to match their growth.
-
-Target audience: ${locationList} businesses, manufacturers, logistics companies,
-healthcare operations, SaaS startups, and operationally inefficient businesses.
-`;
+  const based = config.agency_location ? `, based in ${config.agency_location}` : '';
+  const what = config.agency_tagline ? ` — ${config.agency_tagline}` : '';
+  const services = config.services.length
+    ? `Services:\n${config.services.map(s => `- ${s}`).join('\n')}`
+    : '';
+  const market = [
+    config.target_industries.length ? `industries: ${config.target_industries.join(', ')}` : '',
+    config.target_locations.length ? `locations: ${config.target_locations.slice(0, 5).join(', ')}` : '',
+    config.target_company_sizes.length ? `company sizes: ${config.target_company_sizes.join(', ')}` : '',
+  ].filter(Boolean).join('; ');
+  return [
+    `${config.agency_name}${based}${what}.`,
+    services,
+    market ? `Target market — ${market}.` : '',
+  ].filter(Boolean).join('\n\n');
 }
 
 // The agency identity in every prompt (name, sign-off, tone, services) is the

@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import { afterAll, afterEach, expect, it } from 'vitest';
-import { createOrg } from '../../scripts/create-org';
+import { createOrg, initialConfig } from '../../scripts/create-org';
 import { createTenantContext } from '../../services/tenantContext';
 import { getConfig } from '../../services/configService';
 import { closePool, sql } from '../helpers/db';
@@ -44,6 +44,23 @@ it('creates the org, an admin user and a config row', async () => {
   const cfg = await sql(`SELECT config FROM platform_config WHERE org_id = $1`, [orgId]);
   expect(cfg.rows).toHaveLength(1);
   expect(cfg.rows[0].config.agency_name).toBe('Partner One Consulting');
+});
+
+it('starts a partner from neutral settings, not ANTA’s', async () => {
+  const { orgId } = await createOrg(INPUT);
+  const { rows } = await sql(`SELECT config FROM platform_config WHERE org_id = $1`, [orgId]);
+  const cfg = rows[0].config;
+  expect(cfg.target_locations).toEqual([]);
+  expect(cfg.services).toEqual([]);
+  expect(cfg.sign_off).toBe('');
+  expect(JSON.stringify(cfg)).not.toMatch(/ANTA|Detroit|Michigan/);
+});
+
+it('gives the anta org ANTA’s own settings, so the cutover keeps them', () => {
+  const cfg = initialConfig('anta', 'ANTA');
+  expect(cfg.target_locations).toContain('Detroit');
+  expect(cfg.sign_off).toBe('ANTA Team');
+  expect(initialConfig('anta-lookalike', 'X').target_locations).toEqual([]);
 });
 
 it('leaves the partner seeing their own identity through the real scoped path', async () => {
