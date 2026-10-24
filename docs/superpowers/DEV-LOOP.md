@@ -44,7 +44,13 @@ on the MANUAL list. Baseline before task 2: 215 + 106 passing.
       task 7: the backend's buildAgencyContext also hardcodes "software
       consultancy" and a software-buyer audience, and analyzeLeadSignals
       sends no config to the engine.
-- [ ] 7. Remove ANTA/Michigan hardcoding from the engine
+- [x] 7. Remove ANTA/Michigan hardcoding from the engine — `08be953`
+      Backend 202 + 110 green; engine 64 green; frontend tsc clean. Left
+      for Anadi to decide: the product is still branded ANTA on the login
+      page ("Internal tool · ANTA Software") and the sidebar; the
+      lead_signals column is still named recommended_anta_service (rename
+      is a schema change, no behavior); the cron schedule is one time zone
+      for every tenant.
 - [ ] 8. Cron: parallel orgs, outreach chained to analysis, per-org analysis limit
 - [ ] 9. contact_finder fixes #3, #1, #4, #5, #6
 - [ ] 10. `updateLead` on a foreign or missing id returns 404
