@@ -44,6 +44,11 @@ tenant isolation that does not exist today:
 Self-serve signup, Stripe billing, plan tiers, quota tiers, cost dashboards,
 a real worker pool, RAG ingestion and retrieval, multi-org membership.
 
+**Removed from Signal (decided 2026-10-24):** the job-postings module — remote
+job scraping, apply/caution/skip verdicts and submission tracking. It moves to a
+separate product. Plan 3 removes it; scope is in `docs/superpowers/HANDOFF.md`.
+Hiring-signal lead sources (`linkedin`, `job_board`) are unaffected.
+
 ---
 
 ## Section 1 — Tenancy data model
@@ -306,8 +311,9 @@ force re-login. Trivial at one user; a surprise at fifty.
 | Test suites (all four) | 5 days |
 | Job store + SSE-from-Postgres + reaper | 6 days |
 | Metering floor + scrape cap | 2 days |
+| Remove the job-postings module (added 2026-10-24) | 2 days |
 | `create-org` script + runbook | 1 day |
-| **Total** | **~29 working days ≈ 6 weeks solo** |
+| **Total** | **~31 working days ≈ 6–7 weeks solo** (29 as originally planned) |
 
 Design partner #1 onboards early week 6, not week 4. If week 5 is a hard
 deadline, the compressible items are SSE-from-Postgres (keep the dict for reads

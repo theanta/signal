@@ -33,7 +33,8 @@ migration so RAG is purely additive later. No speculative empty tables.
   (15 of 15). Where the code departs from the plan's text, the commit message
   and "Plan 2 completion" below say why; trust the code.
 - **Runbook:** `docs/runbooks/tenancy-cutover.md` — deploy, rollback, onboarding.
-- Plan 3 is **not yet written**. It is the next step.
+- Plan 3 is **not yet written**. It is the next step. It now also removes the
+  job-postings module — see "Decided 2026-10-24" below.
 
 ## The three plans
 
@@ -41,7 +42,44 @@ migration so RAG is purely additive later. No speculative empty tables.
 |---|---|---|---|
 | 1. Signal engine authentication | Engine rejects unauthenticated calls | 2 | **Complete** |
 | 2. Tenancy foundation | `org_id`, composite FKs, `TenantContext`, RLS, isolation suites | 18 | **Complete** |
-| 3. Job durability + metering | Postgres job store, reaper, usage events, scrape cap | 9 | Not written |
+| 3. Job durability + metering | Postgres job store, reaper, usage events, scrape cap; remove the job-postings module | ~11 | Not written |
+
+## Decided 2026-10-24: the job-postings module leaves Signal
+
+Remote job postings, their apply/caution/skip verdicts and submission tracking
+are a staff-augmentation workflow. They move to a separate product, so Signal
+drops the **whole module** as part of Plan 3 (about 2 extra days). Signal is
+lead generation only.
+
+**Stays:** the `linkedin` and `job_board` lead sources. They read job postings
+only to find companies that are hiring, and emit *leads* (`leads.job_title`,
+"Currently Hiring For"). They never touch the `jobs` table.
+
+**Goes:**
+- Database: `jobs`, `job_signals`, `job_submissions` and anything that depends
+  on them (views, RLS policies, the cutover runbook's rollback table list); the
+  `remote_*` columns on `platform_config`. Change `schema.sql` and add a drop
+  migration, then re-run `schema-parity-check.sh`. The `'remote_jobs'` value of
+  `lead_source` stays: Postgres cannot drop an enum value without rebuilding
+  the type, and nothing will write it.
+- Engine: `scrapers/remote_jobs.py`, `analyzers/job_qualifier.py`,
+  `_persist_job_postings` and the `job_scrapers` branch in `main.py`,
+  `remote_jobs` in the default source lists, `scripts/backfill_job_verdicts.py`,
+  and their tests.
+- Backend: `controllers/jobsController.ts`, the jobs routes, the JOBS section
+  of `supabaseService.ts` (including job→lead conversion),
+  `claudeService.generateJobIntel`, `tests/isolation/jobs.test.ts`, and the job
+  rows in the seed, schema and RLS tests.
+- Frontend: `app/jobs/` (including the 1127-line detail page),
+  `components/jobs/`, `ApplyWorthyJobsWidget`, the Remote Jobs source and
+  `remote_*` fields in Settings, and the job types in `shared/types`.
+
+If the cutover runs before Plan 3, production is built with these tables and
+the drop migration removes them later. No partner data is at stake, because
+nothing in the product will write them.
+
+Plan 3's "jobs" (`scrape_jobs`, `scrape_job_events`) are scrape runs, not job
+postings, and are unaffected.
 
 ## Key architectural decisions (locked)
 
