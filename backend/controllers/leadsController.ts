@@ -99,6 +99,10 @@ export async function updateLead(req: Request, res: Response): Promise<void> {
     const lead = await db.updateLead(ctx, req.params.id, updates);
     res.json({ success: true, data: lead });
   } catch (err) {
+    if (err instanceof db.NotFoundError) {
+      res.status(404).json({ success: false, error: 'Lead not found' });
+      return;
+    }
     res.status(500).json({ success: false, error: (err as Error).message });
   }
 }

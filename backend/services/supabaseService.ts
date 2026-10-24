@@ -22,6 +22,21 @@ import type { TenantContext } from './tenantContext';
  * through, and stripping first means the org can never reach the insert at
  * all, rather than being overwritten on the way past.
  */
+/**
+ * An id-addressed write matched no row in the caller's org: the id does not
+ * exist, or it belongs to another org. The two are deliberately one error —
+ * telling them apart would confirm that another tenant's id exists.
+ */
+export class NotFoundError extends Error {
+  constructor(what: string) {
+    super(`${what} not found`);
+    this.name = 'NotFoundError';
+  }
+}
+
+// PostgREST's code for .single() matching zero rows.
+const NO_ROWS = 'PGRST116';
+
 function stripOrgId<T extends object>(row: T): Omit<T, 'org_id'> {
   const safe = { ...row } as T & { org_id?: unknown };
   delete safe.org_id;
@@ -88,6 +103,7 @@ export async function createLead(ctx: TenantContext, lead: Partial<Lead>): Promi
 export async function updateLead(ctx: TenantContext, id: string, updates: Partial<Lead>): Promise<Lead> {
   const { data, error } = await ctx.db
     .from('leads').update(stripOrgId(updates)).eq('id', id).eq('org_id', ctx.orgId).select().single();
+  if (error?.code === NO_ROWS) throw new NotFoundError('Lead');
   if (error) throw new Error(`updateLead: ${error.message}`);
   return data as Lead;
 }
@@ -127,6 +143,7 @@ export async function updateLeadSignal(
 ): Promise<LeadSignal> {
   const { data, error } = await ctx.db
     .from('lead_signals').update(stripOrgId(updates)).eq('id', id).eq('org_id', ctx.orgId).select().single();
+  if (error?.code === NO_ROWS) throw new NotFoundError('Lead signal');
   if (error) throw new Error(`updateLeadSignal: ${error.message}`);
   return data as LeadSignal;
 }

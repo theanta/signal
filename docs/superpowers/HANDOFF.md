@@ -229,11 +229,10 @@ rollback and re-apply were exercised the same way.
 
 ### Known, not fixed
 
-- A PATCH to a lead id that isn't yours (or doesn't exist) returns 500, not
-  404 — `updateLead`'s `.single()` error is not mapped. Data is untouched.
-- Scrape job status (`GET /api/signals/scrape/:jobId`) reads the engine's
-  in-memory job by id with no org check. Ids are random UUIDs; Plan 3 moves
-  the job store into Postgres and scopes it there.
+- ~~A PATCH to a lead id that isn't yours returns 500, not 404~~ — FIXED in
+  Plan 3 task 10 (`NotFoundError`, same 404 for missing and foreign ids).
+- ~~Scrape job status has no org check~~ — FIXED in Plan 3 task 3 (runs live
+  in Postgres; status and stream require the caller's org).
 - `backend/.eslintrc.cjs` still ignores `tests/` (deferred minor from Task 7).
 - The open `contact_finder.py` findings (#1, #3–#6 above) are untouched.
 

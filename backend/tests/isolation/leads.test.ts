@@ -108,7 +108,7 @@ describe('writes', () => {
 
     await expect(
       db.updateLead(orgs.a.ctx, orgs.b.leadId, { status: 'contacted' }),
-    ).rejects.toThrow();
+    ).rejects.toBeInstanceOf(db.NotFoundError);
 
     const { rows } = await sql(`SELECT status FROM leads WHERE id = $1`, [orgs.b.leadId]);
     expect(rows[0].status).toBe('new');
