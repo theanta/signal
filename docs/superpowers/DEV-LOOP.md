@@ -24,7 +24,13 @@ on the MANUAL list. Baseline before task 2: 215 + 106 passing.
       Backend 176 + 86 (RLS pass) green on the local stand-in; engine 19
       green; frontend `tsc` clean; parity diff is org_id positions only.
       `next lint` cannot run: the frontend has no ESLint config (pre-existing).
-- [ ] 3. Postgres scrape job store
+- [x] 3. Postgres scrape job store — `6db2ee0`
+      Backend 186 + 96 green; engine 28 green; parity clean. Real JobStore
+      exercised against the local Postgres (409 while running/finalizing,
+      cross-org reads empty, cross-org event rejected by the composite FK).
+      Scheduled scrapes now wait for an active run; until task 8 the orgs
+      are still processed one after another, so a long wait delays later
+      orgs.
 - [ ] 4. SSE from Postgres with Last-Event-ID reconnect
 - [ ] 5. Heartbeat and reaper
 - [ ] 6. Usage metering and the monthly scrape cap
