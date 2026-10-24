@@ -2,6 +2,9 @@ import axios from 'axios';
 import type { ScrapedLeadRaw, SignalAnalysisResult } from '../../shared/types';
 import { getConfig } from './configService';
 import type { TenantContext } from './tenantContext';
+import { ScrapeAlreadyRunningError, ScrapeRunNotFoundError } from './engineErrors';
+
+export { ScrapeAlreadyRunningError, ScrapeRunNotFoundError };
 
 const SIGNAL_ENGINE_URL = process.env.SIGNAL_ENGINE_URL ?? 'http://localhost:8001';
 
@@ -15,8 +18,13 @@ if (!ENGINE_API_KEY) {
 const engineHeaders = { 'X-Engine-Key': ENGINE_API_KEY };
 
 // The engine writes with the service-role key and requires an org_id on every
-// mutating call. It always comes from ctx — never from req.body — because a
-// client-supplied org id is not an authenticated one.
+// call that touches tenant data, reads included. It always comes from ctx —
+// never from req.body — because a client-supplied org id is not an
+// authenticated one.
+
+function engineStatus(err: unknown): number | undefined {
+  return axios.isAxiosError(err) ? err.response?.status : undefined;
+}
 
 export async function analyzeLeadSignals(
   ctx: TenantContext, lead: ScrapedLeadRaw,
@@ -36,25 +44,43 @@ export async function triggerScrape(
   // industries, active sources) actually take effect — without this every
   // scrape silently falls back to hardcoded defaults.
   const config = await getConfig(ctx);
-  const { data } = await axios.post(
-    `${SIGNAL_ENGINE_URL}/scrape`,
-    { sources, config, org_id: ctx.orgId },
-    { timeout: 10_000, headers: engineHeaders },
-  );
-  return data;
+  try {
+    const { data } = await axios.post(
+      `${SIGNAL_ENGINE_URL}/scrape`,
+      { sources, config, org_id: ctx.orgId },
+      { timeout: 10_000, headers: engineHeaders },
+    );
+    return data;
+  } catch (err) {
+    if (engineStatus(err) === 409) throw new ScrapeAlreadyRunningError();
+    throw err;
+  }
 }
 
-export async function getScrapeStatus(jobId: string): Promise<{ job_id: string; status: string; results?: number }> {
-  const { data } = await axios.get(`${SIGNAL_ENGINE_URL}/scrape/${jobId}`, {
-    timeout: 10_000,
-    headers: engineHeaders,
-  });
-  return data;
+export async function getScrapeStatus(
+  ctx: TenantContext, jobId: string,
+): Promise<{ job_id: string; status: string; results?: number }> {
+  try {
+    const { data } = await axios.get(`${SIGNAL_ENGINE_URL}/scrape/${encodeURIComponent(jobId)}`, {
+      params: { org_id: ctx.orgId },
+      timeout: 10_000,
+      headers: engineHeaders,
+    });
+    return data;
+  } catch (err) {
+    // 404: no such run for this org. 422: not a UUID, so not a run either.
+    const status = engineStatus(err);
+    if (status === 404 || status === 422) throw new ScrapeRunNotFoundError();
+    throw err;
+  }
 }
 
 /** Raw fetch (not axios) so the response body can be piped through as a live SSE stream. */
-export function getScrapeStreamResponse(jobId: string, signal: AbortSignal): Promise<Response> {
-  return fetch(`${SIGNAL_ENGINE_URL}/scrape/${jobId}/stream`, {
+export function getScrapeStreamResponse(
+  ctx: TenantContext, jobId: string, signal: AbortSignal,
+): Promise<Response> {
+  const query = new URLSearchParams({ org_id: ctx.orgId });
+  return fetch(`${SIGNAL_ENGINE_URL}/scrape/${encodeURIComponent(jobId)}/stream?${query}`, {
     signal,
     headers: engineHeaders,
   });

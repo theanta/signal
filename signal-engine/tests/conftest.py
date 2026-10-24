@@ -15,7 +15,9 @@ os.environ.setdefault("SERPER_API_KEY", "test-serper-key")
 import pytest
 from fastapi.testclient import TestClient
 
+import main
 from main import app
+from tests.fake_store import FakeStore
 
 VALID_KEY = os.environ["ENGINE_API_KEY"]
 
@@ -23,3 +25,11 @@ VALID_KEY = os.environ["ENGINE_API_KEY"]
 @pytest.fixture
 def client() -> TestClient:
     return TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def store(monkeypatch) -> FakeStore:
+    """Every test gets its own in-memory run store instead of Postgres."""
+    fake = FakeStore()
+    monkeypatch.setattr(main, "get_store", lambda: fake)
+    return fake

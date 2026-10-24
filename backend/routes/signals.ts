@@ -1,5 +1,8 @@
 import { Router, Request, Response } from 'express';
-import { triggerScrape, getScrapeStatus, getScrapeStreamResponse, healthCheck } from '../services/signalEngineService';
+import {
+  triggerScrape, getScrapeStatus, getScrapeStreamResponse, healthCheck,
+  ScrapeAlreadyRunningError, ScrapeRunNotFoundError,
+} from '../services/signalEngineService';
 import { getScrapingLogs } from '../services/supabaseService';
 import { ctxOf } from '../api/middleware/auth';
 
@@ -17,15 +20,23 @@ router.post('/scrape', async (req: Request, res: Response) => {
     const result = await triggerScrape(ctxOf(req), sources);
     res.json({ success: true, data: result });
   } catch (err) {
+    if (err instanceof ScrapeAlreadyRunningError) {
+      res.status(409).json({ success: false, error: err.message });
+      return;
+    }
     res.status(500).json({ success: false, error: (err as Error).message });
   }
 });
 
 router.get('/scrape/:jobId', async (req: Request, res: Response) => {
   try {
-    const result = await getScrapeStatus(req.params.jobId);
+    const result = await getScrapeStatus(ctxOf(req), req.params.jobId);
     res.json({ success: true, data: result });
   } catch (err) {
+    if (err instanceof ScrapeRunNotFoundError) {
+      res.status(404).json({ success: false, error: err.message });
+      return;
+    }
     res.status(500).json({ success: false, error: (err as Error).message });
   }
 });
@@ -44,7 +55,7 @@ router.get('/scrape/:jobId/stream', async (req: Request, res: Response) => {
   req.on('close', () => controller.abort());
 
   try {
-    const pyResponse = await getScrapeStreamResponse(req.params.jobId, controller.signal);
+    const pyResponse = await getScrapeStreamResponse(ctxOf(req), req.params.jobId, controller.signal);
     if (!pyResponse.ok || !pyResponse.body) {
       res.write(`data: ${JSON.stringify({ phase: 'error', message: 'Signal engine unavailable' })}\n\n`);
       res.end();

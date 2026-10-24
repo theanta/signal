@@ -56,9 +56,10 @@ def test_every_mutating_route_requires_the_key(client, method, path, body):
 # POST /analyze or POST /scrape would run a real analysis against live Groq
 # and Apify calls; the GET routes short-circuit on an unknown job id, so they
 # prove the gate opens without doing any work.
+_ORG_Q = "?org_id=11111111-1111-1111-1111-111111111111"
 POSITIVE_PATH = [
-    ("get", "/scrape/00000000-0000-0000-0000-000000000000"),
-    ("get", "/scrape/00000000-0000-0000-0000-000000000000/stream"),
+    ("get", "/scrape/00000000-0000-0000-0000-000000000000" + _ORG_Q),
+    ("get", "/scrape/00000000-0000-0000-0000-000000000000/stream" + _ORG_Q),
 ]
 
 

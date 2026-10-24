@@ -3,6 +3,7 @@ import { createTenantContext, TenantContext } from './tenantContext';
 import * as db from './supabaseService';
 import { persistAnalysis } from './persistAnalysis';
 import { analyzeLeadSignals, triggerScrape, healthCheck } from './signalEngineService';
+import { ScrapeAlreadyRunningError } from './engineErrors';
 import { generateOutreach } from './claudeService';
 import type { Lead, LeadSignal, LeadSource, SignalAnalysisResult } from '../../shared/types';
 
@@ -125,17 +126,46 @@ async function forEachOrg(
   }
 }
 
+/**
+ * How long a scheduled scrape waits for the org's active run to finish, and
+ * how often it retries. The engine allows one active run per org, and on the
+ * 1st and 15th the daily and bi-weekly scrapes fire in the same minute.
+ */
+export const SCRAPE_RETRY = {
+  attempts: Number(process.env.CRON_SCRAPE_RETRY_ATTEMPTS ?? 30),
+  delayMs: Number(process.env.CRON_SCRAPE_RETRY_MS ?? 120_000),
+};
+
+/**
+ * Start a scrape for the org. A scheduled trigger waits out a run already in
+ * progress and then starts its own; a manual one fails at once, because the
+ * person who pressed the button can see the run that is in the way.
+ */
+async function startScrape(ctx: TenantContext, sources: string[], trigger: CronTrigger): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await triggerScrape(ctx, sources);
+      return;
+    } catch (err) {
+      const retry = err instanceof ScrapeAlreadyRunningError
+        && trigger === 'scheduled' && attempt < SCRAPE_RETRY.attempts;
+      if (!retry) throw err;
+      await new Promise(resolve => setTimeout(resolve, SCRAPE_RETRY.delayMs));
+    }
+  }
+}
+
 export async function runDailyScrape(trigger: CronTrigger = 'scheduled', only?: TenantContext): Promise<void> {
   // LinkedIn and Indeed hiring posts go stale within days, so they run daily;
   // Crunchbase and Google Maps change slowly and run bi-weekly.
   await forEachOrg('daily_scrape', trigger, only, async (ctx) => {
-    await triggerScrape(ctx, ['linkedin', 'job_board']);
+    await startScrape(ctx, ['linkedin', 'job_board'], trigger);
   });
 }
 
 export async function runBiweeklyScrape(trigger: CronTrigger = 'scheduled', only?: TenantContext): Promise<void> {
   await forEachOrg('biweekly_scrape', trigger, only, async (ctx) => {
-    await triggerScrape(ctx, ['crunchbase', 'local_business']);
+    await startScrape(ctx, ['crunchbase', 'local_business'], trigger);
   });
 }
 

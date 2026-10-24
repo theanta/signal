@@ -5,7 +5,6 @@ from contextlib import asynccontextmanager
 import json
 import logging
 import re
-import uuid
 from datetime import datetime
 from typing import AsyncGenerator, Optional
 from uuid import UUID
@@ -35,6 +34,7 @@ from enrichment.website_content_scraper import scrape_website_content
 from enrichment.url_utils import clean_company_website
 from scrapers.lead_merger import merge_leads
 from auth import require_engine_key, verify_engine_key_configured
+from jobstore import ActiveRunExists, TERMINAL_STATUSES, get_store
 
 # ============================================================
 # ENTERPRISE DISQUALIFICATION
@@ -109,11 +109,10 @@ app = FastAPI(
 # backend only; the browser reaches its SSE stream proxied through Express.
 # A browser-facing CORS policy would only widen the attack surface.
 
-# ---- In-memory job tracker (use Redis in production) ----
-scrape_jobs: dict[str, dict] = {}
-# One condition per active job — lets the SSE generator wait for new events
-# and replay everything already emitted to any (re)connecting client.
-scrape_conditions: dict[str, asyncio.Condition] = {}
+# Scrape runs live in Postgres (jobstore.py), so a restart does not lose them
+# and any engine instance can report on any run.
+# How often the SSE stream polls scrape_job_events for new rows.
+STREAM_POLL_SECONDS = 1.0
 
 
 # ============================================================
@@ -422,8 +421,11 @@ async def analyze_lead_stream(request: AnalysisRequest):
 
 @app.post("/scrape", dependencies=[Depends(require_engine_key)])
 async def trigger_scrape(request: ScrapeRequest, background_tasks: BackgroundTasks):
-    """Trigger a scraping run in the background."""
-    job_id = str(uuid.uuid4())
+    """Record a scrape run and start it in the background.
+
+    409 when the org already has a run in progress: one_active_scrape_per_org
+    allows one queued/running/finalizing run per org."""
+    org_id = str(request.org_id)
 
     # When a config is supplied, only run sources that are both requested for
     # this call (e.g. a cron job's cadence-specific list) AND currently toggled
@@ -433,71 +435,94 @@ async def trigger_scrape(request: ScrapeRequest, background_tasks: BackgroundTas
         [s for s in request.sources if s in cfg.active_sources] if cfg else request.sources
     )
 
-    scrape_jobs[job_id] = {
-        "status": "running",
-        "org_id": str(request.org_id),
-        "started_at": datetime.utcnow().isoformat(),
-        "results": 0,
-        "sources": {s: {"status": "pending"} for s in effective_sources},
-        "events": [],
-    }
-    scrape_conditions[job_id] = asyncio.Condition()
+    try:
+        job_id = await asyncio.to_thread(
+            get_store().create_run, org_id, effective_sources, cfg.model_dump() if cfg else {},
+        )
+    except ActiveRunExists:
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "scrape_already_running",
+                    "message": "A scrape is already running for this organization."},
+        )
 
-    background_tasks.add_task(run_scrape_job, job_id, str(request.org_id), effective_sources, cfg)
+    background_tasks.add_task(run_scrape_job, job_id, org_id, effective_sources, cfg)
 
     return {"job_id": job_id, "status": "running", "sources": effective_sources}
 
 
-async def _emit_scrape_event(job_id: str, event: dict) -> None:
-    """Append an event to the job's history and wake any listening SSE stream."""
-    condition = scrape_conditions.get(job_id)
-    if not condition:
-        return
-    async with condition:
-        scrape_jobs[job_id]["events"].append(event)
-        condition.notify_all()
+async def _emit_scrape_event(job_id: str, org_id: str, event: dict) -> None:
+    """Persist an event for the run's SSE stream. A failed write is logged and
+    dropped: progress reporting must never fail the scrape itself."""
+    try:
+        await asyncio.to_thread(get_store().append_event, job_id, org_id, event)
+    except Exception as e:
+        logger.error(f"[Scraper] Failed to record event for run {job_id}: {e}")
+
+
+async def _update_run(job_id: str, org_id: str, **fields) -> None:
+    try:
+        await asyncio.to_thread(get_store().update_run, job_id, org_id, **fields)
+    except Exception as e:
+        logger.error(f"[Scraper] Failed to update run {job_id}: {e}")
+
+
+def _run_view(run: dict) -> dict:
+    return {
+        "job_id": run["id"],
+        "org_id": run["org_id"],
+        "status": run["status"],
+        "started_at": run["created_at"],
+        "completed_at": run.get("finished_at"),
+        "results": run.get("results", 0),
+        "sources": run.get("source_state") or {},
+        "error": run.get("error"),
+    }
 
 
 @app.get("/scrape/{job_id}", dependencies=[Depends(require_engine_key)])
-async def get_scrape_job(job_id: str):
-    """Get the status of a scraping job."""
-    job = scrape_jobs.get(job_id)
-    if not job:
+async def get_scrape_job(job_id: UUID, org_id: UUID):
+    """Status of one of the org's scrape runs. Another org's run is a 404."""
+    run = await asyncio.to_thread(get_store().get_run, str(job_id), str(org_id))
+    if not run:
         raise HTTPException(status_code=404, detail="Job not found")
-    return {"job_id": job_id, **{k: v for k, v in job.items() if k != "events"}}
+    return _run_view(run)
 
 
 @app.get("/scrape/{job_id}/stream", dependencies=[Depends(require_engine_key)])
-async def stream_scrape_job(job_id: str):
-    """Server-sent events: per-source scrape progress, in real time."""
-    job = scrape_jobs.get(job_id)
-    if not job:
+async def stream_scrape_job(job_id: UUID, org_id: UUID):
+    """Server-sent events: per-source scrape progress, read from Postgres."""
+    run_id, org = str(job_id), str(org_id)
+    store = get_store()
+    run = await asyncio.to_thread(store.get_run, run_id, org)
+    if not run:
         raise HTTPException(status_code=404, detail="Job not found")
 
     async def event_stream() -> AsyncGenerator[str, None]:
         # Always lead with the full current state — covers reconnects and
         # clients that connect after some (or all) sources already finished.
-        yield f"data: {json.dumps({'phase': 'snapshot', 'sources': job['sources'], 'overall_status': job['status']})}\n\n"
-
-        if job["status"] != "running":
+        view = _run_view(run)
+        yield f"data: {json.dumps({'phase': 'snapshot', 'sources': view['sources'], 'overall_status': view['status']})}\n\n"
+        if run["status"] in TERMINAL_STATUSES:
             return
 
-        condition = scrape_conditions.get(job_id)
-        if not condition:
-            return
-
-        sent = 0
+        last_seq = 0
         while True:
-            async with condition:
-                await condition.wait_for(lambda: len(job["events"]) > sent or job["status"] != "running")
-                pending_events = job["events"][sent:]
-                sent = len(job["events"])
-            for event in pending_events:
-                yield f"data: {json.dumps(event)}\n\n"
-                if event.get("phase") == "complete":
+            rows = await asyncio.to_thread(store.events_after, run_id, org, last_seq)
+            for row in rows:
+                last_seq = row["seq"]
+                yield f"data: {json.dumps(row['event'])}\n\n"
+                if row["event"].get("phase") == "complete":
                     return
-            if job["status"] != "running":
-                return
+            if not rows:
+                current = await asyncio.to_thread(store.get_run, run_id, org)
+                if not current or current["status"] in TERMINAL_STATUSES:
+                    # Terminal with no complete event (e.g. reaped): close the
+                    # stream with one so the client is not left waiting.
+                    status = current["status"] if current else "failed"
+                    yield f"data: {json.dumps({'phase': 'complete', 'status': status, 'results': (current or {}).get('results', 0)})}\n\n"
+                    return
+                await asyncio.sleep(STREAM_POLL_SECONDS)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -532,6 +557,10 @@ async def run_scrape_job(job_id: str, org_id: str, sources: list[str], cfg: Opti
     }
 
     any_success = False
+    total_new = 0
+    # Per-source progress, written whole to scrape_jobs.source_state after each
+    # source. Sources run one after another, so this process is its only writer.
+    source_state: dict[str, dict] = {s: {"status": "pending"} for s in sources}
     all_raw_leads: list[dict] = []
     source_log_ids: dict[str, int] = {}
     # Sources whose own scrape succeeded and are logged as 'finalizing' — Phase 4
@@ -565,12 +594,13 @@ async def run_scrape_job(job_id: str, org_id: str, sources: list[str], cfg: Opti
             # round-trip below — so the frontend sees it in real time. This is
             # purely "did the scraper itself finish" progress and is fine as
             # 'completed'/'failed' — the persisted log row below is different.
-            scrape_jobs[job_id]["sources"][source] = {
+            source_state[source] = {
                 "status": log_status,
                 "leads_found": leads_found,
                 "error": error_msg,
             }
-            await _emit_scrape_event(job_id, {
+            await _update_run(job_id, org_id, source_state=source_state)
+            await _emit_scrape_event(job_id, org_id, {
                 "phase": "source",
                 "source": source,
                 "status": log_status,
@@ -607,6 +637,8 @@ async def run_scrape_job(job_id: str, org_id: str, sources: list[str], cfg: Opti
             except Exception as e:
                 logger.error(f"[Scraper] Failed to write log for {source}: {e}")
 
+        await _update_run(job_id, org_id, status="finalizing")
+
         # ---- Phase 2: Cross-source merge ----
         merged_leads = merge_leads(all_raw_leads)
         multi_source = sum(1 for l in merged_leads if l.get("source_count", 1) >= 2)
@@ -621,7 +653,6 @@ async def run_scrape_job(job_id: str, org_id: str, sources: list[str], cfg: Opti
         # network calls, which is exactly why sources sat in a misleading 'finalizing'-
         # equivalent state for minutes. Now: one batched pre-fetch, chunked bulk inserts,
         # and bounded-concurrency updates.
-        total_new = 0
         failed_inserts = 0
         per_source_new: dict[str, int] = {}
         per_source_updated: dict[str, int] = {}
@@ -757,17 +788,20 @@ async def run_scrape_job(job_id: str, org_id: str, sources: list[str], cfg: Opti
                 logger.error(f"[Scraper] Failed to patch log counts for {source}: {e}")
 
         overall_status = "completed" if any_success else "failed"
-        scrape_jobs[job_id].update({
-            "status": overall_status,
-            "completed_at": datetime.utcnow().isoformat(),
-            "results": total_new,
-        })
-        await _emit_scrape_event(job_id, {"phase": "complete", "status": overall_status, "results": total_new})
+        await _finish_run(job_id, org_id, overall_status, total_new, None, source_state)
 
     except Exception as e:
-        scrape_jobs[job_id]["status"] = "failed"
-        scrape_jobs[job_id]["error"] = str(e)
-        await _emit_scrape_event(job_id, {"phase": "complete", "status": "failed", "results": scrape_jobs[job_id].get("results", 0)})
+        logger.error(f"[Scraper] Run {job_id} failed: {e}")
+        await _finish_run(job_id, org_id, "failed", total_new, str(e), source_state)
 
-    finally:
-        scrape_conditions.pop(job_id, None)
+
+async def _finish_run(job_id: str, org_id: str, status: str, results: int,
+                      error: Optional[str], source_state: dict) -> None:
+    """Mark the run terminal, then emit the complete event the SSE stream
+    closes on. Terminal first: a client that reconnects between the two still
+    sees a finished run."""
+    try:
+        await asyncio.to_thread(get_store().finish, job_id, org_id, status, results, error, source_state)
+    except Exception as e:
+        logger.error(f"[Scraper] Failed to finish run {job_id}: {e}")
+    await _emit_scrape_event(job_id, org_id, {"phase": "complete", "status": status, "results": results})

@@ -22,7 +22,7 @@ let dbB: SupabaseClient;
 const TENANT_TABLES = [
   'leads', 'lead_signals', 'lead_scores', 'outreach_messages',
   'outreach_history', 'scraping_logs', 'cron_job_logs', 'platform_config',
-  'users',
+  'users', 'scrape_jobs', 'scrape_job_events',
 ];
 
 /** A client signed with the project's JWT secret, carrying arbitrary claims. */
@@ -40,13 +40,18 @@ const anonClient = () => createClient(process.env.SUPABASE_URL!, process.env.SUP
 
 beforeAll(async () => {
   orgs = await seedTwoOrgs();
-  // The shared seed leaves two tables empty; fill them for both orgs so each
+  // The shared seed leaves four tables empty; fill them for both orgs so each
   // table's "A sees its own rows" control has something to see.
   for (const org of [orgs.a, orgs.b]) {
     await sql(
       `INSERT INTO outreach_history (lead_id, message_id, channel, org_id)
        VALUES ($1, $2, 'email', $3)`, [org.leadId, org.messageId, org.orgId]);
     await sql(`INSERT INTO platform_config (org_id, config) VALUES ($1, '{}')`, [org.orgId]);
+    const run = await sql(
+      `INSERT INTO scrape_jobs (org_id, status, sources, config)
+       VALUES ($1, 'completed', '{linkedin}', '{}') RETURNING id`, [org.orgId]);
+    await sql(`INSERT INTO scrape_job_events (job_id, org_id, event) VALUES ($1, $2, '{"phase":"complete"}')`,
+      [run.rows[0].id, org.orgId]);
   }
   dbA = createTenantContext(orgs.a.orgId, orgs.a.userId).db;
   dbB = createTenantContext(orgs.b.orgId, orgs.b.userId).db;
@@ -121,6 +126,33 @@ describe('writes', () => {
     await dbA.from('leads').delete().eq('id', orgs.b.leadId);
     const { rows } = await sql(`SELECT COUNT(*)::int AS n FROM leads WHERE id = $1`, [orgs.b.leadId]);
     expect(rows[0].n).toBe(1);
+  });
+});
+
+describe('scrape runs', () => {
+  // Only the engine (service_role) writes runs. A tenant that could delete its
+  // own runs would lower the monthly count its scrape cap is checked against.
+  it('a tenant cannot start a run, even in its own org', async () => {
+    const { error } = await dbA.from('scrape_jobs')
+      .insert({ org_id: orgs.a.orgId, sources: ['linkedin'], config: {} });
+    expect(error).not.toBeNull();
+  });
+
+  it('a tenant cannot delete or rewrite its own runs', async () => {
+    const { rows: before } = await sql(
+      `SELECT COUNT(*)::int AS n FROM scrape_jobs WHERE org_id = $1`, [orgs.a.orgId]);
+    await dbA.from('scrape_jobs').delete().eq('org_id', orgs.a.orgId);
+    await dbA.from('scrape_jobs').update({ status: 'failed' }).eq('org_id', orgs.a.orgId);
+    const { rows: after } = await sql(
+      `SELECT COUNT(*)::int AS n, bool_and(status = 'completed') AS unchanged
+       FROM scrape_jobs WHERE org_id = $1`, [orgs.a.orgId]);
+    expect(after[0].n).toBe(before[0].n);
+    expect(after[0].unchanged).toBe(true);
+  });
+
+  it('anon sees no runs', async () => {
+    const { data } = await anonClient().from('scrape_jobs').select('id');
+    expect(data ?? []).toEqual([]);
   });
 });
 

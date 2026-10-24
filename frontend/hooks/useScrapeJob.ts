@@ -43,8 +43,13 @@ export function useScrapeJob(onComplete?: () => void, onProgress?: () => void) {
         result.sources.map(s => [s, { status: 'pending' } as ScrapeSourceState]),
       ));
       onProgressRef.current?.();
-    } catch {
-      toast.resolve(toastId, 'error', 'Failed to start scrape', 'Is the signal engine online?');
+    } catch (err) {
+      const res = (err as { response?: { status?: number; data?: { error?: string } } }).response;
+      if (res?.status === 409) {
+        toast.resolve(toastId, 'error', 'A scrape is already running', 'Wait for it to finish, then try again.');
+      } else {
+        toast.resolve(toastId, 'error', 'Failed to start scrape', 'Is the signal engine online?');
+      }
       setRunning(false);
       return;
     }

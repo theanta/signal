@@ -120,7 +120,14 @@ changes.
       -f supabase/migrations/2026-08-26_rls_policies.sql
     ```
 
-11. Run the smoke test again. Anything that worked in step 9 and fails now is
+11. Create the scrape run store (also a single transaction):
+
+    ```bash
+    psql "$PROD_DB_URL" -v ON_ERROR_STOP=1 \
+      -f supabase/migrations/2026-10-24_scrape_job_store.sql
+    ```
+
+12. Run the smoke test again. Anything that worked in step 9 and fails now is
     a policy problem, not an app problem.
 
 ## Smoke test
@@ -134,7 +141,8 @@ Log in from the frontend as the ANTA admin, then:
       engine key on the streaming call).
 - [ ] Saving a Settings change sticks after a reload.
 - [ ] One manual scrape from the System page completes and appears in the
-      activity log.
+      activity log. Starting a second while it runs shows "A scrape is
+      already running".
 - [ ] With the anon key, `GET $SUPABASE_URL/rest/v1/leads` and
       `.../rest/v1/organizations` both return `[]`.
 

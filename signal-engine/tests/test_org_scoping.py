@@ -118,9 +118,7 @@ def test_run_scrape_job_stamps_every_write(monkeypatch):
 
     monkeypatch.setattr(main, "JobBoardScraper", _Fake)
 
-    job_id = "job-1"
-    main.scrape_jobs[job_id] = {"status": "running", "org_id": ORG, "sources": {}, "events": []}
-    main.scrape_conditions[job_id] = asyncio.Condition()
+    job_id = main.get_store().create_run(ORG, ["job_board"], {})
     asyncio.run(main.run_scrape_job(job_id, ORG, ["job_board"]))
 
     writes = [c for c in sb.calls if c[1] in ("insert", "update", "upsert")]

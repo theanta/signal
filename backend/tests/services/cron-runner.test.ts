@@ -31,8 +31,9 @@ vi.mock('../../services/claudeService', () => ({
 }));
 
 import * as engine from '../../services/signalEngineService';
+import { ScrapeAlreadyRunningError } from '../../services/engineErrors';
 import {
-  listActiveOrgContexts, runDailyScrape, runLeadAnalysis,
+  listActiveOrgContexts, runDailyScrape, runLeadAnalysis, SCRAPE_RETRY,
 } from '../../services/cronRunner';
 
 let orgs: TwoOrgs;
@@ -147,6 +148,37 @@ describe('scheduled runs', () => {
       .toMatchObject({ status: 'success' });
   });
 
+  it('waits out a scrape already running for the org, then starts its own', async () => {
+    const saved = { ...SCRAPE_RETRY };
+    SCRAPE_RETRY.delayMs = 1;
+    let refusals = 2;
+    triggerScrape.mockImplementation(async (ctx) => {
+      if ((ctx.orgId as string) === orgs.a.orgId && refusals-- > 0) throw new ScrapeAlreadyRunningError();
+      return { job_id: 'j', status: 'running', sources: [] };
+    });
+    try {
+      await runDailyScrape('scheduled', orgs.a.ctx);
+    } finally {
+      Object.assign(SCRAPE_RETRY, saved);
+    }
+    expect(triggerScrape.mock.calls).toHaveLength(3);
+    expect((await cronLogs(orgs.a.orgId, 'daily_scrape')).at(-1)).toMatchObject({ status: 'success' });
+  });
+
+  it('gives up after the last attempt and logs why', async () => {
+    const saved = { ...SCRAPE_RETRY };
+    Object.assign(SCRAPE_RETRY, { delayMs: 1, attempts: 3 });
+    triggerScrape.mockRejectedValue(new ScrapeAlreadyRunningError());
+    try {
+      await runDailyScrape('scheduled', orgs.a.ctx);
+    } finally {
+      Object.assign(SCRAPE_RETRY, saved);
+    }
+    expect(triggerScrape.mock.calls).toHaveLength(3);
+    expect((await cronLogs(orgs.a.orgId, 'daily_scrape')).at(-1))
+      .toMatchObject({ status: 'failed', error_message: 'A scrape is already running for this organization.' });
+  });
+
   it('analyzes each org’s new leads inside that org', async () => {
     await sql(`UPDATE leads SET status = 'new' WHERE id = ANY($1)`, [[orgs.a.leadId, orgs.b.leadId]]);
     analyzeLeadSignals.mockResolvedValue(ANALYSIS);
@@ -169,6 +201,14 @@ describe('scheduled runs', () => {
 });
 
 describe('manual runs', () => {
+  it('fail at once when a scrape is already running', async () => {
+    triggerScrape.mockRejectedValue(new ScrapeAlreadyRunningError());
+    await runDailyScrape('manual', orgs.a.ctx);
+    expect(triggerScrape.mock.calls).toHaveLength(1);
+    expect((await cronLogs(orgs.a.orgId, 'daily_scrape')).at(-1))
+      .toMatchObject({ status: 'failed', trigger_type: 'manual' });
+  });
+
   it('cover only the caller’s org', async () => {
     triggerScrape.mockResolvedValue({ job_id: 'j', status: 'running', sources: [] });
     const bLogsBefore = (await cronLogs(orgs.b.orgId, 'biweekly_scrape')).length;
