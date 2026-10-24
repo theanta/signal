@@ -8,10 +8,22 @@ ticked or blocked. The MANUAL list is for Anadi and is never done by the loop.
 
 Plan: `docs/superpowers/plans/2026-10-24-job-durability-and-metering.md`
 
+## Test environment
+
+The container has no access to `anta-signal-test`. Backend suites run against
+a local stand-in built in the session scratchpad (`stack/up.sh`,
+`stack/reset.sh`): Postgres 16 + pgvector with SSL, the Supabase roles,
+`auth.jwt()`, Supabase's default grants, and PostgREST 12.2.3 behind a
+`/rest/v1` proxy. Same supabase-js → PostgREST → RLS path; the hosted run is
+on the MANUAL list. Baseline before task 2: 215 + 106 passing.
+
 ## DEV
 
 - [x] 1. Write Plan 3 — `b6697d3`
-- [ ] 2. Remove the job-postings module
+- [x] 2. Remove the job-postings module — `aced26f`
+      Backend 176 + 86 (RLS pass) green on the local stand-in; engine 19
+      green; frontend `tsc` clean; parity diff is org_id positions only.
+      `next lint` cannot run: the frontend has no ESLint config (pre-existing).
 - [ ] 3. Postgres scrape job store
 - [ ] 4. SSE from Postgres with Last-Event-ID reconnect
 - [ ] 5. Heartbeat and reaper
