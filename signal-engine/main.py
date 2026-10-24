@@ -24,9 +24,7 @@ from scrapers.linkedin import LinkedInJobsScraper
 from scrapers.crunchbase import CrunchbaseScraper
 from scrapers.job_boards import JobBoardScraper
 from scrapers.local_business import LocalBusinessScraper
-from scrapers.remote_jobs import RemoteJobsScraper
 from analyzers.signal_detector import SignalDetector
-from analyzers.job_qualifier import qualify_job
 from scoring.lead_scorer import LeadScorer
 from analyzers.pain_point_analyzer import PainPointAnalyzer
 from classifiers.industry_classifier import IndustryClassifier
@@ -154,13 +152,7 @@ class PlatformConfig(BaseModel):
     target_locations: list[str] = ["Detroit", "Michigan", "MI", "Dearborn", "Warren", "Troy", "Ann Arbor", "Livonia", "Sterling Heights"]
     target_company_sizes: list[str] = ["11-50", "51-200", "201-500"]
     target_industries: list[str] = []
-    active_sources: list[str] = ["linkedin", "crunchbase", "job_board", "local_business", "remote_jobs"]
-    # Remote job scraping settings — independent of target_locations, since remote
-    # postings are location-agnostic by definition
-    remote_job_roles: list[str] = ["software engineer", "full stack developer", "product designer"]
-    remote_experience_level: str = ""
-    remote_technologies: list[str] = []
-    remote_regions: list[str] = ["United States"]
+    active_sources: list[str] = ["linkedin", "crunchbase", "job_board", "local_business"]
 
 
 class AnalysisRequest(BaseModel):
@@ -172,7 +164,7 @@ class AnalysisRequest(BaseModel):
 
 
 class ScrapeRequest(BaseModel):
-    sources: list[str] = ["linkedin", "crunchbase", "job_board", "local_business", "remote_jobs"]
+    sources: list[str] = ["linkedin", "crunchbase", "job_board", "local_business"]
     config: Optional[PlatformConfig] = None
     org_id: UUID
 
@@ -510,76 +502,6 @@ async def stream_scrape_job(job_id: str):
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
-def _chunked(items: list, size: int):
-    for i in range(0, len(items), size):
-        yield items[i:i + size]
-
-
-def _persist_job_postings(supabase, org_id: str, postings: list[dict]) -> tuple[int, int]:
-    """Upsert job postings into the `jobs` table (one row per posting), all
-    owned by `org_id`. Returns (new_count, updated_count).
-
-    Every lookup is org-scoped as well as every write: matching a posting
-    against another tenant's row would make this scrape update their job."""
-    now = datetime.utcnow().isoformat()
-    # Triage every posting at ingest — verdict/reasons/posted_at land on the row.
-    # org_id is stamped last so a value carried in by a scraper can never win.
-    postings = [{**p, **qualify_job(p), "org_id": org_id} for p in postings]
-    with_ext = [p for p in postings if p.get("external_id")]
-    without_ext = [p for p in postings if not p.get("external_id")]
-
-    new_count = 0
-    updated_count = 0
-
-    # PostgREST `in_` filters are serialized into the request URL, so large runs
-    # (1000+ postings) must be chunked or httpx rejects the URL as too long.
-    # source_url chunks are smaller because job-board URLs run hundreds of chars.
-
-    # Postings with a stable external_id: upsert directly on that column.
-    if with_ext:
-        existing_ids: set[str] = set()
-        for chunk in _chunked([p["external_id"] for p in with_ext], 200):
-            existing = supabase.table("jobs").select("external_id").eq(
-                "org_id", org_id
-            ).in_("external_id", chunk).execute()
-            existing_ids.update(row["external_id"] for row in (existing.data or []))
-        rows = [{**p, "scraped_at": now, "updated_at": now} for p in with_ext]
-        for chunk in _chunked(rows, 500):
-            # external_id is unique per tenant (jobs_org_external_id_key):
-            # two tenants scraping the same board each own their own row.
-            supabase.table("jobs").upsert(chunk, on_conflict="org_id,external_id").execute()
-        for p in with_ext:
-            if p["external_id"] in existing_ids:
-                updated_count += 1
-            else:
-                new_count += 1
-
-    # Postings without an external_id (actor didn't return one): fall back to
-    # matching by source_url so re-scrapes update rather than duplicate.
-    if without_ext:
-        urls = [p["source_url"] for p in without_ext if p.get("source_url")]
-        existing_by_url: dict[str, str] = {}
-        for chunk in _chunked(urls, 50):
-            existing = (
-                supabase.table("jobs").select("id, source_url")
-                .eq("org_id", org_id).in_("source_url", chunk).execute()
-            )
-            existing_by_url.update({row["source_url"]: row["id"] for row in (existing.data or [])})
-        for p in without_ext:
-            url = p.get("source_url")
-            existing_id = existing_by_url.get(url) if url else None
-            if existing_id:
-                supabase.table("jobs").update({**p, "updated_at": now}).eq(
-                    "id", existing_id
-                ).eq("org_id", org_id).execute()
-                updated_count += 1
-            else:
-                supabase.table("jobs").insert({**p, "scraped_at": now, "created_at": now, "updated_at": now}).execute()
-                new_count += 1
-
-    return new_count, updated_count
-
-
 async def run_scrape_job(job_id: str, org_id: str, sources: list[str], cfg: Optional[PlatformConfig] = None):
     """Background task: runs all scrapers, saves leads, and writes scraping_logs rows.
 
@@ -609,17 +531,6 @@ async def run_scrape_job(job_id: str, org_id: str, sources: list[str], cfg: Opti
         ),
     }
 
-    # Remote jobs is a separate entity (jobs table), not a lead source — it's
-    # scraped and persisted independently of the leads merge/scoring pipeline below.
-    job_scrapers = {
-        "remote_jobs": RemoteJobsScraper(
-            job_roles=cfg.remote_job_roles if cfg else None,
-            experience_level=cfg.remote_experience_level if cfg else None,
-            technologies=cfg.remote_technologies if cfg else None,
-            regions=cfg.remote_regions if cfg else None,
-        ),
-    }
-
     any_success = False
     all_raw_leads: list[dict] = []
     source_log_ids: dict[str, int] = {}
@@ -631,60 +542,6 @@ async def run_scrape_job(job_id: str, org_id: str, sources: list[str], cfg: Opti
     try:
         # ---- Phase 1: Run all scrapers; collect raw leads + write per-source logs ----
         for source in sources:
-            if source in job_scrapers:
-                # Jobs persist immediately (upserted into `jobs`) rather than flowing
-                # through the leads merge/insert phases below.
-                scraper = job_scrapers[source]
-                source_started = datetime.utcnow()
-                leads_found = 0
-                log_status = "failed"
-                error_msg = None
-                new_count = updated_count = 0
-
-                try:
-                    postings = await asyncio.to_thread(scraper.scrape)
-                    leads_found = len(postings)
-                    new_count, updated_count = await asyncio.to_thread(_persist_job_postings, supabase, org_id, postings)
-                    log_status = "completed"
-                    any_success = True
-                except Exception as e:
-                    error_msg = str(e)
-                    logger.error(f"[Scraper] {source} failed: {e}")
-
-                scrape_jobs[job_id]["sources"][source] = {
-                    "status": log_status,
-                    "leads_found": leads_found,
-                    "error": error_msg,
-                }
-                await _emit_scrape_event(job_id, {
-                    "phase": "source",
-                    "source": source,
-                    "status": log_status,
-                    "leads_found": leads_found,
-                    "error": error_msg,
-                })
-
-                duration_ms = int((datetime.utcnow() - source_started).total_seconds() * 1000)
-                try:
-                    supabase.table("scraping_logs").insert({
-                        "org_id": org_id,
-                        "job_id": job_id,
-                        "source": source,
-                        "status": log_status,
-                        "leads_found": leads_found,
-                        "leads_new": new_count,
-                        "leads_updated": updated_count,
-                        "duration_ms": duration_ms,
-                        "started_at": source_started.isoformat(),
-                        "completed_at": datetime.utcnow().isoformat(),
-                        "error_message": error_msg,
-                        "created_at": datetime.utcnow().isoformat(),
-                    }).execute()
-                except Exception as e:
-                    logger.error(f"[Scraper] Failed to write log for {source}: {e}")
-
-                continue
-
             scraper = scrapers.get(source)
             if not scraper:
                 continue

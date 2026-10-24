@@ -126,10 +126,10 @@ async function forEachOrg(
 }
 
 export async function runDailyScrape(trigger: CronTrigger = 'scheduled', only?: TenantContext): Promise<void> {
-  // remote_jobs is date-filtered to <=3 days old, so it needs the frequent
-  // (daily) cadence rather than the bi-weekly one
+  // LinkedIn and Indeed hiring posts go stale within days, so they run daily;
+  // Crunchbase and Google Maps change slowly and run bi-weekly.
   await forEachOrg('daily_scrape', trigger, only, async (ctx) => {
-    await triggerScrape(ctx, ['linkedin', 'job_board', 'remote_jobs']);
+    await triggerScrape(ctx, ['linkedin', 'job_board']);
   });
 }
 

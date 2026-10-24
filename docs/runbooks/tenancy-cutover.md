@@ -84,8 +84,15 @@ changes.
    failed otherwise; this is belt and braces):
 
    ```sql
-   SELECT 'leads' AS t, COUNT(*) FROM leads WHERE org_id IS NULL
-   UNION ALL SELECT 'jobs', COUNT(*) FROM jobs WHERE org_id IS NULL;
+   SELECT COUNT(*) FROM leads WHERE org_id IS NULL;
+   ```
+
+   Then drop the job-postings tables, which left Signal on 2026-10-24
+   (one transaction, and it also strips the `remote_*` settings):
+
+   ```bash
+   psql "$PROD_DB_URL" -v ON_ERROR_STOP=1 \
+     -f supabase/migrations/2026-10-24_drop_job_postings.sql
    ```
 
 6. Give the backfilled ANTA org an admin and a config row if it lacks them.
@@ -121,7 +128,8 @@ changes.
 Log in from the frontend as the ANTA admin, then:
 
 - [ ] The dashboard loads and shows ANTA's numbers.
-- [ ] Leads list, a lead detail page, and the jobs list load.
+- [ ] Leads list and a lead detail page load. There is no Jobs entry in the
+      sidebar.
 - [ ] One lead analysis completes (exercises the engine's `org_id` and the
       engine key on the streaming call).
 - [ ] Saving a Settings change sticks after a reload.
@@ -144,9 +152,9 @@ Log in from the frontend as the ANTA admin, then:
 
   ```sql
   DO $$ DECLARE t TEXT; BEGIN
-    FOREACH t IN ARRAY ARRAY['leads','jobs','scraping_logs','cron_job_logs',
+    FOREACH t IN ARRAY ARRAY['leads','scraping_logs','cron_job_logs',
       'lead_signals','lead_scores','outreach_messages','outreach_history',
-      'job_signals','job_submissions','platform_config'] LOOP
+      'platform_config'] LOOP
       EXECUTE format('DROP POLICY IF EXISTS "org_isolation" ON %I', t);
       EXECUTE format('CREATE POLICY "org_isolation" ON %I FOR ALL TO authenticated USING (true) WITH CHECK (true)', t);
     END LOOP;

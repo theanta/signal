@@ -304,62 +304,6 @@ CREATE INDEX idx_refresh_tokens_user_id ON refresh_tokens(user_id);
 CREATE INDEX idx_refresh_tokens_expires_at ON refresh_tokens(expires_at);
 
 -- ============================================================
--- TABLE: jobs
--- ============================================================
-
-CREATE TABLE jobs (
-  id                 UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  org_id             UUID NOT NULL REFERENCES organizations(id),
-  external_id        TEXT,
-  company_name       TEXT NOT NULL,
-  job_title          TEXT,
-  location           TEXT,
-  employment_type    TEXT,
-  salary_text        TEXT,
-  posted_at_raw      TEXT,
-  technologies       TEXT[],
-  source_url         TEXT,
-  description        TEXT,
-  status             TEXT NOT NULL DEFAULT 'new',
-  converted_lead_id  UUID,
-  scraped_at         TIMESTAMPTZ,
-  created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  -- source / verdict / verdict_reasons / posted_at were added by later
-  -- migrations (add_source_to_jobs.sql, add_job_verdict.sql) and so sit
-  -- after updated_at in the migration path; same order kept here.
-  source             TEXT NOT NULL DEFAULT 'indeed',
-  verdict            TEXT,
-  verdict_reasons    TEXT[],
-  posted_at          TIMESTAMPTZ,
-  CONSTRAINT jobs_status_check CHECK (status IN
-    ('new', 'reviewed', 'applied', 'interviewing', 'placed', 'rejected', 'archived', 'converted')),
-  CONSTRAINT jobs_verdict_check CHECK (verdict IN ('apply', 'caution', 'skip')),
-  -- A real UNIQUE constraint, not a partial unique index: ON CONFLICT cannot
-  -- infer a partial index as its arbiter (fix_jobs_external_id_unique_constraint.sql).
-  -- Unique per tenant, not globally: two tenants scraping the same job board
-  -- must each get their own row for the same posting. NULL external_ids stay
-  -- unconstrained, as before.
-  CONSTRAINT jobs_org_external_id_key UNIQUE (org_id, external_id),
-  CONSTRAINT jobs_id_org_uniq UNIQUE (id, org_id),
-  -- converted_lead_id is a nullable sibling reference. MATCH SIMPLE (the
-  -- default) skips the check when any referencing column is NULL, so an
-  -- unconverted job stays legal and a converted one must name a lead in its
-  -- own org.
-  CONSTRAINT jobs_converted_lead_org_fkey
-    FOREIGN KEY (converted_lead_id, org_id) REFERENCES leads (id, org_id)
-);
-
-CREATE INDEX idx_jobs_source_url ON jobs(source_url);
-CREATE INDEX idx_jobs_status ON jobs(status);
-CREATE INDEX idx_jobs_company ON jobs(company_name);
-CREATE INDEX idx_jobs_created ON jobs(created_at DESC);
-CREATE INDEX idx_jobs_source ON jobs(source);
-CREATE INDEX idx_jobs_verdict ON jobs(verdict);
-CREATE INDEX idx_jobs_posted_at ON jobs(posted_at DESC NULLS LAST);
-CREATE INDEX idx_jobs_org ON jobs(org_id);
-
--- ============================================================
 -- TABLE: cron_job_logs
 -- ============================================================
 
@@ -380,56 +324,6 @@ CREATE TABLE cron_job_logs (
 CREATE INDEX cron_job_logs_started_at_idx ON cron_job_logs (started_at DESC);
 CREATE INDEX cron_job_logs_job_name_idx   ON cron_job_logs (job_name);
 CREATE INDEX idx_cron_job_logs_org ON cron_job_logs(org_id);
-
--- ============================================================
--- TABLE: job_signals
--- ============================================================
-
-CREATE TABLE job_signals (
-  id                   UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  org_id               UUID NOT NULL REFERENCES organizations(id),
-  job_id               UUID NOT NULL,
-  seniority            TEXT,      -- junior | mid | senior | lead | unclear
-  contract_type        TEXT,      -- full-time | contract | c2c | unclear
-  contract_duration    TEXT,
-  must_have_skills     TEXT[],
-  nice_to_have_skills  TEXT[],
-  ats_keywords         TEXT[],    -- ranked, exact JD phrasing
-  salary_parsed        JSONB,     -- { min, max, currency, period, normalized_annual_usd }
-  red_flags            TEXT[],
-  timezone_note        TEXT,      -- IST-translated overlap requirement, if any
-  resume_playbook      JSONB,
-  summary              TEXT,      -- 2-sentence "what this role actually is"
-  model_version        TEXT,
-  created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT job_signals_job_org_fkey
-    FOREIGN KEY (job_id, org_id) REFERENCES jobs (id, org_id) ON DELETE CASCADE
-);
-
-CREATE INDEX idx_job_signals_job ON job_signals(job_id);
-CREATE INDEX idx_job_signals_org ON job_signals(org_id);
-
--- ============================================================
--- TABLE: job_submissions
--- ============================================================
-
-CREATE TABLE job_submissions (
-  id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  org_id         UUID NOT NULL REFERENCES organizations(id),
-  job_id         UUID NOT NULL,
-  profile_label  TEXT NOT NULL,
-  status         TEXT NOT NULL DEFAULT 'submitted' CHECK (status IN
-                   ('submitted', 'screening', 'interviewing', 'offer', 'placed', 'rejected', 'withdrawn')),
-  submitted_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  notes          TEXT,
-  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT job_submissions_job_org_fkey
-    FOREIGN KEY (job_id, org_id) REFERENCES jobs (id, org_id) ON DELETE CASCADE
-);
-
-CREATE INDEX idx_job_submissions_job ON job_submissions(job_id);
-CREATE INDEX idx_job_submissions_org ON job_submissions(org_id);
 
 -- ============================================================
 -- TRIGGERS: updated_at auto-update
@@ -453,14 +347,6 @@ CREATE TRIGGER outreach_messages_updated_at
 
 CREATE TRIGGER outreach_history_updated_at
   BEFORE UPDATE ON outreach_history
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-
-CREATE TRIGGER jobs_updated_at
-  BEFORE UPDATE ON jobs
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-
-CREATE TRIGGER job_submissions_updated_at
-  BEFORE UPDATE ON job_submissions
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- ============================================================
@@ -580,15 +466,12 @@ GRANT USAGE ON SCHEMA public TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON
   users,
   leads,
-  jobs,
   scraping_logs,
   cron_job_logs,
   lead_signals,
   lead_scores,
   outreach_messages,
   outreach_history,
-  job_signals,
-  job_submissions,
   platform_config
 TO authenticated;
 
@@ -617,9 +500,9 @@ DO $$
 DECLARE t TEXT;
 BEGIN
   FOREACH t IN ARRAY ARRAY[
-    'leads', 'jobs', 'scraping_logs', 'cron_job_logs',
+    'leads', 'scraping_logs', 'cron_job_logs',
     'lead_signals', 'lead_scores', 'outreach_messages', 'outreach_history',
-    'job_signals', 'job_submissions', 'platform_config'
+    'platform_config'
   ] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS "service_role_all" ON %I', t);

@@ -5,7 +5,6 @@ import { useRouter, usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
   Users,
-  Briefcase,
   Send,
   Zap,
   Activity,
@@ -22,7 +21,6 @@ import { useAuth } from '@/contexts/AuthContext';
 const MAIN_NAV = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { href: '/leads',     icon: Users,           label: 'Leads' },
-  { href: '/jobs',      icon: Briefcase,       label: 'Jobs' },
   { href: '/outreach',  icon: Send,            label: 'Outreach' },
   { href: '/signals',   icon: Zap,             label: 'Signals' },
 ];

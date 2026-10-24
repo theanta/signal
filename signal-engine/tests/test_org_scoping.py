@@ -93,8 +93,6 @@ class _Recorder:
                 class _R:
                     data = []
 
-                if self.op == "select" and name == "jobs" and self.cols == "external_id":
-                    _R.data = [{"external_id": e} for e in rec.existing]
                 return _R()
 
         return _Q()
@@ -102,40 +100,6 @@ class _Recorder:
 
 def _rows(payload):
     return payload if isinstance(payload, list) else [payload]
-
-
-def test_persist_job_postings_stamps_and_filters_by_org():
-    sb = _Recorder(existing_external_ids=["ext-1"])
-    postings = [
-        {"external_id": "ext-1", "job_title": "Dev", "company_name": "A", "source_url": "u1"},
-        {"external_id": None, "job_title": "Dev", "company_name": "B", "source_url": "u2"},
-    ]
-    main._persist_job_postings(sb, ORG, postings)
-
-    writes = [c for c in sb.calls if c[1] in ("insert", "update", "upsert")]
-    assert writes, "expected at least one write"
-    for _table, _op, payload, _filters, _kw in writes:
-        assert all(row["org_id"] == ORG for row in _rows(payload))
-
-    # Every lookup that decides "is this posting already ours?" is org-scoped,
-    # or one tenant's scrape would update another tenant's row.
-    for _table, op, _payload, filters, _kw in sb.calls:
-        if op == "select":
-            assert ("eq", "org_id", ORG) in filters
-
-    upserts = [c for c in sb.calls if c[1] == "upsert"]
-    assert upserts and all(c[4].get("on_conflict") == "org_id,external_id" for c in upserts)
-
-
-def test_persist_job_postings_never_trusts_an_org_id_in_the_posting():
-    sb = _Recorder()
-    other = "11111111-1111-4111-8111-111111111111"
-    main._persist_job_postings(sb, ORG, [
-        {"external_id": "x", "job_title": "Dev", "company_name": "A", "source_url": "u", "org_id": other},
-    ])
-    for _t, op, payload, _f, _k in sb.calls:
-        if op in ("insert", "update", "upsert"):
-            assert all(row["org_id"] == ORG for row in _rows(payload))
 
 
 def test_run_scrape_job_stamps_every_write(monkeypatch):

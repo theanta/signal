@@ -20,9 +20,9 @@ let dbA: SupabaseClient;
 let dbB: SupabaseClient;
 
 const TENANT_TABLES = [
-  'leads', 'jobs', 'lead_signals', 'lead_scores', 'outreach_messages',
-  'outreach_history', 'scraping_logs', 'cron_job_logs', 'job_signals',
-  'job_submissions', 'platform_config', 'users',
+  'leads', 'lead_signals', 'lead_scores', 'outreach_messages',
+  'outreach_history', 'scraping_logs', 'cron_job_logs', 'platform_config',
+  'users',
 ];
 
 /** A client signed with the project's JWT secret, carrying arbitrary claims. */
@@ -40,14 +40,12 @@ const anonClient = () => createClient(process.env.SUPABASE_URL!, process.env.SUP
 
 beforeAll(async () => {
   orgs = await seedTwoOrgs();
-  // The shared seed leaves three tables empty; fill them for both orgs so each
+  // The shared seed leaves two tables empty; fill them for both orgs so each
   // table's "A sees its own rows" control has something to see.
   for (const org of [orgs.a, orgs.b]) {
     await sql(
       `INSERT INTO outreach_history (lead_id, message_id, channel, org_id)
        VALUES ($1, $2, 'email', $3)`, [org.leadId, org.messageId, org.orgId]);
-    await sql(`INSERT INTO job_signals (job_id, summary, org_id) VALUES ($1, 'intel', $2)`,
-      [org.jobId, org.orgId]);
     await sql(`INSERT INTO platform_config (org_id, config) VALUES ($1, '{}')`, [org.orgId]);
   }
   dbA = createTenantContext(orgs.a.orgId, orgs.a.userId).db;

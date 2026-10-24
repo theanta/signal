@@ -43,9 +43,9 @@ DO $$
 DECLARE t TEXT;
 BEGIN
   FOREACH t IN ARRAY ARRAY[
-    'leads', 'jobs', 'scraping_logs', 'cron_job_logs',
+    'leads', 'scraping_logs', 'cron_job_logs',
     'lead_signals', 'lead_scores', 'outreach_messages', 'outreach_history',
-    'job_signals', 'job_submissions', 'platform_config'
+    'platform_config'
   ] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS "service_role_all" ON %I', t);

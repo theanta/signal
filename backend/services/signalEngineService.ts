@@ -33,8 +33,8 @@ export async function triggerScrape(
   ctx: TenantContext, sources: string[],
 ): Promise<{ job_id: string; status: string; sources: string[] }> {
   // Forward the saved platform config so scraper settings (target locations,
-  // remote job roles/technologies/regions, etc.) actually take effect —
-  // without this every scrape silently falls back to hardcoded defaults.
+  // industries, active sources) actually take effect — without this every
+  // scrape silently falls back to hardcoded defaults.
   const config = await getConfig(ctx);
   const { data } = await axios.post(
     `${SIGNAL_ENGINE_URL}/scrape`,

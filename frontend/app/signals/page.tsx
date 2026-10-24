@@ -21,7 +21,7 @@ async function fetchSignalHealth(): Promise<{ signal_engine_online: boolean }> {
   return data.data;
 }
 
-const ACTIVE_SOURCES: LeadSource[] = ['linkedin', 'job_board', 'crunchbase', 'local_business', 'remote_jobs'];
+const ACTIVE_SOURCES: LeadSource[] = ['linkedin', 'job_board', 'crunchbase', 'local_business'];
 
 export default function SignalsPage() {
   const { data: logs = [], isLoading, refetch } = useQuery({

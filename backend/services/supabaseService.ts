@@ -1,7 +1,6 @@
 import type {
   Lead, LeadFilters, LeadSignal, LeadScore,
   OutreachMessage, ScrapingLog, PaginatedResponse, DashboardMetrics, CronJobLog,
-  Job, JobFilters, JobWithIntel, JobSignal, JobSubmission,
 } from '../../shared/types';
 import type { TenantContext } from './tenantContext';
 
@@ -14,7 +13,7 @@ import type { TenantContext } from './tenantContext';
  * Drop a caller-supplied `org_id` from a write payload.
  *
  * An update may not move a row between tenants, not even its own, so a
- * caller-supplied org_id is dropped rather than forwarded. All seven updates
+ * caller-supplied org_id is dropped rather than forwarded. All five updates
  * below funnel through here so the call sites cannot drift apart.
  *
  * Inserts do not need it — they spread the payload first and set
@@ -110,180 +109,6 @@ export async function upsertLeadByWebsite(
   }
   const created = await createLead(ctx, lead);
   return { lead: created, isNew: true };
-}
-
-// ============================================================
-// JOBS
-// ============================================================
-
-export async function getJobs(ctx: TenantContext, filters: JobFilters = {}): Promise<PaginatedResponse<Job>> {
-  const {
-    status, verdict, search, location, source, posted_within_days, technology,
-    page = 1, per_page = 25,
-    sort_by = 'created_at', sort_order = 'desc',
-  } = filters;
-
-  let query = ctx.db.from('jobs').select('*', { count: 'exact' }).eq('org_id', ctx.orgId);
-
-  if (status) query = query.eq('status', status);
-  if (verdict) query = query.eq('verdict', verdict);
-  if (source) query = query.eq('source', source);
-  if (location) query = query.ilike('location', `%${location}%`);
-  if (search) {
-    query = query.or(`company_name.ilike.%${search}%,job_title.ilike.%${search}%,description.ilike.%${search}%`);
-  }
-  if (posted_within_days) {
-    const cutoff = new Date(Date.now() - posted_within_days * 86_400_000).toISOString();
-    // Jobs without a parsed posted_at fall back to when we scraped them
-    query = query.or(`posted_at.gte.${cutoff},and(posted_at.is.null,created_at.gte.${cutoff})`);
-  }
-  if (technology) {
-    // Tags arrive lowercase from remoteok/remotive but arbitrary-case from
-    // config, and Postgres array contains is case-sensitive — try variants.
-    const t = technology.trim().replace(/["{},]/g, '');
-    if (t) {
-      const variants = [...new Set([t, t.toLowerCase(), t.toUpperCase(), t[0].toUpperCase() + t.slice(1).toLowerCase()])];
-      query = query.or(variants.map(v => `technologies.cs.{"${v}"}`).join(','));
-    }
-  }
-
-  query = query.order(sort_by, { ascending: sort_order === 'asc', nullsFirst: false });
-  query = query.range((page - 1) * per_page, page * per_page - 1);
-
-  const { data, error, count } = await query;
-  if (error) throw new Error(`getJobs: ${error.message}`);
-
-  return {
-    data: (data ?? []) as Job[],
-    total: count ?? 0,
-    page,
-    per_page,
-    total_pages: Math.ceil((count ?? 0) / per_page),
-  };
-}
-
-export async function getJobById(ctx: TenantContext, id: string): Promise<Job | null> {
-  const { data, error } = await ctx.db
-    .from('jobs').select('*').eq('id', id).eq('org_id', ctx.orgId).single();
-  if (error) return null;
-  return data as Job;
-}
-
-// Tolerates the table not existing yet (job_signals / job_submissions
-// migrations pending) — the detail page degrades to empty sections.
-async function safeList<T>(query: PromiseLike<{ data: unknown; error: unknown }>): Promise<T[]> {
-  try {
-    const { data, error } = await query;
-    if (error) return [];
-    return (data ?? []) as T[];
-  } catch {
-    return [];
-  }
-}
-
-export async function getJobWithIntel(ctx: TenantContext, id: string): Promise<JobWithIntel | null> {
-  const job = await getJobById(ctx, id);
-  if (!job) return null;
-
-  const [signals, submissions, companyJobs] = await Promise.all([
-    safeList<JobSignal>(
-      ctx.db.from('job_signals').select('*')
-        .eq('job_id', id).eq('org_id', ctx.orgId)
-        .order('created_at', { ascending: false }),
-    ),
-    safeList<JobSubmission>(
-      ctx.db.from('job_submissions').select('*')
-        .eq('job_id', id).eq('org_id', ctx.orgId)
-        .order('submitted_at', { ascending: false }),
-    ),
-    // Company-name matching across the whole table is the leak this scope
-    // closes: two tenants hiring at the same company must not see each
-    // other's postings in "related".
-    safeList<Job>(
-      ctx.db.from('jobs').select('*')
-        .eq('org_id', ctx.orgId)
-        .eq('company_name', job.company_name).neq('id', id)
-        .order('created_at', { ascending: false }).limit(10),
-    ),
-  ]);
-
-  const companyJobIds = companyJobs.map(j => j.id);
-  const [companySubmissions, leadRows] = await Promise.all([
-    companyJobIds.length
-      ? safeList<JobSubmission>(
-          ctx.db.from('job_submissions').select('*')
-            .eq('org_id', ctx.orgId)
-            .in('job_id', companyJobIds).order('submitted_at', { ascending: false }),
-        )
-      : Promise.resolve([] as JobSubmission[]),
-    safeList<{ id: string }>(
-      ctx.db.from('leads').select('id')
-        .eq('org_id', ctx.orgId)
-        .ilike('company_name', job.company_name).limit(1),
-    ),
-  ]);
-
-  return {
-    ...job,
-    signals,
-    submissions,
-    related: {
-      company_jobs: companyJobs,
-      company_submissions: companySubmissions,
-      lead_id: job.converted_lead_id ?? leadRows[0]?.id,
-    },
-  };
-}
-
-export async function updateJob(ctx: TenantContext, id: string, updates: Partial<Job>): Promise<Job> {
-  const { data, error } = await ctx.db
-    .from('jobs').update(stripOrgId(updates)).eq('id', id).eq('org_id', ctx.orgId).select().single();
-  if (error) throw new Error(`updateJob: ${error.message}`);
-  return data as Job;
-}
-
-export async function createJobSignal(ctx: TenantContext, signal: Partial<JobSignal>): Promise<JobSignal> {
-  const { data, error } = await ctx.db
-    .from('job_signals').insert({ ...signal, org_id: ctx.orgId }).select().single();
-  if (error) throw new Error(`createJobSignal: ${error.message}`);
-  return data as JobSignal;
-}
-
-export async function createJobSubmission(ctx: TenantContext, sub: Partial<JobSubmission>): Promise<JobSubmission> {
-  const { data, error } = await ctx.db
-    .from('job_submissions').insert({ ...sub, org_id: ctx.orgId }).select().single();
-  if (error) throw new Error(`createJobSubmission: ${error.message}`);
-  return data as JobSubmission;
-}
-
-export async function updateJobSubmission(
-  ctx: TenantContext, id: string, updates: Partial<JobSubmission>,
-): Promise<JobSubmission> {
-  const { data, error } = await ctx.db
-    .from('job_submissions').update(stripOrgId(updates))
-    .eq('id', id).eq('org_id', ctx.orgId).select().single();
-  if (error) throw new Error(`updateJobSubmission: ${error.message}`);
-  return data as JobSubmission;
-}
-
-export async function deleteJobSubmission(ctx: TenantContext, id: string): Promise<void> {
-  const { error } = await ctx.db
-    .from('job_submissions').delete().eq('id', id).eq('org_id', ctx.orgId);
-  if (error) throw new Error(`deleteJobSubmission: ${error.message}`);
-}
-
-export async function convertJobToLead(ctx: TenantContext, job: Job): Promise<Lead> {
-  const lead = await createLead(ctx, {
-    company_name: job.company_name,
-    location: job.location,
-    job_title: job.job_title,
-    description: job.description,
-    source_url: job.source_url,
-    source: 'manual',
-    hiring_signal: job.job_title ? `Hiring ${job.job_title} (remote)` : undefined,
-  });
-  await updateJob(ctx, job.id, { status: 'converted', converted_lead_id: lead.id });
-  return lead;
 }
 
 // ============================================================

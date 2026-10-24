@@ -7,9 +7,9 @@ afterAll(async () => {
 });
 
 const ORG_SCOPED_TABLES = [
-  'users', 'leads', 'jobs', 'scraping_logs', 'cron_job_logs',
+  'users', 'leads', 'scraping_logs', 'cron_job_logs',
   'lead_signals', 'lead_scores', 'outreach_messages', 'outreach_history',
-  'job_signals', 'job_submissions', 'platform_config',
+  'platform_config',
 ];
 
 const BOGUS_ORG_ID = '00000000-0000-0000-0000-000000000000';
@@ -63,8 +63,7 @@ describe.each(ORG_SCOPED_TABLES)('%s', (table) => {
 // `information_schema.columns WHERE is_nullable = 'NO' AND column_default
 // IS NULL` for each table (excluding org_id itself), giving the minimal
 // column set that makes a row otherwise well-formed. Child tables need a
-// real parent row, so `beforeAll` creates a probe org, a probe lead, and a
-// probe job.
+// real parent row, so `beforeAll` creates a probe org and a probe lead.
 //
 // Each table then gets two assertions:
 //   - negative: payload + bogus org_id is rejected with SQLSTATE 23503
@@ -78,7 +77,6 @@ describe.each(ORG_SCOPED_TABLES)('%s', (table) => {
 
 let probeOrgId: string;
 let probeLeadId: string;
-let probeJobId: string;
 
 beforeAll(async () => {
   const org = await sql(
@@ -92,24 +90,17 @@ beforeAll(async () => {
     [probeOrgId, 'FK Probe Lead'],
   );
   probeLeadId = lead.rows[0].id;
-
-  const job = await sql(
-    `INSERT INTO jobs (org_id, company_name) VALUES ($1, $2) RETURNING id`,
-    [probeOrgId, 'FK Probe Job'],
-  );
-  probeJobId = job.rows[0].id;
 });
 
 afterAll(async () => {
   // Child rows are cleaned up by each positive-control test as it runs;
   // only the fixtures created above remain by the time this runs.
-  await sql(`DELETE FROM jobs WHERE id = $1`, [probeJobId]);
   await sql(`DELETE FROM leads WHERE id = $1`, [probeLeadId]);
   await sql(`DELETE FROM organizations WHERE id = $1`, [probeOrgId]);
 });
 
 // Table -> minimal payload of its other NOT NULL / no-default columns.
-// A function so lead_id/job_id can reference the probe rows created above.
+// A function so lead_id can reference the probe rows created above.
 const TABLE_PAYLOADS: Record<string, () => Record<string, unknown>> = {
   users: () => ({
     email: `fk-probe-${randomUUID()}@example.test`,
@@ -117,15 +108,12 @@ const TABLE_PAYLOADS: Record<string, () => Record<string, unknown>> = {
     name: 'FK Probe',
   }),
   leads: () => ({ company_name: 'FK Probe Co' }),
-  jobs: () => ({ company_name: 'FK Probe Co' }),
   scraping_logs: () => ({ source: 'manual', status: 'completed' }),
   cron_job_logs: () => ({ job_name: 'fk-probe' }),
   lead_signals: () => ({ lead_id: probeLeadId, signal_type: 'fk-probe' }),
   lead_scores: () => ({ lead_id: probeLeadId, overall_score: 50 }),
   outreach_messages: () => ({ lead_id: probeLeadId, body: 'fk probe body' }),
   outreach_history: () => ({ lead_id: probeLeadId, channel: 'email' }),
-  job_signals: () => ({ job_id: probeJobId }),
-  job_submissions: () => ({ job_id: probeJobId, profile_label: 'fk-probe' }),
   platform_config: () => ({}),
 };
 

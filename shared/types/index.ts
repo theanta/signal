@@ -16,7 +16,6 @@ export type LeadSource =
   | 'local_business'
   | 'linkedin'
   | 'crunchbase'
-  | 'remote_jobs'
   | 'manual'
   | 'other';
 
@@ -64,139 +63,6 @@ export interface LeadWithSignals extends Lead {
   signals?: LeadSignal[];
   score_detail?: LeadScore;
   outreach_messages?: OutreachMessage[];
-}
-
-// ---- Job (remote job postings — a separate entity from Lead) ----
-
-export type JobStatus =
-  | 'new'
-  | 'reviewed'
-  | 'applied'
-  | 'interviewing'
-  | 'placed'
-  | 'rejected'
-  | 'archived'
-  | 'converted';
-
-export type JobSource = 'indeed' | 'linkedin' | 'remoteok' | 'remotive';
-
-// Rule-based apply-worthiness triage, computed at ingest
-export type JobVerdict = 'apply' | 'caution' | 'skip';
-
-export interface Job {
-  org_id: string;
-  id: string;
-  external_id?: string;
-  company_name: string;
-  job_title?: string;
-  location?: string;
-  employment_type?: string;
-  salary_text?: string;
-  posted_at_raw?: string;
-  posted_at?: string;
-  technologies?: string[];
-  source_url?: string;
-  source: JobSource;
-  description?: string;
-  status: JobStatus;
-  verdict?: JobVerdict;
-  verdict_reasons?: string[];
-  converted_lead_id?: string;
-  scraped_at?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface JobFilters {
-  status?: JobStatus;
-  verdict?: JobVerdict;
-  search?: string;
-  location?: string;
-  source?: JobSource;
-  /** Only jobs posted (or, lacking posted_at, scraped) within the last N days */
-  posted_within_days?: number;
-  /** Matches against the scraped technologies/tags array, case-tolerant */
-  technology?: string;
-  page?: number;
-  per_page?: number;
-  sort_by?: 'created_at' | 'company_name' | 'job_title' | 'location' | 'source' | 'posted_at' | 'status' | 'verdict';
-  sort_order?: 'asc' | 'desc';
-}
-
-// ---- Job analysis (AI decode of a posting — mirrors LeadSignal) ----
-
-export interface SalaryParsed {
-  min?: number;
-  max?: number;
-  currency?: string;
-  period?: 'hour' | 'month' | 'year';
-  normalized_annual_usd?: number;
-}
-
-export interface ResumePlaybook {
-  headline?: string;
-  lead_with?: string[];
-  demote?: string[];
-  keyword_checklist?: string[];
-  framing_tips?: string[];
-  sample_bullets?: string[];
-  screening_risks?: string[];
-}
-
-export interface JobSignal {
-  org_id: string;
-  id: string;
-  job_id: string;
-  seniority?: string;
-  contract_type?: string;
-  contract_duration?: string;
-  must_have_skills?: string[];
-  nice_to_have_skills?: string[];
-  ats_keywords?: string[];
-  salary_parsed?: SalaryParsed;
-  red_flags?: string[];
-  timezone_note?: string;
-  resume_playbook?: ResumePlaybook;
-  summary?: string;
-  model_version?: string;
-  created_at: string;
-}
-
-// ---- Job submissions (multiple resumes per posting) ----
-
-export type SubmissionStatus =
-  | 'submitted'
-  | 'screening'
-  | 'interviewing'
-  | 'offer'
-  | 'placed'
-  | 'rejected'
-  | 'withdrawn';
-
-export interface JobSubmission {
-  org_id: string;
-  id: string;
-  job_id: string;
-  profile_label: string;
-  status: SubmissionStatus;
-  submitted_at: string;
-  notes?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-// Cross-references for the job detail page: other postings and past
-// submissions at the same company (dedupe guard), plus an existing lead.
-export interface JobRelated {
-  company_jobs: Job[];
-  company_submissions: JobSubmission[];
-  lead_id?: string;
-}
-
-export interface JobWithIntel extends Job {
-  signals?: JobSignal[];
-  submissions?: JobSubmission[];
-  related?: JobRelated;
 }
 
 // ---- Signal ----
@@ -439,10 +305,6 @@ export interface PlatformConfig {
   target_company_sizes: string[];
   target_industries: string[];
   active_sources: string[];
-  remote_job_roles: string[];
-  remote_experience_level: string;
-  remote_technologies: string[];
-  remote_regions: string[];
 }
 
 export const DEFAULT_PLATFORM_CONFIG: PlatformConfig = {
@@ -464,11 +326,7 @@ export const DEFAULT_PLATFORM_CONFIG: PlatformConfig = {
   target_locations: ['Detroit', 'Michigan', 'MI', 'Dearborn', 'Warren', 'Troy', 'Ann Arbor', 'Livonia', 'Sterling Heights'],
   target_company_sizes: ['11-50', '51-200', '201-500'],
   target_industries: [],
-  active_sources: ['linkedin', 'crunchbase', 'job_board', 'local_business', 'remote_jobs'],
-  remote_job_roles: ['software engineer', 'full stack developer', 'product designer'],
-  remote_experience_level: '',
-  remote_technologies: [],
-  remote_regions: ['United States'],
+  active_sources: ['linkedin', 'crunchbase', 'job_board', 'local_business'],
 };
 
 // ---- Auth ----

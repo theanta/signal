@@ -6,13 +6,11 @@ export interface SeededOrg {
   orgId: string;
   userId: string;
   leadId: string;
-  jobId: string;
   messageId: string;
   signalId: string;
-  // Added for Task 8: every id-addressed write in the jobs/outreach/logs half
+  // Added for Task 8: every id-addressed write in the outreach/logs half
   // needs the *other* org's row id to attack it with, and every scoped read
   // needs a row of its own to prove it is not merely blind.
-  submissionId: string;
   scrapingLogId: string;
   cronLogId: string;
   ctx: TenantContext;
@@ -45,12 +43,6 @@ async function seedOrg(slug: string, label: string): Promise<SeededOrg> {
   );
   const leadId = lead.rows[0].id as string;
 
-  const job = await sql(
-    `INSERT INTO jobs (company_name, job_title, status, org_id)
-     VALUES ($1, 'Engineer', 'new', $2) RETURNING id`,
-    [`${label} Co`, orgId],
-  );
-
   const message = await sql(
     `INSERT INTO outreach_messages (lead_id, channel, subject, body, org_id)
      VALUES ($1, 'email', $2, 'body', $3) RETURNING id`,
@@ -70,12 +62,6 @@ async function seedOrg(slug: string, label: string): Promise<SeededOrg> {
     [leadId, orgId],
   );
 
-  const submission = await sql(
-    `INSERT INTO job_submissions (job_id, profile_label, org_id)
-     VALUES ($1, $2, $3) RETURNING id`,
-    [job.rows[0].id, `${label} profile`, orgId],
-  );
-
   const scrapingLog = await sql(
     `INSERT INTO scraping_logs (source, status, org_id)
      VALUES ('manual', 'completed', $1) RETURNING id`,
@@ -92,10 +78,8 @@ async function seedOrg(slug: string, label: string): Promise<SeededOrg> {
     orgId,
     userId: user.rows[0].id,
     leadId,
-    jobId: job.rows[0].id,
     messageId: message.rows[0].id,
     signalId: signal.rows[0].id,
-    submissionId: submission.rows[0].id,
     scrapingLogId: scrapingLog.rows[0].id,
     cronLogId: cronLog.rows[0].id,
     ctx: makeTestContext(orgId, user.rows[0].id),
@@ -112,7 +96,7 @@ export async function seedTwoOrgs(): Promise<TwoOrgs> {
 }
 
 export async function teardownSeed(): Promise<void> {
-  // Children cascade from leads/jobs; users and configs are deleted explicitly
+  // Children cascade from leads; users and configs are deleted explicitly
   // because organizations is only referenced, not cascaded from.
   //
   // outreach_history goes first and explicitly. Its rows cascade from leads,
@@ -122,11 +106,6 @@ export async function teardownSeed(): Promise<void> {
   // teardown independent of that ordering subtlety.
   await sql(
     `DELETE FROM outreach_history WHERE org_id IN (SELECT id FROM organizations WHERE slug = ANY($1))`, [SLUGS]);
-  // jobs before leads: a converted job references its lead through
-  // jobs_converted_lead_org_fkey, which is NO ACTION, so the lead cannot go
-  // first.
-  await sql(
-    `DELETE FROM jobs WHERE org_id IN (SELECT id FROM organizations WHERE slug = ANY($1))`, [SLUGS]);
   await sql(
     `DELETE FROM leads WHERE org_id IN (SELECT id FROM organizations WHERE slug = ANY($1))`, [SLUGS]);
   await sql(
