@@ -3,6 +3,7 @@
 import { useParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchLead, generateOutreach, updateLeadStatus } from '@/services/leads';
+import ScoreModelCard from '@/components/leads/ScoreModelCard';
 import PageHeader from '@/components/ui/PageHeader';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -938,8 +939,16 @@ export default function LeadDetailPage() {
         <div className="sticky top-6">
           <div className="bg-canvas border border-hairline rounded-lg divide-y divide-hairline overflow-hidden">
 
-            {/* Score breakdown */}
-            {lead.score_detail && (
+            {/* Score breakdown — the scoring model when this lead was scored
+                under it, the legacy points bars otherwise. */}
+            {lead.score_detail && (lead.score_detail.fit_score != null || lead.score_detail.intent_score != null) && (
+              <ScoreModelCard
+                score={lead.score_detail}
+                leadScore={lead.lead_score ?? 0}
+                percentile={lead.score_detail.score_percentile}
+              />
+            )}
+            {lead.score_detail && lead.score_detail.fit_score == null && lead.score_detail.intent_score == null && (
               <div className="p-4">
                 <h3 className="text-2xs font-semibold text-muted uppercase tracking-wider mb-3">Score Breakdown</h3>
                 <div className="flex items-center justify-between mb-3 pb-2.5 border-b border-hairline">

@@ -6,10 +6,11 @@ import { fetchConfig, saveConfig } from '@/services/config';
 import { toast } from '@/lib/toast';
 import {
   RefreshCw, Settings, Zap,
-  Building2, MessageSquare, MapPin, Users, ToggleLeft, ToggleRight, Save, X, Plus,
+  Building2, MessageSquare, MapPin, Users, ToggleLeft, ToggleRight, Save, X, Plus, Gauge,
 } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
-import type { PlatformConfig } from '../../../shared/types';
+import type { PlatformConfig, ScoringWeights } from '../../../shared/types';
+import { DEFAULT_SCORING_WEIGHTS } from '../../../shared/types';
 import { cn } from '@/lib/utils';
 
 const TABS = [
@@ -17,6 +18,7 @@ const TABS = [
   { id: 'voice',    label: 'Brand Voice',      icon: MessageSquare },
   { id: 'targeting',label: 'Targeting',        icon: MapPin },
   { id: 'icp',      label: 'ICP',              icon: Users },
+  { id: 'scoring',  label: 'Scoring',          icon: Gauge },
   { id: 'sources',  label: 'Sources',          icon: Zap },
 ] as const;
 
@@ -339,6 +341,66 @@ export default function SettingsPage() {
               </div>
             </section>
           )}
+
+          {/* ── SCORING ── */}
+          {activeTab === 'scoring' && (() => {
+            const w = { ...DEFAULT_SCORING_WEIGHTS, ...(draft.scoring_weights ?? {}) };
+            const total = (Object.values(w) as number[]).reduce((n, v) => n + (v > 0 ? v : 0), 0);
+            const parts: { key: keyof ScoringWeights; label: string; desc: string }[] = [
+              { key: 'fit',        label: 'Fit',         desc: 'Company size, industry and location against your ICP and targeting, plus tech gaps found on their website.' },
+              { key: 'intent',     label: 'Intent',      desc: 'Hiring for your target roles, operational pain (spreadsheets, legacy systems), growth signals, and being seen on several sources.' },
+              { key: 'ai',         label: 'AI Judgment', desc: 'The AI reads the evidence against your services and rates how likely you are to win the work, with a one-line reason.' },
+              { key: 'engagement', label: 'Engagement',  desc: 'Sends, opens, replies and pipeline stage. Counts once outreach is sent, and fades after 30 days of silence.' },
+            ];
+            return (
+              <section className="space-y-5">
+                <div>
+                  <h2 className="text-sm font-medium text-ink mb-0.5">Lead Scoring</h2>
+                  <p className="text-xs text-muted">
+                    Each lead gets four scores from 0 to 100. The overall lead score blends them with these weights;
+                    it sorts your leads, decides which get outreach drafted (65+) and which are hot (70+).
+                    A score that is not known yet is left out and the others share its weight.
+                  </p>
+                </div>
+                <div className="card divide-y divide-hairline">
+                  {parts.map(p => {
+                    const share = total > 0 ? Math.round((100 * Math.max(0, w[p.key])) / total) : 0;
+                    return (
+                      <div key={p.key} className="flex items-center justify-between gap-4 px-5 py-4">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-ink">{p.label}</p>
+                          <p className="text-xs text-muted mt-0.5">{p.desc}</p>
+                        </div>
+                        <div className="flex items-center gap-3 flex-shrink-0">
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            value={w[p.key]}
+                            onChange={e => patch({ scoring_weights: { ...w, [p.key]: Math.max(0, Math.min(100, Number(e.target.value) || 0)) } })}
+                            className="w-20 px-3 py-2 text-sm text-ink bg-canvas border border-hairline rounded-md"
+                          />
+                          <span className="text-xs text-muted w-10 text-right">{share}%</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center justify-between px-1">
+                  <p className="text-xs text-muted">
+                    Weights are relative. Set one to 0 to ignore that score. Changes apply as each lead is next analyzed or engaged.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => patch({ scoring_weights: { ...DEFAULT_SCORING_WEIGHTS } })}
+                    className="text-xs text-muted hover:text-ink underline whitespace-nowrap"
+                  >
+                    Reset to defaults
+                  </button>
+                </div>
+              </section>
+            );
+          })()}
 
           {/* ── ICP ── */}
           {activeTab === 'icp' && (

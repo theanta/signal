@@ -14,7 +14,7 @@ import metering
 import os
 import re
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Optional, Tuple
 
 from pydantic import BaseModel, field_validator, ValidationError
 
@@ -60,6 +60,25 @@ class _PainPointResponse(BaseModel):
     pain_points: list[str]
     recommended_service: str
     outreach_angle: str
+    # The AI judgment of fit, asked for in the same call. Optional: a response
+    # without it still yields pain points, and the lead's AI score is then
+    # reported as unknown rather than invented.
+    fit_score: Optional[int] = None
+    fit_reason: Optional[str] = None
+
+    @field_validator("fit_score", mode="before")
+    @classmethod
+    def _clamp_fit(cls, v: object) -> Optional[int]:
+        try:
+            return max(0, min(100, int(round(float(v)))))
+        except (TypeError, ValueError):
+            return None
+
+    @field_validator("fit_reason", mode="before")
+    @classmethod
+    def _trim_reason(cls, v: object) -> Optional[str]:
+        s = str(v).strip() if v else ""
+        return s[:300] or None
 
     @field_validator("pain_points", mode="before")
     @classmethod
@@ -116,7 +135,9 @@ CRITICAL RULES — read carefully before answering:
 
 4. Write a 2-3 sentence outreach_angle referencing specific observed signals (job posting language, tech stack gaps, website copy about their operations). No generic phrases like "we noticed you're growing."
 
-Return only a valid JSON object with exactly these keys: pain_points (array of strings), recommended_service (string), outreach_angle (string). No markdown, no explanation."""
+Return only a valid JSON object with exactly these keys: pain_points (array of strings), recommended_service (string), outreach_angle (string), fit_score (integer), fit_reason (string). No markdown, no explanation.
+
+Also judge the deal: fit_score is an integer 0-100 for how likely {agency.name} is to win work from this company given its services and the evidence above (0 = clearly not a client, 50 = plausible but unproven, 85+ = strong, specific match), and fit_reason is one sentence naming the evidence that decided it. Be skeptical: thin evidence means a middling score, not a high one."""
 
 
 def _build_partnership_prompt(
@@ -158,7 +179,9 @@ Your task:
 2. Pick the single best partnership engagement type from the list above.
 3. Write a 2-3 sentence outreach angle framed as a partnership pitch — reference specific signals observed. The tone should be peer-to-peer ("collaborate", "partner", "support your pipeline"), NOT a sales pitch.
 
-Return only a valid JSON object with exactly these keys: pain_points (array of strings — these are partnership signals, not operational gaps), recommended_service (string), outreach_angle (string). No markdown, no explanation."""
+Return only a valid JSON object with exactly these keys: pain_points (array of strings — these are partnership signals, not operational gaps), recommended_service (string), outreach_angle (string), fit_score (integer), fit_reason (string). No markdown, no explanation.
+
+Also judge the deal: fit_score is an integer 0-100 for how likely {agency.name} is to win work from this company given its services and the evidence above (0 = clearly not a client, 50 = plausible but unproven, 85+ = strong, specific match), and fit_reason is one sentence naming the evidence that decided it. Be skeptical: thin evidence means a middling score, not a high one."""
 
 
 def _call_groq(prompt: str) -> dict | None:
@@ -173,7 +196,7 @@ def _call_groq(prompt: str) -> dict | None:
                 response_format={"type": "json_object"},
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,
-                max_tokens=600,
+                max_tokens=700,
             )
             usage = getattr(resp, "usage", None)
             metering.record("groq", "pain_points", getattr(usage, "total_tokens", 0) or 0)
@@ -320,7 +343,12 @@ class PainPointAnalyzer:
     def __init__(self, agency: AgencyProfile):
         self.agency = agency
 
-    def analyze(
+    def analyze(self, *args, **kwargs) -> Tuple[list[str], str, str]:
+        """Pain points, recommended service and outreach angle."""
+        r = self.analyze_with_judgment(*args, **kwargs)
+        return r["pain_points"], r["recommended_service"], r["outreach_angle"]
+
+    def analyze_with_judgment(
         self,
         industry: str,
         hiring_signal: str,
@@ -332,7 +360,10 @@ class PainPointAnalyzer:
         website_content: str = "",
         company_name: str = "",
         is_vendor_company: bool = False,
-    ) -> Tuple[list[str], str, str]:
+    ) -> dict:
+        """analyze() plus the AI fit judgment: {pain_points, recommended_service,
+        outreach_angle, fit_score, fit_reason}. fit_score is None whenever the
+        answer did not come from the model (no key, API error, fallback)."""
         tech_stack = tech_stack or []
 
         if _GROQ_API_KEY:
@@ -355,14 +386,16 @@ class PainPointAnalyzer:
                     "[PainPointAnalyzer] Groq %s analysis succeeded",
                     "partnership" if is_vendor_company else "SMB",
                 )
-                return result["pain_points"], result["recommended_service"], result["outreach_angle"]
+                return result
 
         if is_vendor_company:
-            return (
+            pains, service, angle = (
                 ["Hiring contract developers signals variable project load"],
                 "Delivery Partnership",
                 f"{self.agency.name} can support your delivery pipeline as a partner when demand outruns your team.",
             )
-
-        logger.info("[PainPointAnalyzer] Using rule-based fallback")
-        return _fallback_analyze(self.agency, industry, hiring_signal, job_title, location)
+        else:
+            logger.info("[PainPointAnalyzer] Using rule-based fallback")
+            pains, service, angle = _fallback_analyze(self.agency, industry, hiring_signal, job_title, location)
+        return {"pain_points": pains, "recommended_service": service, "outreach_angle": angle,
+                "fit_score": None, "fit_reason": None}

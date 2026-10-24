@@ -88,15 +88,61 @@ export interface LeadSignal {
 
 // ---- Score ----
 
+// ---- Scoring model ----
+
+/** One rule that contributed to a score, e.g. "Company size 35/35". */
+export interface ScoreFactor {
+  label: string;
+  points: number;
+  max: number;
+  detail: string;
+}
+
+/** A rule-based score (fit, intent, engagement): 0-100, or null when nothing it
+ *  depends on is known. `unknown` lists the rules left out for missing data. */
+export interface RuleScore {
+  score: number | null;
+  factors: ScoreFactor[];
+  unknown: string[];
+}
+
+export interface ScoringWeights {
+  fit: number;
+  intent: number;
+  ai: number;
+  engagement: number;
+}
+
+export const DEFAULT_SCORING_WEIGHTS: ScoringWeights = { fit: 30, intent: 30, ai: 25, engagement: 15 };
+
+export interface ScoreBreakdown {
+  fit: RuleScore | null;
+  intent: RuleScore | null;
+  ai: { score: number; reason: string | null } | null;
+  engagement: RuleScore | null;
+  weights: ScoringWeights;
+  overall: number;
+  disqualified?: string;
+}
+
 export interface LeadScore {
   org_id: string;
   id: string;
   lead_id: string;
   overall_score: number;
+  // Legacy 0-25 points model, still written for older readers.
   company_size_score?: number;
   hiring_urgency_score?: number;
   complexity_score?: number;
   digital_score?: number;
+  // The scoring model: four 0-100 scores and how they were reached.
+  fit_score?: number | null;
+  intent_score?: number | null;
+  ai_score?: number | null;
+  engagement_score?: number | null;
+  ai_reason?: string | null;
+  breakdown?: Partial<ScoreBreakdown>;
+  weights?: Partial<ScoringWeights>;
   scoring_rationale?: string;
   score_percentile?: number;
   scored_at: string;
@@ -230,6 +276,8 @@ export interface SignalAnalysisResult {
     digital_score: number;
   };
   scoring_rationale: string;
+  // The scoring model (fit, intent, AI judgment; engagement is added by the backend).
+  scores?: ScoreBreakdown;
   // Enrichment
   tech_stack?: string[];
   tech_gaps?: string[];
@@ -310,6 +358,8 @@ export interface PlatformConfig {
   active_sources: string[];
   // How many new leads the 07:00 run analyzes for this org (1-100).
   daily_analysis_limit: number;
+  // How the overall score blends fit, intent, AI judgment and engagement.
+  scoring_weights: ScoringWeights;
 }
 
 // What a tenant has before it fills in Settings. Deliberately no agency's
@@ -331,6 +381,7 @@ export const DEFAULT_PLATFORM_CONFIG: PlatformConfig = {
   target_roles: [],
   active_sources: ['linkedin', 'crunchbase', 'job_board', 'local_business'],
   daily_analysis_limit: 20,
+  scoring_weights: { fit: 30, intent: 30, ai: 25, engagement: 15 },
 };
 
 // ---- Auth ----

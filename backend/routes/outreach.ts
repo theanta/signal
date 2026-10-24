@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import * as db from '../services/supabaseService';
 import { generateFollowUp } from '../services/claudeService';
 import { ctxOf } from '../api/middleware/auth';
+import { rescoreLeadQuietly } from '../services/scoringService';
 
 const router = Router();
 
@@ -57,7 +58,10 @@ router.post('/history', async (req: Request, res: Response) => {
     // req.body is written straight to the table, so an org_id in it used to be
     // whatever the client said. createOutreachHistory drops it and stamps the
     // context's org instead.
-    const data = await db.createOutreachHistory(ctxOf(req), req.body);
+    const ctx = ctxOf(req);
+    const data = await db.createOutreachHistory(ctx, req.body);
+    // A send, open or reply changes the lead's engagement, and so its score.
+    if (typeof data.lead_id === 'string') await rescoreLeadQuietly(ctx, data.lead_id);
     res.status(201).json({ success: true, data });
   } catch (err) {
     res.status(500).json({ success: false, error: (err as Error).message });

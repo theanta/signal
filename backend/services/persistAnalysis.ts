@@ -1,4 +1,5 @@
 import * as db from './supabaseService';
+import { blend, engagementScore, normalizeWeights } from './scoringService';
 import type { TenantContext } from './tenantContext';
 import type { Lead, LeadSignal, SignalAnalysisResult } from '../../shared/types';
 
@@ -19,8 +20,24 @@ export async function persistAnalysis(
   existingSignals: LeadSignal[],
   signals: SignalAnalysisResult,
 ): Promise<void> {
+  // The engine scored fit, intent and the AI judgment; engagement is added
+  // here, from outreach already logged against this lead (a re-analysis of a
+  // lead that has replied must keep that credit).
+  const scores = signals.scores;
+  let overall = signals.lead_score;
+  let engagement = null;
+  if (scores && !scores.disqualified) {
+    engagement = engagementScore(await db.getOutreachHistory(ctx, lead.id), lead.status);
+    overall = blend(scores.weights, {
+      fit: scores.fit?.score ?? null,
+      intent: scores.intent?.score ?? null,
+      ai: scores.ai?.score ?? null,
+      engagement: engagement?.score ?? null,
+    });
+  }
+
   const leadUpdate: Record<string, unknown> = {
-    lead_score: signals.lead_score,
+    lead_score: overall,
     status: 'analyzed',
     analyzed_at: new Date().toISOString(),
   };
@@ -72,12 +89,21 @@ export async function persistAnalysis(
       : db.createLeadSignal(ctx, signalPayload),
     db.upsertLeadScore(ctx, {
       lead_id: lead.id,
-      overall_score: signals.lead_score,
+      overall_score: overall,
       company_size_score: signals.scoring_breakdown.company_size_score,
       hiring_urgency_score: signals.scoring_breakdown.hiring_urgency_score,
       complexity_score: signals.scoring_breakdown.complexity_score,
       digital_score: signals.scoring_breakdown.digital_score,
       scoring_rationale: signals.scoring_rationale,
+      ...(scores ? {
+        fit_score: scores.fit?.score ?? null,
+        intent_score: scores.intent?.score ?? null,
+        ai_score: scores.ai?.score ?? null,
+        ai_reason: scores.ai?.reason ?? null,
+        engagement_score: engagement?.score ?? null,
+        weights: normalizeWeights(scores.weights),
+        breakdown: { ...scores, engagement, overall },
+      } : {}),
     }),
   ]);
 

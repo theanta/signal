@@ -22,6 +22,7 @@ const TENANT_CONFIG: PlatformConfig = {
   outreach_tone: 'warm', cta_style: '15-min call', sign_off: 'The Harbor Team',
   target_locations: ['Austin'], target_company_sizes: ['11-50'], target_industries: ['dental clinics'],
   target_roles: [], active_sources: [], daily_analysis_limit: 20,
+  scoring_weights: { fit: 30, intent: 30, ai: 25, engagement: 15 },
 };
 vi.mock('../../services/configService', () => ({ getConfig: vi.fn(async () => TENANT_CONFIG) }));
 vi.mock('../../services/usageService', () => ({ recordUsage: vi.fn(async () => undefined) }));

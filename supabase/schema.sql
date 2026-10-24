@@ -685,3 +685,20 @@ CREATE POLICY "service_role_all" ON usage_events FOR ALL TO service_role
 REVOKE ALL ON usage_events FROM anon, authenticated;
 GRANT SELECT, INSERT ON usage_events TO authenticated;
 GRANT ALL ON usage_events TO service_role;
+
+-- ============================================================
+-- COLUMNS: scoring model (fit, intent, AI judgment, engagement)
+-- ============================================================
+-- Identical to supabase/migrations/2026-10-25_scoring_model.sql (minus its
+-- transaction wrapper). Change both or neither; run schema-parity-check.sh.
+
+ALTER TABLE lead_scores
+  ADD COLUMN IF NOT EXISTS fit_score        INTEGER CHECK (fit_score BETWEEN 0 AND 100),
+  ADD COLUMN IF NOT EXISTS intent_score     INTEGER CHECK (intent_score BETWEEN 0 AND 100),
+  ADD COLUMN IF NOT EXISTS ai_score         INTEGER CHECK (ai_score BETWEEN 0 AND 100),
+  ADD COLUMN IF NOT EXISTS engagement_score INTEGER CHECK (engagement_score BETWEEN 0 AND 100),
+  ADD COLUMN IF NOT EXISTS ai_reason        TEXT,
+  -- {fit: {score, factors[], unknown[]}, intent: {...}, engagement: {...}}
+  ADD COLUMN IF NOT EXISTS breakdown        JSONB NOT NULL DEFAULT '{}',
+  -- The weights the overall score was blended with.
+  ADD COLUMN IF NOT EXISTS weights          JSONB NOT NULL DEFAULT '{}';

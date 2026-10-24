@@ -1,6 +1,6 @@
 import type {
   Lead, LeadFilters, LeadSignal, LeadScore,
-  OutreachMessage, ScrapingLog, PaginatedResponse, DashboardMetrics, CronJobLog,
+  OutreachMessage, OutreachHistory, ScrapingLog, PaginatedResponse, DashboardMetrics, CronJobLog,
 } from '../../shared/types';
 import type { TenantContext } from './tenantContext';
 
@@ -247,6 +247,15 @@ export async function createOutreachHistory(
     .from('outreach_history').insert({ ...stripOrgId(row), org_id: ctx.orgId }).select().single();
   if (error) throw new Error(`createOutreachHistory: ${error.message}`);
   return data as Record<string, unknown>;
+}
+
+export async function getOutreachHistory(ctx: TenantContext, leadId: string): Promise<OutreachHistory[]> {
+  const { data, error } = await ctx.db
+    .from('outreach_history').select('*')
+    .eq('lead_id', leadId).eq('org_id', ctx.orgId)
+    .order('created_at', { ascending: true });
+  if (error) throw new Error(`getOutreachHistory: ${error.message}`);
+  return (data ?? []) as OutreachHistory[];
 }
 
 // ============================================================

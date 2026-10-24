@@ -25,6 +25,7 @@ from scrapers.job_boards import JobBoardScraper
 from scrapers.local_business import LocalBusinessScraper
 from analyzers.signal_detector import SignalDetector
 from scoring.lead_scorer import LeadScorer
+from scoring.model import blend, fit_score, intent_score, normalize_weights
 from analyzers.pain_point_analyzer import AgencyProfile, PainPointAnalyzer
 from classifiers.industry_classifier import IndustryClassifier
 from enrichment.website_verifier import verify_website
@@ -184,6 +185,9 @@ class PlatformConfig(BaseModel):
     # the generic defaults in scrapers/targeting.py.
     target_roles: list[str] = []
     active_sources: list[str] = ["linkedin", "crunchbase", "job_board", "local_business"]
+    # How the overall score blends fit, intent, AI judgment and engagement.
+    # Missing keys fall back to scoring.model.DEFAULT_WEIGHTS.
+    scoring_weights: dict = {}
 
     def agency(self) -> AgencyProfile:
         return AgencyProfile(
@@ -273,6 +277,12 @@ async def _analyze_lead_core(
             "tech_gaps": [],
             "verified_website": lead.website,
             "contact": None,
+            "scores": {
+                "fit": None, "intent": None, "ai": None, "engagement": None,
+                "weights": normalize_weights(config.scoring_weights),
+                "overall": 0,
+                "disqualified": disqualify_reason,
+            },
         })
         return
 
@@ -364,7 +374,7 @@ async def _analyze_lead_core(
 
     pain_result, score_result = await asyncio.gather(
         asyncio.to_thread(
-            pain_analyzer.analyze,
+            pain_analyzer.analyze_with_judgment,
             company_name=lead.company_name,
             industry=industry,
             hiring_signal=lead.hiring_signal or "",
@@ -389,10 +399,39 @@ async def _analyze_lead_core(
             source_count=lead.source_count,
         ),
     )
-    pain_points, recommended_service, outreach_angle = pain_result
+    pain_points = pain_result["pain_points"]
+    recommended_service = pain_result["recommended_service"]
+    outreach_angle = pain_result["outreach_angle"]
+
+    # ---- Step 6: the scoring model ----
+    # Fit and intent are rules; the AI judgment came with the pain points;
+    # engagement is added by the backend once outreach exists.
+    fit = fit_score(
+        company_size=lead.company_size, industry=industry, location=lead.location,
+        tech_stack=tech_stack, tech_gaps=tech_gaps,
+        target_company_sizes=config.target_company_sizes,
+        target_industries=config.target_industries,
+        target_locations=config.target_locations,
+    )
+    intent = intent_score(
+        job_title=lead.job_title, hiring_signal=lead.hiring_signal,
+        description=lead.description, source_count=lead.source_count,
+        target_roles=config.target_roles,
+    )
+    ai = ({"score": pain_result["fit_score"], "reason": pain_result["fit_reason"]}
+          if pain_result.get("fit_score") is not None else None)
+    weights = normalize_weights(config.scoring_weights)
+    overall = blend(weights, {
+        "fit": fit["score"], "intent": intent["score"],
+        "ai": ai["score"] if ai else None,
+    })
 
     yield ("complete", {
-        "lead_score": score_result["overall_score"],
+        "lead_score": overall,
+        "scores": {
+            "fit": fit, "intent": intent, "ai": ai, "engagement": None,
+            "weights": weights, "overall": overall,
+        },
         "industry": industry,
         "likely_pain_points": pain_points,
         "recommended_anta_service": recommended_service,

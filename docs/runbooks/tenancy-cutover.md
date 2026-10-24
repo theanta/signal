@@ -98,7 +98,7 @@ changes.
    SELECT COUNT(*) FROM leads WHERE org_id IS NULL;
    ```
 
-   Then apply Plan 3's three migrations, each a single transaction. They
+   Then apply the four 2026-10 migrations, each a single transaction. They
    must land before the deploy in step 7: the new engine writes every scrape
    to `scrape_jobs`, and the smoke test in step 9 runs one.
 
@@ -113,6 +113,9 @@ changes.
    # Usage metering.
    psql "$PROD_DB_URL" -v ON_ERROR_STOP=1 \
      -f supabase/migrations/2026-10-24_usage_events.sql
+   # Scoring model columns on lead_scores (fit, intent, AI, engagement).
+   psql "$PROD_DB_URL" -v ON_ERROR_STOP=1 \
+     -f supabase/migrations/2026-10-25_scoring_model.sql
    ```
 
    The two new tables carry their own policies from the start. Neither is

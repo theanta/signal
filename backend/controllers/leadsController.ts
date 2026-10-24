@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import * as db from '../services/supabaseService';
+import { rescoreLeadQuietly } from '../services/scoringService';
 import { ctxOf } from '../api/middleware/auth';
 import { persistAnalysis } from '../services/persistAnalysis';
 import { analyzeLeadSignals, getAnalyzeStreamResponse } from '../services/signalEngineService';
@@ -96,7 +97,12 @@ export async function updateLead(req: Request, res: Response): Promise<void> {
     if (updates.status === 'contacted' && !updates.contacted_at) {
       updates.contacted_at = new Date().toISOString();
     }
-    const lead = await db.updateLead(ctx, req.params.id, updates);
+    let lead = await db.updateLead(ctx, req.params.id, updates);
+    // A pipeline-stage change (meeting, proposal, client) is engagement.
+    if ('status' in updates) {
+      await rescoreLeadQuietly(ctx, lead.id);
+      lead = (await db.getLeadById(ctx, lead.id)) ?? lead;
+    }
     res.json({ success: true, data: lead });
   } catch (err) {
     if (err instanceof db.NotFoundError) {
