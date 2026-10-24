@@ -5,7 +5,16 @@ import type { TenantContext } from './tenantContext';
 import { recordUsage } from './usageService';
 
 const client = new Groq({ apiKey: process.env.GROQ_API_KEY });
-const MODEL = process.env.GROQ_MODEL ?? 'llama-3.3-70b-versatile';
+// Groq retired llama-3.3-70b-versatile on 2026-08-16 (404 model_not_found).
+const MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
+
+// gpt-oss models reason before answering, and the reasoning counts against
+// max_tokens: keep it short and leave room for the JSON.
+export function modelArgs(model: string, maxTokens: number): { max_tokens: number; reasoning_effort?: 'low' } {
+  return model.startsWith('openai/gpt-oss')
+    ? { max_tokens: maxTokens + 1000, reasoning_effort: 'low' }
+    : { max_tokens: maxTokens };
+}
 
 // Everything here is the tenant's own Settings. Nothing describes what kind
 // of agency it is beyond what the tenant wrote.
@@ -41,7 +50,8 @@ async function callGroq(
 ): Promise<string> {
   const response = await client.chat.completions.create({
     model: MODEL,
-    max_tokens: maxTokens,
+    // reasoning_effort is newer than this SDK's types; the API accepts it.
+    ...(modelArgs(MODEL, maxTokens) as { max_tokens: number }),
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.7,
     response_format: { type: 'json_object' },

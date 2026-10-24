@@ -39,3 +39,15 @@ describe('outreach prompts', () => {
     expect(prompt).not.toMatch(/software consultancy|ANTA|Detroit|manufacturers, logistics/);
   });
 });
+
+describe('modelArgs', () => {
+  it('gives gpt-oss low reasoning and room for it', async () => {
+    const { modelArgs } = await import('../../services/claudeService');
+    expect(modelArgs('openai/gpt-oss-120b', 600)).toEqual({ max_tokens: 1600, reasoning_effort: 'low' });
+  });
+
+  it('sends other models as before', async () => {
+    const { modelArgs } = await import('../../services/claudeService');
+    expect(modelArgs('qwen/qwen3.6-27b', 600)).toEqual({ max_tokens: 600 });
+  });
+});

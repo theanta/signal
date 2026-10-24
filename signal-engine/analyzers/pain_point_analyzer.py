@@ -53,7 +53,17 @@ def _services_block(agency: AgencyProfile) -> str:
             f"words the single service {agency.name} could most credibly offer this company.")
 
 _GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-_MODEL = "llama-3.3-70b-versatile"
+# Groq retired llama-3.3-70b-versatile on 2026-08-16 (404 model_not_found).
+# Set GROQ_MODEL to change the model without a deploy.
+_MODEL = os.getenv("GROQ_MODEL") or "openai/gpt-oss-120b"
+
+
+def _model_args(model: str, max_tokens: int) -> dict:
+    """gpt-oss models reason before answering, and the reasoning counts
+    against max_tokens: keep it short and leave room for the JSON."""
+    if model.startswith("openai/gpt-oss"):
+        return {"max_tokens": max_tokens + 1000, "extra_body": {"reasoning_effort": "low"}}
+    return {"max_tokens": max_tokens}
 
 
 class _PainPointResponse(BaseModel):
@@ -196,7 +206,7 @@ def _call_groq(prompt: str) -> dict | None:
                 response_format={"type": "json_object"},
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,
-                max_tokens=700,
+                **_model_args(_MODEL, 700),
             )
             usage = getattr(resp, "usage", None)
             metering.record("groq", "pain_points", getattr(usage, "total_tokens", 0) or 0)
@@ -209,6 +219,9 @@ def _call_groq(prompt: str) -> dict | None:
             logger.warning("[PainPointAnalyzer] Response validation failed (attempt %d/3): %s", attempt + 1, e)
         except Exception as e:
             # API-level errors (auth, rate limit, network) — no point retrying immediately
+            if "model_not_found" in str(e):
+                logger.error("[PainPointAnalyzer] Groq has no model %r for this key. Set GROQ_MODEL "
+                             "to a model listed at https://console.groq.com/docs/models", _MODEL)
             logger.warning("[PainPointAnalyzer] Groq API error: %s", e)
             return None
 
