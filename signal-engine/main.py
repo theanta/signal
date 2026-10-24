@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import AsyncGenerator, Optional
 from uuid import UUID
 
@@ -91,11 +91,33 @@ def _is_enterprise_company(company_name: str, company_size: str | None) -> tuple
     return False, ""
 
 
+# A running scrape heartbeats this often; the reaper fails any active run
+# whose heartbeat is older than STALE_AFTER, checking every REAP_INTERVAL.
+# Without the reaper, a run killed by a deploy holds its org's one active-run
+# slot (one_active_scrape_per_org) forever.
+HEARTBEAT_SECONDS = 60
+STALE_AFTER = timedelta(minutes=15)
+REAP_INTERVAL_SECONDS = 300
+
+
+async def _reaper_loop() -> None:
+    while True:
+        try:
+            reaped = await asyncio.to_thread(get_store().reap_stale, STALE_AFTER)
+            for run in reaped:
+                logger.warning(f"[reaper] failed stale scrape run {run['id']} (org {run['org_id']})")
+        except Exception as e:
+            logger.error(f"[reaper] sweep failed: {e}")
+        await asyncio.sleep(REAP_INTERVAL_SECONDS)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     # Surface a missing shared secret on boot rather than on the first request.
     verify_engine_key_configured()
+    reaper = asyncio.create_task(_reaper_loop())
     yield
+    reaper.cancel()
 
 
 app = FastAPI(
@@ -569,6 +591,26 @@ async def run_scrape_job(job_id: str, org_id: str, sources: list[str], cfg: Opti
         os.environ["SUPABASE_SERVICE_ROLE_KEY"],
     )
 
+    heartbeat = asyncio.create_task(_heartbeat_loop(job_id, org_id))
+    try:
+        await _run_scrape_job_body(job_id, org_id, sources, cfg, supabase)
+    finally:
+        heartbeat.cancel()
+
+
+async def _heartbeat_loop(job_id: str, org_id: str) -> None:
+    """Keep the run's heartbeat fresh while a scraper runs for minutes without
+    a progress write, so the reaper only ever fails runs whose worker died."""
+    while True:
+        await asyncio.sleep(HEARTBEAT_SECONDS)
+        try:
+            await asyncio.to_thread(get_store().heartbeat, job_id, org_id)
+        except Exception as e:
+            logger.error(f"[Scraper] heartbeat for run {job_id} failed: {e}")
+
+
+async def _run_scrape_job_body(job_id: str, org_id: str, sources: list[str],
+                               cfg: Optional[PlatformConfig], supabase) -> None:
     target_locations = cfg.target_locations if cfg else None
     target_industries = cfg.target_industries if cfg else None
     agency_location = cfg.agency_location if cfg else None
