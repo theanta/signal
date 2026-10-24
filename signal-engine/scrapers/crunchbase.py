@@ -47,7 +47,7 @@ class CrunchbaseScraper(ApifyBaseScraper):
                 items = self._run_actor(CRUNCHBASE_ACTOR, {
                     "search": query,
                     "maxItems": MAX_ITEMS_PER_QUERY,
-                })
+                }, max_items=MAX_ITEMS_PER_QUERY)
                 for item in items:
                     lead = self._map_item(item)
                     if lead:

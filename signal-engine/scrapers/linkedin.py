@@ -38,8 +38,11 @@ class LinkedInJobsScraper(ApifyBaseScraper):
                 "location": location,
                 # r86400 = LinkedIn's native filter code for "past 24 hours"
                 "datePosted": "r86400",
-                "limit": per_location,
-            }))
+                # This actor's result limit is `jobs_entries` (default 1000,
+                # charged per job). It ignores `limit`, which is how a 25-job
+                # search became hundreds of paid results.
+                "jobs_entries": per_location,
+            }, max_items=per_location))
 
         leads = []
         for item in items:

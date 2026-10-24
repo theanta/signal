@@ -76,17 +76,21 @@ def test_crunchbase_without_locations_refuses_to_run():
 def test_linkedin_searches_the_tenants_roles_and_locations(monkeypatch):
     calls = []
     s = LinkedInJobsScraper(target_locations=["Austin", "Texas", "TX"], target_roles=["marketing coordinator"])
-    monkeypatch.setattr(s, "_run_actor", lambda actor, run_input: calls.append(run_input) or [])
+    monkeypatch.setattr(s, "_run_actor", lambda actor, run_input, **kw: calls.append({**run_input, "_max_items": kw.get("max_items")}) or [])
     s.scrape()
     assert [c["location"] for c in calls] == ["Austin", "Texas"]
     assert all(c["keywords"] == ["marketing coordinator"] for c in calls)
-    assert sum(c["limit"] for c in calls) == LinkedInJobsScraper.TOTAL_LIMIT
+    # The actor's own limit is jobs_entries; it ignores `limit` (and then
+    # defaults to 1000 paid results).
+    assert all("limit" not in c for c in calls)
+    assert sum(c["jobs_entries"] for c in calls) == LinkedInJobsScraper.TOTAL_LIMIT
+    assert all(c["_max_items"] == c["jobs_entries"] for c in calls)
 
 
 def test_indeed_rotates_roles_over_the_tenants_locations(monkeypatch):
     calls = []
     s = JobBoardScraper(target_locations=["Austin", "Dallas"], target_roles=["a", "b", "c"])
-    monkeypatch.setattr(s, "_run_actor", lambda actor, run_input: calls.append(run_input) or [])
+    monkeypatch.setattr(s, "_run_actor", lambda actor, run_input, **kw: calls.append({**run_input, "_max_items": kw.get("max_items")}) or [])
     s.scrape()
     assert [(c["position"], c["location"]) for c in calls] == [("a", "Austin"), ("b", "Dallas"), ("c", "Austin")]
 

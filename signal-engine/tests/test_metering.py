@@ -54,13 +54,13 @@ def test_apify_runs_are_metered_with_their_cost(usage, monkeypatch):
                 default_dataset_id="d", usage_total_usd=0.05))
 
         def dataset(self, _id):
-            return SimpleNamespace(list_items=lambda: SimpleNamespace(items=[{}, {}, {}]))
+            return SimpleNamespace(list_items=lambda **_k: SimpleNamespace(items=[{}, {}, {}]))
 
     monkeypatch.setattr(apify_base, "ApifyClient", _Client)
 
     class _Scraper(apify_base.ApifyBaseScraper):
         def scrape(self):
-            return self._run_actor("compass/crawler-google-places", {})
+            return self._run_actor("compass/crawler-google-places", {}, max_items=10)
 
     async def go():
         metering.bind(ORG, "run-9")

@@ -10,6 +10,7 @@ INDEED_ACTOR = "misceres/indeed-scraper"
 
 # The country Indeed searches in. Locations are the tenant's own.
 INDEED_COUNTRY = "US"
+INDEED_MAX_ITEMS = 20  # per role
 
 
 class JobBoardScraper(ApifyBaseScraper):
@@ -59,9 +60,9 @@ class JobBoardScraper(ApifyBaseScraper):
             "position": role,
             "location": location,
             "country": INDEED_COUNTRY,
-            "maxItems": 20,
+            "maxItems": INDEED_MAX_ITEMS,
             "saveOnlyUniqueItems": True,
-        })
+        }, max_items=INDEED_MAX_ITEMS)
         leads = []
         for item in items:
             lead = self._map_item(item, role)

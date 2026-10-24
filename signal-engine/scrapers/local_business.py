@@ -62,7 +62,7 @@ class LocalBusinessScraper(ApifyBaseScraper):
             "maxCrawledPlacesPerSearch": MAX_PLACES_PER_QUERY,
             "language": "en",
             "maxReviews": 0,
-        })
+        }, max_items=MAX_PLACES_PER_QUERY * len(queries))
         for item in items:
             lead = self._map_item(item)
             if lead:
