@@ -55,7 +55,9 @@ router.get('/scrape/:jobId/stream', async (req: Request, res: Response) => {
   req.on('close', () => controller.abort());
 
   try {
-    const pyResponse = await getScrapeStreamResponse(ctxOf(req), req.params.jobId, controller.signal);
+    const pyResponse = await getScrapeStreamResponse(
+      ctxOf(req), req.params.jobId, controller.signal, req.get('Last-Event-ID') ?? undefined,
+    );
     if (!pyResponse.ok || !pyResponse.body) {
       res.write(`data: ${JSON.stringify({ phase: 'error', message: 'Signal engine unavailable' })}\n\n`);
       res.end();

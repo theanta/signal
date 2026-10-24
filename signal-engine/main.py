@@ -10,7 +10,7 @@ from typing import AsyncGenerator, Optional
 from uuid import UUID
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException
+from fastapi import FastAPI, BackgroundTasks, Depends, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -113,6 +113,7 @@ app = FastAPI(
 # and any engine instance can report on any run.
 # How often the SSE stream polls scrape_job_events for new rows.
 STREAM_POLL_SECONDS = 1.0
+STREAM_PING_SECONDS = 10.0
 
 
 # ============================================================
@@ -467,6 +468,16 @@ async def _update_run(job_id: str, org_id: str, **fields) -> None:
         logger.error(f"[Scraper] Failed to update run {job_id}: {e}")
 
 
+def _parse_last_event_id(value: Optional[str]) -> int:
+    """The seq a reconnecting client last saw; 0 (replay everything) when the
+    header is missing or not a non-negative integer."""
+    try:
+        seq = int(value) if value is not None else 0
+    except ValueError:
+        return 0
+    return seq if seq > 0 else 0
+
+
 def _run_view(run: dict) -> dict:
     return {
         "job_id": run["id"],
@@ -490,8 +501,14 @@ async def get_scrape_job(job_id: UUID, org_id: UUID):
 
 
 @app.get("/scrape/{job_id}/stream", dependencies=[Depends(require_engine_key)])
-async def stream_scrape_job(job_id: UUID, org_id: UUID):
-    """Server-sent events: per-source scrape progress, read from Postgres."""
+async def stream_scrape_job(
+    job_id: UUID, org_id: UUID, last_event_id: Optional[str] = Header(default=None),
+):
+    """Server-sent events: per-source scrape progress, read from Postgres.
+
+    Every event carries `id: <seq>`. A client that reconnects with
+    Last-Event-ID resumes after that event instead of replaying the run, and
+    any engine instance can serve the stream because the events are rows."""
     run_id, org = str(job_id), str(org_id)
     store = get_store()
     run = await asyncio.to_thread(store.get_run, run_id, org)
@@ -506,12 +523,13 @@ async def stream_scrape_job(job_id: UUID, org_id: UUID):
         if run["status"] in TERMINAL_STATUSES:
             return
 
-        last_seq = 0
+        last_seq = _parse_last_event_id(last_event_id)
+        idle_polls = 0
         while True:
             rows = await asyncio.to_thread(store.events_after, run_id, org, last_seq)
             for row in rows:
                 last_seq = row["seq"]
-                yield f"data: {json.dumps(row['event'])}\n\n"
+                yield f"id: {row['seq']}\ndata: {json.dumps(row['event'])}\n\n"
                 if row["event"].get("phase") == "complete":
                     return
             if not rows:
@@ -522,7 +540,16 @@ async def stream_scrape_job(job_id: UUID, org_id: UUID):
                     status = current["status"] if current else "failed"
                     yield f"data: {json.dumps({'phase': 'complete', 'status': status, 'results': (current or {}).get('results', 0)})}\n\n"
                     return
+                # A scraper can run for minutes without an event. Proxies
+                # (Vercel, Render) idle-kill a silent connection; an SSE
+                # comment keeps it open and clients ignore it.
+                idle_polls += 1
+                if idle_polls * STREAM_POLL_SECONDS >= STREAM_PING_SECONDS:
+                    idle_polls = 0
+                    yield ": ping\n\n"
                 await asyncio.sleep(STREAM_POLL_SECONDS)
+            else:
+                idle_polls = 0
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 

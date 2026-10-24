@@ -117,3 +117,56 @@ class _NullDb:
         class _R:
             data = [{"id": 1}]
         return _R()
+
+
+def _ids(text):
+    return [int(line[len("id: "):]) for line in text.splitlines() if line.startswith("id: ")]
+
+
+def _running_run_with_events(store, n):
+    run_id = store.create_run(ORG_A, ["job_board", "linkedin"], {})
+    for i in range(n - 1):
+        store.append_event(run_id, ORG_A, {"phase": "source", "source": f"s{i}", "status": "completed"})
+    store.append_event(run_id, ORG_A, {"phase": "complete", "status": "completed", "results": 1})
+    return run_id
+
+
+def test_every_event_carries_its_seq_as_the_sse_id(client, store):
+    run_id = _running_run_with_events(store, 3)
+    r = client.get(f"/scrape/{run_id}/stream?org_id={ORG_A}", headers=H)
+    assert _ids(r.text) == [1, 2, 3]
+
+
+def test_last_event_id_resumes_after_that_event(client, store):
+    run_id = _running_run_with_events(store, 3)
+    r = client.get(f"/scrape/{run_id}/stream?org_id={ORG_A}",
+                   headers={**H, "Last-Event-ID": "1"})
+    assert _ids(r.text) == [2, 3]
+    phases = [f["phase"] for f in _frames(r.text)]
+    assert phases == ["snapshot", "source", "complete"]
+
+
+def test_a_malformed_last_event_id_replays_from_the_start(client, store):
+    run_id = _running_run_with_events(store, 2)
+    r = client.get(f"/scrape/{run_id}/stream?org_id={ORG_A}",
+                   headers={**H, "Last-Event-ID": "not-a-number"})
+    assert _ids(r.text) == [1, 2]
+
+
+def test_a_run_that_ends_without_a_complete_event_still_closes_the_stream(client, store, monkeypatch):
+    monkeypatch.setattr(main, "STREAM_POLL_SECONDS", 0)
+    run_id = store.create_run(ORG_A, ["job_board"], {})
+    calls = {"n": 0}
+    real_get = store.get_run
+
+    def get_run(rid, org):
+        # The first read (the snapshot) sees it running; it is then reaped.
+        calls["n"] += 1
+        if calls["n"] == 2:
+            store.runs[rid]["status"] = "failed"
+        return real_get(rid, org)
+
+    monkeypatch.setattr(store, "get_run", get_run)
+    r = client.get(f"/scrape/{run_id}/stream?org_id={ORG_A}", headers=H)
+    frames = _frames(r.text)
+    assert frames[-1] == {"phase": "complete", "status": "failed", "results": 0}

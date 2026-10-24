@@ -7,6 +7,13 @@ import { toast } from '@/lib/toast';
 import type { ScrapeSourceState, ScrapeStreamEvent } from '../../shared/types';
 
 const JOB_TIMEOUT_MS = 5 * 60_000;
+// A dropped stream (deploy, proxy idle timeout, flaky network) reconnects
+// with Last-Event-ID and resumes where it left off.
+const MAX_RECONNECTS = 5;
+const RECONNECT_DELAY_MS = 2_000;
+// A run is still in progress in any of these; 'finalizing' means its
+// scrapers are done and its leads are being written.
+const ACTIVE_STATUSES = new Set(['queued', 'running', 'finalizing']);
 
 export function useScrapeJob(onComplete?: () => void, onProgress?: () => void) {
   const [running, setRunning] = useState(false);
@@ -69,75 +76,98 @@ export function useScrapeJob(onComplete?: () => void, onProgress?: () => void) {
       finish('error', 'Scrape timed out after 5 minutes');
     }, JOB_TIMEOUT_MS);
 
-    const token = tokenStore.getToken();
+    let done = false;
+    let lastEventId: string | null = null;
+    let reconnects = 0;
 
-    fetch(`/api/signals/scrape/${jobId}/stream`, {
-      signal: abort.signal,
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    })
-      .then(response => {
-        if (!response.ok || !response.body) throw new Error('Stream failed');
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
+    function end(type: 'success' | 'error', message: string, description?: string) {
+      done = true;
+      finish(type, message, description);
+    }
 
-        const pump = (): Promise<void> =>
-          reader.read().then(({ done, value }) => {
-            if (done) return;
-
-            buffer += decoder.decode(value, { stream: true });
-            const events = buffer.split('\n\n');
-            buffer = events.pop() ?? '';
-
-            for (const event of events) {
-              for (const line of event.split('\n')) {
-                if (!line.startsWith('data: ')) continue;
-                try {
-                  const data = JSON.parse(line.slice(6)) as ScrapeStreamEvent;
-
-                  if (data.phase === 'snapshot') {
-                    setSources(prev => ({ ...prev, ...data.sources }));
-                    // A client that connects (or reconnects) after the job already
-                    // finished won't get a separate 'complete' event — this is it.
-                    if (data.overall_status !== 'running') {
-                      finish(
-                        data.overall_status === 'completed' ? 'success' : 'error',
-                        data.overall_status === 'completed' ? 'Scrape complete' : 'Scrape job failed',
-                      );
-                      return;
-                    }
-                  } else if (data.phase === 'source') {
-                    setSources(prev => ({
-                      ...prev,
-                      [data.source]: { status: data.status, leads_found: data.leads_found, error: data.error },
-                    }));
-                    onProgressRef.current?.();
-                  } else if (data.phase === 'complete') {
-                    const n = data.results ?? 0;
-                    finish(
-                      data.status === 'completed' ? 'success' : 'error',
-                      data.status === 'completed'
-                        ? `Scrape complete — ${n} lead${n !== 1 ? 's' : ''} found`
-                        : 'Scrape job failed',
-                    );
-                    return;
-                  } else if (data.phase === 'error') {
-                    finish('error', 'Scrape job failed', data.message);
-                    return;
-                  }
-                } catch { /* malformed event */ }
-              }
-            }
-            return pump();
-          });
-
-        return pump();
-      })
-      .catch(err => {
-        if ((err as Error).name !== 'AbortError') {
-          finish('error', 'Scrape job failed', 'Lost connection to signal engine');
+    function handle(data: ScrapeStreamEvent) {
+      if (data.phase === 'snapshot') {
+        setSources(prev => ({ ...prev, ...data.sources }));
+        // A client that connects (or reconnects) after the job already
+        // finished won't get a separate 'complete' event — this is it.
+        if (!ACTIVE_STATUSES.has(data.overall_status)) {
+          end(
+            data.overall_status === 'completed' ? 'success' : 'error',
+            data.overall_status === 'completed' ? 'Scrape complete' : 'Scrape job failed',
+          );
         }
+      } else if (data.phase === 'source') {
+        setSources(prev => ({
+          ...prev,
+          [data.source]: { status: data.status, leads_found: data.leads_found, error: data.error },
+        }));
+        onProgressRef.current?.();
+      } else if (data.phase === 'complete') {
+        const n = data.results ?? 0;
+        end(
+          data.status === 'completed' ? 'success' : 'error',
+          data.status === 'completed'
+            ? `Scrape complete — ${n} lead${n !== 1 ? 's' : ''} found`
+            : 'Scrape job failed',
+        );
+      } else if (data.phase === 'error') {
+        end('error', 'Scrape job failed', data.message);
+      }
+    }
+
+    async function connect(): Promise<void> {
+      const token = tokenStore.getToken();
+      const headers: Record<string, string> = {};
+      if (token) headers.Authorization = `Bearer ${token}`;
+      if (lastEventId) headers['Last-Event-ID'] = lastEventId;
+
+      const response = await fetch(`/api/signals/scrape/${jobId}/stream`, {
+        signal: abort.signal,
+        headers,
       });
+      if (!response.ok || !response.body) throw new Error('Stream failed');
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (!done) {
+        const { done: streamDone, value } = await reader.read();
+        if (streamDone) return;
+        buffer += decoder.decode(value, { stream: true });
+        const frames = buffer.split('\n\n');
+        buffer = frames.pop() ?? '';
+
+        for (const frame of frames) {
+          for (const line of frame.split('\n')) {
+            if (line.startsWith('id: ')) {
+              lastEventId = line.slice(4).trim();
+            } else if (line.startsWith('data: ')) {
+              try {
+                handle(JSON.parse(line.slice(6)) as ScrapeStreamEvent);
+              } catch { /* malformed event */ }
+              if (done) return;
+            }
+          }
+        }
+      }
+    }
+
+    (async () => {
+      while (!done) {
+        try {
+          await connect();
+        } catch (err) {
+          if ((err as Error).name === 'AbortError') return;
+        }
+        if (done || abort.signal.aborted) return;
+        // The stream closed before the run did. Resume after the last event seen.
+        if (++reconnects > MAX_RECONNECTS) {
+          end('error', 'Scrape job failed', 'Lost connection to signal engine');
+          return;
+        }
+        await new Promise(resolve => setTimeout(resolve, RECONNECT_DELAY_MS));
+      }
+    })();
   }, [running]);
 
   return { trigger, running, sources };

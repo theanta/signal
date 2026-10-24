@@ -77,12 +77,16 @@ export async function getScrapeStatus(
 
 /** Raw fetch (not axios) so the response body can be piped through as a live SSE stream. */
 export function getScrapeStreamResponse(
-  ctx: TenantContext, jobId: string, signal: AbortSignal,
+  ctx: TenantContext, jobId: string, signal: AbortSignal, lastEventId?: string,
 ): Promise<Response> {
   const query = new URLSearchParams({ org_id: ctx.orgId });
+  // Last-Event-ID lets a reconnecting browser resume after the last event it
+  // saw instead of replaying the run from the start.
+  const headers: Record<string, string> = { ...engineHeaders };
+  if (lastEventId) headers['Last-Event-ID'] = lastEventId;
   return fetch(`${SIGNAL_ENGINE_URL}/scrape/${encodeURIComponent(jobId)}/stream?${query}`, {
     signal,
-    headers: engineHeaders,
+    headers,
   });
 }
 
