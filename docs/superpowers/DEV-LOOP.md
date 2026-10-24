@@ -62,7 +62,13 @@ on the MANUAL list. Baseline before task 2: 215 + 106 passing.
       last name — fewer 'verified' emails, none of them someone else's.
 - [x] 10. `updateLead` on a foreign or missing id returns 404 — `9f2d465`
       Backend 211 + 115 green.
-- [ ] 11. Update HANDOFF.md and the cutover runbook
+- [x] 11. Update HANDOFF.md and the cutover runbook — `eb31384`
+      Found and fixed a runbook ordering bug: Path B created the scrape run
+      store after deploying the engine that needs it.
+
+**Loop finished 2026-10-24.** All 11 DEV tasks done, none blocked. Final
+checks: backend 211 + 115 (RLS pass), engine 85, backend and frontend `tsc`
+clean, backend lint clean, schema parity clean — all on the local stand-in.
 
 ## MANUAL (Anadi, after the loop)
 
