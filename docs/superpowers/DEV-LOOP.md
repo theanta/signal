@@ -10,7 +10,7 @@ Plan: `docs/superpowers/plans/2026-10-24-job-durability-and-metering.md`
 
 ## DEV
 
-- [x] 1. Write Plan 3 — see commit log for hash
+- [x] 1. Write Plan 3 — `b6697d3`
 - [ ] 2. Remove the job-postings module
 - [ ] 3. Postgres scrape job store
 - [ ] 4. SSE from Postgres with Last-Event-ID reconnect
