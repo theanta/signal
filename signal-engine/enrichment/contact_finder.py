@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import time
 import requests
 from urllib.parse import urlparse
 
@@ -57,6 +58,42 @@ def _company_tokens(company_name: str) -> list[str]:
             if t and t not in _COMPANY_SUFFIXES]
 
 
+def _mentions_company(text: str, tokens: list[str]) -> bool:
+    """True when every company token appears in `text` as a whole word.
+
+    Whole words, not substrings: "Ace" must not match "space" or "Acme". An
+    empty token list proves nothing about which company a result is about,
+    so it fails closed."""
+    if not tokens:
+        return False
+    low = text.lower()
+    return all(re.search(r"(?<![a-z0-9&])" + re.escape(t) + r"(?![a-z0-9&])", low) for t in tokens)
+
+
+def _email_matches_person(local_part: str, first: str, last: str) -> bool:
+    """True when an address's local part plausibly belongs to first/last.
+
+    Exact name tokens and the usual patterns only — never a substring, so
+    "dan" does not claim danielle@. A bare first-name inbox counts only when
+    there is no last name to tell people apart."""
+    first = re.sub(r"[^a-z]", "", first.lower())
+    last = re.sub(r"[^a-z]", "", last.lower())
+    local = local_part.lower()
+    if not first:
+        return False
+    if not last:
+        return local == first
+    compact = re.sub(r"[^a-z]", "", local)
+    patterns = {
+        f"{first}{last}", f"{first[0]}{last}", f"{first}{last[0]}",
+        f"{last}{first}", f"{last}{first[0]}", last,
+    }
+    if compact in patterns:
+        return True
+    tokens = [t for t in re.split(r"[._\-]+", local) if t]
+    return tokens in ([first, last], [first[0], last], [last, first], [first, last[0]])
+
+
 def _title_rank(title: str) -> int | None:
     """Index into _DECISION_TITLE_KEYWORDS of the best keyword in title, or None."""
     low = title.lower()
@@ -109,13 +146,13 @@ def _snippet_title(snippet: str, company_tokens: list[str]) -> str | None:
             continue
         # Same-segment form: "Owner at <Company>"
         m = re.match(r"(.+?)\s+at\s+(.+)$", seg, flags=re.I)
-        if m and all(t in m.group(2).lower() for t in company_tokens):
+        if m and _mentions_company(m.group(2), company_tokens):
             if _title_rank(m.group(1).split(",")[0]) is not None:
                 return m.group(1).strip()
             continue
         # Adjacent-segment form: "Owner. <Company>."
         if i + 1 < len(segments) and _title_rank(seg.split(",")[0]) is not None \
-                and all(t in segments[i + 1].lower() for t in company_tokens):
+                and _mentions_company(segments[i + 1], company_tokens):
             return seg
     return None
 
@@ -188,8 +225,7 @@ def _serp_find_person(company_name: str, location: str | None = None) -> dict | 
 
         # The company must appear in the result — otherwise this is someone whose
         # profile merely mentions it (past role, competitor comparison, etc.)
-        haystack = f"{raw_title} {res.get('snippet', '')}".lower()
-        if tokens and not all(t in haystack for t in tokens):
+        if not _mentions_company(f"{raw_title} {res.get('snippet', '')}", tokens):
             continue
 
         candidate = (rank, idx, {"name": name, "title": person_title, "linkedin_url": link})
@@ -226,7 +262,7 @@ def _jsonld_people(html: str) -> list[dict]:
     return people
 
 
-def _scrape_site(website: str) -> tuple[dict[str, str], list[dict]]:
+def _scrape_site(website: str, deadline: float | None = None) -> tuple[dict[str, str], list[dict]]:
     """
     Fetch contact/about/team pages. Returns (emails, people):
       emails — {email: page_path} for addresses on the company's own domain
@@ -260,9 +296,14 @@ def _scrape_site(website: str) -> tuple[dict[str, str], list[dict]]:
             people.extend(_jsonld_people(resp.text))
         except Exception:
             continue
-        # A personal address is the best this stage can produce — stop early
-        # instead of burning the remaining paths' timeout budget.
-        if any(e.split("@")[0] not in _GENERIC_PREFIXES for e in emails):
+        # A personal address plus someone to pair it with is the best this
+        # stage can produce — stop early instead of burning the remaining
+        # paths' timeout budget. An email alone is not enough: stopping there
+        # skipped the team page whose markup names the person.
+        has_personal = any(e.split("@")[0] not in _GENERIC_PREFIXES for e in emails)
+        if has_personal and people:
+            break
+        if deadline is not None and time.monotonic() >= deadline:
             break
 
     return emails, people
@@ -290,10 +331,11 @@ def _email_candidates(first: str, last: str, domain: str) -> list[str]:
 def _verify_email(email: str) -> str:
     """
     Check deliverability via MillionVerifier. Returns "ok", "catch_all", "bad",
-    or "unknown" (no API key / verifier unreachable).
+    "unknown" (the verifier could not tell), "error" (a transient failure:
+    non-200, timeout) or "no_verifier" (no API key configured).
     """
     if not MILLIONVERIFIER_API_KEY:
-        return "unknown"
+        return "no_verifier"
     try:
         r = _SESSION.get(
             "https://api.millionverifier.com/api/v3/",
@@ -301,7 +343,7 @@ def _verify_email(email: str) -> str:
             timeout=12,
         )
         if r.status_code != 200:
-            return "unknown"
+            return "error"
         metering.record("millionverifier", "verify", 1)
         result = r.json().get("result", "")
         if result == "ok":
@@ -312,7 +354,7 @@ def _verify_email(email: str) -> str:
             return "bad"
         return "unknown"
     except Exception:
-        return "unknown"
+        return "error"
 
 
 # ============================================================
@@ -323,6 +365,7 @@ def find_contact(
     company_name: str,
     website: str | None,
     location: str | None,
+    budget_seconds: float | None = None,
 ) -> dict | None:
     """
     Returns a contact dict or None.
@@ -337,7 +380,16 @@ def find_contact(
           "verified"   found on the company site, or pattern verified deliverable
           "catch_all"  pattern matched but the domain accepts all mail
           "unknown"    no personal email could be established
+
+    With `budget_seconds`, later stages are skipped once the budget is spent
+    and whatever was found so far is returned — a LinkedIn person found in
+    Stage 1 survives a slow website or verifier.
     """
+    deadline = time.monotonic() + budget_seconds if budget_seconds else None
+
+    def out_of_time() -> bool:
+        return deadline is not None and time.monotonic() >= deadline
+
     # A social URL here would make site scraping hit blocked pages —
     # clean it so we only ever fetch the real company domain.
     website = clean_company_website(website)
@@ -347,11 +399,11 @@ def find_contact(
     # City narrows ambiguous company names but also shrinks recall (profiles
     # rarely mention it) — fall back to a name-only query when it finds nobody.
     person = _serp_find_person(company_name, location)
-    if not person and location:
+    if not person and location and not out_of_time():
         person = _serp_find_person(company_name, None)
 
     # ---- Stage 2: scrape company site for emails and team markup ----
-    emails, site_people = _scrape_site(website or "")
+    emails, site_people = ({}, []) if out_of_time() else _scrape_site(website or "", deadline)
 
     if not person and site_people:
         ranked = [(r, i, p) for i, p in enumerate(site_people)
@@ -373,9 +425,7 @@ def find_contact(
     if name:
         first, last = _split_name(name)
         for cand in personal_emails:
-            prefix = cand.split("@")[0]
-            if (len(first) >= 3 and first.lower() in prefix) or \
-               (len(last) >= 3 and last.lower() in prefix):
+            if _email_matches_person(cand.split("@")[0], first, last):
                 email, email_confidence = cand, "verified"
                 break
 
@@ -389,6 +439,8 @@ def find_contact(
     if not email and name and domain:
         first, last = _split_name(name)
         for cand in _email_candidates(first, last, domain):
+            if out_of_time():
+                break
             status = _verify_email(cand)
             if status == "ok":
                 email, email_confidence = cand, "verified"
@@ -396,8 +448,9 @@ def find_contact(
             if status == "catch_all":
                 email, email_confidence = cand, "catch_all"
                 break
-            if status == "unknown":
-                break  # no verifier available — never return a blind guess
+            if status == "no_verifier":
+                break  # never return a blind guess
+            # "bad", "unknown" or a transient "error": try the next pattern.
 
     fallback_generic_email = generic_emails[0] if generic_emails else ""
 

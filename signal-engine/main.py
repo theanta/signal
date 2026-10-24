@@ -136,6 +136,8 @@ app = FastAPI(
 # and any engine instance can report on any run.
 # How often the SSE stream polls scrape_job_events for new rows.
 STREAM_POLL_SECONDS = 1.0
+# find_contact's own budget; see the enrichment step of _analyze_lead_core.
+CONTACT_BUDGET_SECONDS = 40
 STREAM_PING_SECONDS = 10.0
 
 
@@ -308,10 +310,14 @@ async def _analyze_lead_core(
             else _with_timeout(asyncio.to_thread(verify_website, lead.website, lead.company_name, lead.location or ""), 15),
         _cached(lead.cached_tech_stack) if use_cached_tech
             else _with_timeout(asyncio.to_thread(detect_tech_stack, lead.website or ""), 15),
-        # 45s budget: find_contact's worst case (SERP lookup + seven contact-page
-        # fetches + several email verification calls) can exceed 40s.
+        # find_contact stops starting new stages after CONTACT_BUDGET_SECONDS and
+        # returns what it has, so a slow site or verifier no longer discards
+        # the LinkedIn person it already found. The outer timeout is only a
+        # backstop for a single call that hangs past its own timeout.
         _cached(lead.cached_contact) if use_cached_contact
-            else _with_timeout(asyncio.to_thread(find_contact, lead.company_name, lead.website, lead.location), 45),
+            else _with_timeout(asyncio.to_thread(find_contact, lead.company_name, lead.website,
+                                                 lead.location, CONTACT_BUDGET_SECONDS),
+                               CONTACT_BUDGET_SECONDS + 20),
         _with_timeout(scrape_website_content(lead.website or ""), 20),
         return_exceptions=True,
     )

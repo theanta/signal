@@ -146,20 +146,19 @@ Follow `docs/runbooks/tenancy-cutover.md`. In short:
 
 Reviewed but NOT fixed, except where noted:
 
-1. `signal-engine/main.py:268` — 45s `find_contact` budget vs ~100s worst case;
-   on timeout the whole contact is discarded including the LinkedIn person.
+1. **FIXED** (Plan 3 task 9) — `find_contact` takes a budget, skips later
+   stages once it is spent and returns the person found so far.
 2. **FIXED** (Task 11) — `contact_email_confidence` was written only inside
    the email branches, in two copies of the persistence code. Both are now
    `backend/services/persistAnalysis.ts`, which writes the contact block as a
    whole and clears a stale email.
-3. `contact_finder.py:373` — Stage 3a matches email to person by bare substring
-   (`'dan' in 'danielle'`), assigning another employee's inbox at `verified`.
-4. `contact_finder.py:189` — company guard is substring-based and short-circuits
-   when `_company_tokens` is empty.
-5. `contact_finder.py:262` — early break on first personal email aborts JSON-LD
-   people collection, so contact gets an email but no name.
-6. `contact_finder.py:395` — `break` on `unknown` also fires on a transient
-   verifier 503, abandoning remaining candidates.
+3. **FIXED** (Plan 3 task 9) — Stage 3a matches name tokens and the usual
+   patterns, never substrings.
+4. **FIXED** (Plan 3 task 9) — whole-word company guard; empty tokens fail
+   closed.
+5. **FIXED** (Plan 3 task 9) — the early stop needs an email and a person.
+6. **FIXED** (Plan 3 task 9) — the verifier reports `error` and `no_verifier`
+   separately; only a missing key stops the candidate loop.
 7. `.env.example` — **FIXED** in this branch.
 
 ## Pre-existing architecture drift (documented, not fixed)
