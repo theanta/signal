@@ -35,7 +35,10 @@ on the MANUAL list. Baseline before task 2: 215 + 106 passing.
       Backend 189 + 99 green; engine 32 green; frontend tsc clean. Fixed a
       task 3 regression on the way: the browser treated a 'finalizing'
       snapshot as a failed run.
-- [ ] 5. Heartbeat and reaper
+- [x] 5. Heartbeat and reaper — `c0cbff2`
+      Engine 39 green; reaper checked against the local Postgres; backend
+      unchanged. The reaper runs in every engine instance; the conditional
+      UPDATE makes concurrent sweeps safe.
 - [ ] 6. Usage metering and the monthly scrape cap
 - [ ] 7. Remove ANTA/Michigan hardcoding from the engine
 - [ ] 8. Cron: parallel orgs, outreach chained to analysis, per-org analysis limit
