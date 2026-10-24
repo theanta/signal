@@ -131,7 +131,10 @@ touches a Supabase project) and diffs `pg_dump --schema-only` output of
 
 1. a database built from the pre-tenancy `schema.sql` + every file in this
    directory in the order in section 1 + `2026-08-26_tenancy_foundation.sql`
-   + `2026-08-26_rls_policies.sql` (the "production upgrade" path), against
+   + `2026-10-24_drop_job_postings.sql` + `2026-08-26_rls_policies.sql`
+   + `2026-10-24_scrape_job_store.sql` + `2026-10-24_usage_events.sql`
+   (the "production upgrade" path; the cutover runbook's Path B applies the
+   three 2026-10-24 files before deploying), against
 2. a database built from the current `supabase/schema.sql` alone.
 
 That diff is empty except for **one enumerated divergence**: `org_id`'s

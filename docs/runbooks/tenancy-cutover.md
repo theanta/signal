@@ -1,8 +1,9 @@
 # Tenancy cutover runbook
 
 Takes production onto the multi-tenant foundation: `org_id` on every tenant
-table, the org-scoped backend, the org-required signal engine, and the
-`org_isolation` RLS policies.
+table, the org-scoped backend, the org-required signal engine, the
+`org_isolation` RLS policies, and Plan 3's scrape run store, usage metering
+and monthly scrape cap.
 
 There are two paths. **Path A is the one that applies today**: the app's
 Supabase project (`lgendecyizgfyajaooud`) was deleted on 2026-08-26, so there is
@@ -11,9 +12,9 @@ pre-tenancy data.
 
 ## Before either path
 
-- [ ] Backend and engine are deployed from the same commit. The engine now
-      rejects `/analyze` and `/scrape` without an `org_id` (422), and an old
-      backend does not send one.
+- [ ] Backend and engine are deployed from the same commit. The engine
+      rejects `/analyze` and `/scrape` without an `org_id` and the tenant's
+      `config` (422), and an old backend sends neither.
 - [ ] The full suite passes:
       `cd backend && npm test && npm run lint && npx tsc --noEmit` and
       `cd signal-engine && python -m pytest tests/ -v`.
@@ -27,7 +28,16 @@ pre-tenancy data.
     authenticated request returns 500 "Server configuration error".
   - `JWT_SECRET` (login tokens; unrelated to the one above)
   - `ENGINE_API_KEY`
-- [ ] `ENGINE_API_KEY` is set to the **same value** on the Render engine service.
+  - `GROQ_API_KEY` (outreach drafting)
+  - Optional: `CRON_TIMEZONE` (default `America/Detroit`, one zone for every
+    tenant) and `CRON_ORG_CONCURRENCY` (default 3)
+- [ ] These are set on the **Render engine** service:
+  - `ENGINE_API_KEY` — the **same value** as on the backend
+  - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` — the engine writes scrape
+    runs, their progress events and usage rows
+  - `GROQ_API_KEY`, `APIFY_API_TOKEN`, `SERPER_API_KEY`
+  - `MILLIONVERIFIER_API_KEY` — without it pattern emails are never verified,
+    so they are never returned
 
 ## Path A — fresh Supabase project (current situation)
 
@@ -35,8 +45,9 @@ pre-tenancy data.
    JWT secret and database connection string.
 
 2. Build the schema from `schema.sql` alone. It already contains the tenancy
-   columns, the composite foreign keys and the RLS policies — do **not** also
-   run the migrations in `supabase/migrations/`:
+   columns, the composite foreign keys, the RLS policies, the scrape run
+   store and `usage_events` — do **not** also run the migrations in
+   `supabase/migrations/`:
 
    ```bash
    psql "$PROD_DB_URL" -v ON_ERROR_STOP=1 -f supabase/schema.sql
@@ -87,13 +98,27 @@ changes.
    SELECT COUNT(*) FROM leads WHERE org_id IS NULL;
    ```
 
-   Then drop the job-postings tables, which left Signal on 2026-10-24
-   (one transaction, and it also strips the `remote_*` settings):
+   Then apply Plan 3's three migrations, each a single transaction. They
+   must land before the deploy in step 7: the new engine writes every scrape
+   to `scrape_jobs`, and the smoke test in step 9 runs one.
 
    ```bash
+   # Drops the job-postings tables (they left Signal on 2026-10-24) and
+   # strips the remote_* settings.
    psql "$PROD_DB_URL" -v ON_ERROR_STOP=1 \
      -f supabase/migrations/2026-10-24_drop_job_postings.sql
+   # Scrape runs and their events; tenants may read their own, never write.
+   psql "$PROD_DB_URL" -v ON_ERROR_STOP=1 \
+     -f supabase/migrations/2026-10-24_scrape_job_store.sql
+   # Usage metering.
+   psql "$PROD_DB_URL" -v ON_ERROR_STOP=1 \
+     -f supabase/migrations/2026-10-24_usage_events.sql
    ```
+
+   The two new tables carry their own policies from the start. Neither is
+   read through a tenant session by the app (the engine writes them as
+   service_role; the backend only inserts usage rows, and a failed usage
+   write never fails a request), so "RLS last" is not at risk here.
 
 6. Give the backfilled ANTA org an admin and a config row if it lacks them.
    Cron skips any org with no active admin:
@@ -120,17 +145,7 @@ changes.
       -f supabase/migrations/2026-08-26_rls_policies.sql
     ```
 
-11. Create the scrape run store and the usage table (each a single
-    transaction):
-
-    ```bash
-    psql "$PROD_DB_URL" -v ON_ERROR_STOP=1 \
-      -f supabase/migrations/2026-10-24_scrape_job_store.sql
-    psql "$PROD_DB_URL" -v ON_ERROR_STOP=1 \
-      -f supabase/migrations/2026-10-24_usage_events.sql
-    ```
-
-12. Run the smoke test again. Anything that worked in step 9 and fails now is
+11. Run the smoke test again. Anything that worked in step 9 and fails now is
     a policy problem, not an app problem.
 
 ## Smoke test
@@ -150,6 +165,33 @@ Log in from the frontend as the ANTA admin, then:
       shows the scrape's Apify rows and the analysis's Groq row, under ANTA's org.
 - [ ] With the anon key, `GET $SUPABASE_URL/rest/v1/leads` and
       `.../rest/v1/organizations` both return `[]`.
+- [ ] Settings shows Hiring Roles (Targeting) and Leads analyzed per day
+      (Sources), with ANTA's values.
+
+Then create a throwaway second tenant with `create-org` (see "Onboarding a
+design partner") and, logged in as it:
+
+- [ ] The dashboard and leads list are empty; Settings shows its own agency
+      name and empty targeting, not ANTA's.
+- [ ] A manual scrape is refused with "Set target locations in Settings
+      before scraping".
+- [ ] `PATCH /api/leads/<one of ANTA's lead ids>` returns 404, and the lead
+      is unchanged when viewed as ANTA.
+
+Delete the throwaway tenant afterwards, children first (the organizations
+row is referenced, not cascaded from):
+
+```sql
+DO $$ DECLARE o UUID := (SELECT id FROM organizations WHERE slug = '<slug>'); BEGIN
+  DELETE FROM usage_events    WHERE org_id = o;
+  DELETE FROM scrape_jobs     WHERE org_id = o;  -- cascades its events
+  DELETE FROM scraping_logs   WHERE org_id = o;
+  DELETE FROM cron_job_logs   WHERE org_id = o;
+  DELETE FROM platform_config WHERE org_id = o;
+  DELETE FROM users           WHERE org_id = o;
+  DELETE FROM organizations   WHERE id = o;
+END $$;
+```
 
 ## Rollback
 
@@ -177,6 +219,29 @@ Log in from the frontend as the ANTA admin, then:
   This is a temporary state with one layer of isolation instead of two.
   Re-apply `2026-08-26_rls_policies.sql` once the fault is fixed — it drops
   and recreates every policy, so it is safe to re-run.
+
+  `scrape_jobs`, `scrape_job_events` and `usage_events` need no rollback step:
+  the app never reads them through a tenant session, so their policies cannot
+  break a page.
+
+## Operating notes
+
+- **Monthly scrape cap.** `organizations.monthly_scrape_cap` (default 100)
+  counts every run started this calendar month (UTC), failed ones included.
+  Over it, scrapes are refused with "Monthly scrape limit reached". Raise it
+  for an org with
+  `UPDATE organizations SET monthly_scrape_cap = 200 WHERE slug = '<slug>';`
+- **Stuck runs.** A run with no heartbeat for 15 minutes is failed by the
+  engine's reaper (checked every 5 minutes), which frees the org to scrape
+  again. A run that died in a deploy therefore clears itself within ~20
+  minutes.
+- **Cost per tenant.**
+  `SELECT o.slug, u.provider, SUM(u.units) AS units, SUM(u.cost_cents) AS cents
+   FROM usage_events u JOIN organizations o ON o.id = u.org_id
+   WHERE u.created_at >= date_trunc('month', now())
+   GROUP BY 1, 2 ORDER BY 1, 2;`
+  Apify reports its own cost; Serper, Groq and MillionVerifier are counted in
+  queries, tokens and verifications.
 
 ## Onboarding a design partner
 

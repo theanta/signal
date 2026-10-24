@@ -1,8 +1,10 @@
 # Signal Repo — Session Handoff
 
-**Last updated:** 2026-10-01
-**Branch:** `claude/multi-tenant-saas-review-rfyb78` — `feat/multi-tenant-saas`
-plus the Task 8 follow-up through Task 15. Plan 2 is complete.
+**Last updated:** 2026-10-24
+**Branch:** `claude/multi-tenant-saas-review-rfyb78-jyplbj`. Plans 1, 2 and 3
+are complete; the multi-tenant foundation is built. What remains is the
+manual list in `docs/superpowers/DEV-LOOP.md` (hosted test run, production
+project, Render settings, cutover, merge to `main`, first design partner).
 
 ## What changed direction
 
@@ -32,9 +34,11 @@ migration so RAG is purely additive later. No speculative empty tables.
 - **Plan 2:** `docs/superpowers/plans/2026-08-26-tenancy-foundation.md` — DONE
   (15 of 15). Where the code departs from the plan's text, the commit message
   and "Plan 2 completion" below say why; trust the code.
+- **Plan 3:** `docs/superpowers/plans/2026-10-24-job-durability-and-metering.md`
+  — DONE (tasks 2-10). See "Plan 3 completion" below.
 - **Runbook:** `docs/runbooks/tenancy-cutover.md` — deploy, rollback, onboarding.
-- Plan 3 is **not yet written**. It is the next step. It now also removes the
-  job-postings module — see "Decided 2026-10-24" below.
+- **Loop ledger:** `docs/superpowers/DEV-LOOP.md` — each Plan 3 task with its
+  commit, and the manual checklist that is left.
 
 ## The three plans
 
@@ -42,7 +46,7 @@ migration so RAG is purely additive later. No speculative empty tables.
 |---|---|---|---|
 | 1. Signal engine authentication | Engine rejects unauthenticated calls | 2 | **Complete** |
 | 2. Tenancy foundation | `org_id`, composite FKs, `TenantContext`, RLS, isolation suites | 18 | **Complete** |
-| 3. Job durability + metering | Postgres job store, reaper, usage events, scrape cap; remove the job-postings module | ~11 | Not written |
+| 3. Job durability + metering | Postgres run store, resumable SSE, reaper, usage events, scrape cap, job-postings module removed, tenant-neutral engine, parallel cron, contact_finder fixes | ~15 | **Complete** |
 
 ## Decided 2026-10-24: the job-postings module leaves Signal
 
@@ -125,8 +129,13 @@ Follow `docs/runbooks/tenancy-cutover.md`. In short:
 - `SUPABASE_ANON_KEY` and `SUPABASE_JWT_SECRET` on the Render backend. Without
   the JWT secret the backend cannot mint org-scoped clients and every
   authenticated request returns 500.
-- Deploy the backend and engine **together**: the engine now 422s any
-  `/analyze` or `/scrape` without an `org_id`, and an old backend sends none.
+- The engine needs `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` too: scrape
+  runs, their events and usage rows are written there now.
+- `MILLIONVERIFIER_API_KEY` on the engine, or pattern emails are never
+  verified (and so never returned).
+- Deploy the backend and engine **together**: the engine 422s any `/analyze`
+  or `/scrape` without an `org_id` **and a `config`**, and an old backend
+  sends neither.
 - The production Supabase project is gone, so the real path is the runbook's
   Path A: build a fresh project from `schema.sql` alone (it includes the RLS
   policies), then `npm run create-org` for ANTA.
@@ -138,13 +147,14 @@ Follow `docs/runbooks/tenancy-cutover.md`. In short:
   scripts are broken; `./venv/bin/python -m <tool>` works. `npm run dev:signal`
   calls bare `uvicorn`, so it needs the venv activated. Recreate the venv when
   convenient.
-- **`MILLIONVERIFIER_API_KEY` is not set locally**, so the pattern-email
-  verification added in `b74cc84` is silently doing nothing.
-- **Open code-review findings on `b74cc84`** (see the review section below).
+- **`MILLIONVERIFIER_API_KEY` is not set locally**, so pattern emails are
+  never verified there. Since task 9 a missing key is reported as
+  `no_verifier` and no guessed address is ever returned.
+- The `b74cc84` review findings are all closed (see below).
 
 ## Open code-review findings (commit b74cc84)
 
-Reviewed but NOT fixed, except where noted:
+All closed:
 
 1. **FIXED** (Plan 3 task 9) — `find_contact` takes a budget, skips later
    stages once it is spent and returns the person found so far.
@@ -169,8 +179,78 @@ Reviewed but NOT fixed, except where noted:
 - ~~Three independent `createClient` calls~~ — RESOLVED: one `supabaseAdmin`
   (Task 5); `configService` now uses the tenant's scoped client (Task 9).
 - 6 frontend files bypass `frontend/services/` and hit `@/lib/api` directly.
-- God files: `frontend/app/jobs/[id]/page.tsx` (1127 lines),
-  `frontend/app/leads/[id]/page.tsx` (1034), `signal-engine/main.py` (874).
+- God files: `frontend/app/leads/[id]/page.tsx` (1034 lines),
+  `signal-engine/main.py` (~1000). The 1127-line jobs page went with the
+  job-postings module.
+
+## Plan 3 completion (2026-10-24)
+
+Worked as a loop, one task per iteration, each committed and ticked in
+`docs/superpowers/DEV-LOOP.md` with its hash. Final state: backend 211 tests
+under the app harness and 115 again through the RLS-scoped client; engine 85;
+`npx tsc --noEmit` clean in `backend/` and `frontend/`; `npm run lint` clean;
+`schema-parity-check.sh` shows only the `org_id` ordinal hunks.
+
+**Where these were verified.** Not against `anta-signal-test` — the session
+container could not reach it. The suites ran against a local stand-in
+(Postgres 16 + pgvector with SSL, the Supabase roles, `auth.jwt()`, Supabase's
+default grants on `public`, PostgREST 12.2.3 behind a `/rest/v1` proxy). The
+run store, reaper, cap and metering were also exercised against that Postgres
+directly, and the engine's resumable stream end to end over HTTP. **Run the
+suites against the hosted test project before cutover**, after applying every
+migration listed in the runbook.
+
+### What shipped
+
+| Task | Commit | Summary |
+|---|---|---|
+| 2 | `aced26f` | Job-postings module removed end to end; `2026-10-24_drop_job_postings.sql` |
+| 3 | `6db2ee0` | `scrape_jobs` / `scrape_job_events`; one active run per org (409); status and stream org-scoped; in-memory dict gone |
+| 4 | `6c9c5a0` | SSE ids + `Last-Event-ID` resume, keep-alive pings, browser reconnects |
+| 5 | `c0cbff2` | Heartbeat every 60s; reaper fails runs stale > 15 min; terminal runs ignore straggler writes |
+| 6 | `7c5e1c5` | `usage_events` at every paid call site; `monthly_scrape_cap` → 429 |
+| 7 | `08be953` | Engine and outreach tenant-neutral; `target_roles`; neutral default config; ANTA's settings only for the `anta` slug |
+| 8 | `1458c77` | Cron runs `CRON_ORG_CONCURRENCY` orgs at once; outreach chained per org; `daily_analysis_limit` |
+| 9 | `b2b1d61` | contact_finder #1, #3, #4, #5, #6 |
+| 10 | `9f2d465` | 404, not 500, for a lead that is not the caller's |
+
+### Departures from the plan, and why
+
+- **`finalizing` counts as an active run** (task 3). The spec's index left it
+  out, which would let a second run start while the first is writing leads.
+- **Scheduled scrapes wait out an active run** (task 3). The daily and
+  bi-weekly scrapes fire in the same minute on the 1st and 15th, and the
+  one-active-run index would otherwise refuse the second every time. Manual
+  triggers fail at once with 409.
+- **Tenants can read scrape runs but never write them** (task 3): deleting a
+  run would lower the count the scrape cap is checked against. Usage events
+  are insert-and-read for tenants (the backend records its own Groq calls
+  through the scoped client), never update or delete.
+- **Failed runs count toward the cap** (task 6): they spent credits.
+- **Config is required on every engine call** (task 7), and the shared
+  `DEFAULT_PLATFORM_CONFIG` is neutral. `getConfig` merges a tenant's row over
+  the defaults, so ANTA-valued defaults would have leaked ANTA's targets into
+  any tenant missing a key.
+- **A tenant with no target locations cannot scrape** (task 7): the engine
+  returns 400 `not_configured` rather than scraping someone else's market.
+- **The analysis limit lives in config, not on `organizations`** (task 8), so
+  a tenant can tune it in Settings; it is clamped to 1-100.
+- **A bare first-name inbox is no longer matched to a person with a last
+  name** (task 9). Fewer `verified` emails, none of them someone else's.
+
+### Open after Plan 3 (for Anadi to decide)
+
+- The product is still branded ANTA on the login page ("Internal tool · ANTA
+  Software") and in the sidebar.
+- `lead_signals.recommended_anta_service` keeps its name; renaming it is a
+  schema change with no behavior.
+- One cron schedule and time zone (`CRON_TIMEZONE`) for every tenant.
+- The local-business scraper's fallback industry terms (used when a tenant
+  lists no industries) still lean toward software, manufacturing and
+  logistics; the rule-based pain-point fallback (used only when Groq is
+  down) is operations-flavoured. Neither names ANTA.
+- Three orgs all waiting on an active scrape occupy every cron lane.
+- `frontend` has no ESLint config, so `next lint` cannot run.
 
 ## Plan 2 completion (2026-10-01)
 
@@ -234,7 +314,7 @@ rollback and re-apply were exercised the same way.
 - ~~Scrape job status has no org check~~ — FIXED in Plan 3 task 3 (runs live
   in Postgres; status and stream require the caller's org).
 - `backend/.eslintrc.cjs` still ignores `tests/` (deferred minor from Task 7).
-- The open `contact_finder.py` findings (#1, #3–#6 above) are untouched.
+- ~~The open `contact_finder.py` findings~~ — closed in Plan 3 task 9.
 
 ## Earlier Plan 2 notes (2026-09-14)
 
