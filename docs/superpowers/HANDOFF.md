@@ -70,7 +70,9 @@ only to find companies that are hiring, and emit *leads* (`leads.job_title`,
   of `supabaseService.ts` (including job→lead conversion),
   `claudeService.generateJobIntel`, `tests/isolation/jobs.test.ts`, and the job
   rows in the seed, schema and RLS tests.
-- Frontend: `app/jobs/` (including the 1127-line detail page),
+- Frontend: the **Jobs** entry in the sidebar (`components/ui/Sidebar.tsx`)
+  and any `/jobs` breadcrumb in `TopBar.tsx`; `app/jobs/` (including the
+  1127-line detail page),
   `components/jobs/`, `ApplyWorthyJobsWidget`, the Remote Jobs source and
   `remote_*` fields in Settings, and the job types in `shared/types`.
 
