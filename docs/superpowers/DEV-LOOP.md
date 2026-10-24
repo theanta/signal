@@ -31,7 +31,10 @@ on the MANUAL list. Baseline before task 2: 215 + 106 passing.
       Scheduled scrapes now wait for an active run; until task 8 the orgs
       are still processed one after another, so a long wait delays later
       orgs.
-- [ ] 4. SSE from Postgres with Last-Event-ID reconnect
+- [x] 4. SSE from Postgres with Last-Event-ID reconnect — `6c9c5a0`
+      Backend 189 + 99 green; engine 32 green; frontend tsc clean. Fixed a
+      task 3 regression on the way: the browser treated a 'finalizing'
+      snapshot as a failed run.
 - [ ] 5. Heartbeat and reaper
 - [ ] 6. Usage metering and the monthly scrape cap
 - [ ] 7. Remove ANTA/Michigan hardcoding from the engine
