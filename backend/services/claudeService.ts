@@ -2,6 +2,7 @@ import Groq from 'groq-sdk';
 import type { Lead, SignalAnalysisResult, OutreachChannel, PlatformConfig } from '../../shared/types';
 import { getConfig } from './configService';
 import type { TenantContext } from './tenantContext';
+import { recordUsage } from './usageService';
 
 const client = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const MODEL = process.env.GROQ_MODEL ?? 'llama-3.3-70b-versatile';
@@ -30,13 +31,18 @@ async function loadConfig(tenant: TenantContext): Promise<{ ctx: string; config:
   return { ctx: buildAgencyContext(config), config };
 }
 
-async function callGroq(prompt: string, maxTokens: number): Promise<string> {
+async function callGroq(
+  tenant: TenantContext, operation: string, prompt: string, maxTokens: number,
+): Promise<string> {
   const response = await client.chat.completions.create({
     model: MODEL,
     max_tokens: maxTokens,
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.7,
     response_format: { type: 'json_object' },
+  });
+  await recordUsage(tenant, {
+    provider: 'groq', operation, units: response.usage?.total_tokens ?? 0,
   });
   return response.choices[0]?.message?.content ?? '';
 }
@@ -111,7 +117,7 @@ Respond ONLY with valid JSON in this exact format:
   "body": "..."
 }`;
 
-  const text = await callGroq(prompt, 600);
+  const text = await callGroq(tenant, 'cold_email', prompt, 600);
   return extractJson<{ subject: string; body: string }>(text, 'cold email');
 }
 
@@ -153,7 +159,7 @@ Respond ONLY with valid JSON:
   "body": "..."
 }`;
 
-  const text = await callGroq(prompt, 300);
+  const text = await callGroq(tenant, 'linkedin_message', prompt, 300);
   return extractJson<{ body: string }>(text, 'LinkedIn message');
 }
 
@@ -191,7 +197,7 @@ Respond ONLY with valid JSON:
   "body": "..."
 }`;
 
-  const text = await callGroq(prompt, 300);
+  const text = await callGroq(tenant, 'follow_up', prompt, 300);
   return extractJson<{ subject: string; body: string }>(text, 'follow-up');
 }
 
@@ -235,7 +241,7 @@ Respond ONLY with valid JSON:
   "reasoning": "1-2 sentences explaining the quality rating"
 }`;
 
-  const text = await callGroq(prompt, 500);
+  const text = await callGroq(tenant, 'opportunity_analysis', prompt, 500);
   return extractJson<{
     summary: string;
     pain_points: string[];

@@ -120,11 +120,14 @@ changes.
       -f supabase/migrations/2026-08-26_rls_policies.sql
     ```
 
-11. Create the scrape run store (also a single transaction):
+11. Create the scrape run store and the usage table (each a single
+    transaction):
 
     ```bash
     psql "$PROD_DB_URL" -v ON_ERROR_STOP=1 \
       -f supabase/migrations/2026-10-24_scrape_job_store.sql
+    psql "$PROD_DB_URL" -v ON_ERROR_STOP=1 \
+      -f supabase/migrations/2026-10-24_usage_events.sql
     ```
 
 12. Run the smoke test again. Anything that worked in step 9 and fails now is
@@ -143,6 +146,8 @@ Log in from the frontend as the ANTA admin, then:
 - [ ] One manual scrape from the System page completes and appears in the
       activity log. Starting a second while it runs shows "A scrape is
       already running".
+- [ ] `SELECT provider, operation, units FROM usage_events ORDER BY created_at DESC LIMIT 10`
+      shows the scrape's Apify rows and the analysis's Groq row, under ANTA's org.
 - [ ] With the anon key, `GET $SUPABASE_URL/rest/v1/leads` and
       `.../rest/v1/organizations` both return `[]`.
 

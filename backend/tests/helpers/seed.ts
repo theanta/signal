@@ -109,6 +109,8 @@ export async function teardownSeed(): Promise<void> {
   await sql(
     `DELETE FROM leads WHERE org_id IN (SELECT id FROM organizations WHERE slug = ANY($1))`, [SLUGS]);
   await sql(
+    `DELETE FROM usage_events WHERE org_id IN (SELECT id FROM organizations WHERE slug = ANY($1))`, [SLUGS]);
+  await sql(
     `DELETE FROM scrape_jobs WHERE org_id IN (SELECT id FROM organizations WHERE slug = ANY($1))`, [SLUGS]);
   await sql(
     `DELETE FROM scraping_logs WHERE org_id IN (SELECT id FROM organizations WHERE slug = ANY($1))`, [SLUGS]);

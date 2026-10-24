@@ -2,9 +2,9 @@ import axios from 'axios';
 import type { ScrapedLeadRaw, SignalAnalysisResult } from '../../shared/types';
 import { getConfig } from './configService';
 import type { TenantContext } from './tenantContext';
-import { ScrapeAlreadyRunningError, ScrapeRunNotFoundError } from './engineErrors';
+import { ScrapeAlreadyRunningError, ScrapeCapReachedError, ScrapeRunNotFoundError } from './engineErrors';
 
-export { ScrapeAlreadyRunningError, ScrapeRunNotFoundError };
+export { ScrapeAlreadyRunningError, ScrapeCapReachedError, ScrapeRunNotFoundError };
 
 const SIGNAL_ENGINE_URL = process.env.SIGNAL_ENGINE_URL ?? 'http://localhost:8001';
 
@@ -53,6 +53,10 @@ export async function triggerScrape(
     return data;
   } catch (err) {
     if (engineStatus(err) === 409) throw new ScrapeAlreadyRunningError();
+    if (engineStatus(err) === 429) {
+      const detail = axios.isAxiosError(err) ? err.response?.data?.detail : undefined;
+      throw new ScrapeCapReachedError(detail?.message);
+    }
     throw err;
   }
 }

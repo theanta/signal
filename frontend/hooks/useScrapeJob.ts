@@ -54,6 +54,8 @@ export function useScrapeJob(onComplete?: () => void, onProgress?: () => void) {
       const res = (err as { response?: { status?: number; data?: { error?: string } } }).response;
       if (res?.status === 409) {
         toast.resolve(toastId, 'error', 'A scrape is already running', 'Wait for it to finish, then try again.');
+      } else if (res?.status === 429) {
+        toast.resolve(toastId, 'error', 'Monthly scrape limit reached', res.data?.error);
       } else {
         toast.resolve(toastId, 'error', 'Failed to start scrape', 'Is the signal engine online?');
       }

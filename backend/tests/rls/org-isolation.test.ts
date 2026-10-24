@@ -22,7 +22,7 @@ let dbB: SupabaseClient;
 const TENANT_TABLES = [
   'leads', 'lead_signals', 'lead_scores', 'outreach_messages',
   'outreach_history', 'scraping_logs', 'cron_job_logs', 'platform_config',
-  'users', 'scrape_jobs', 'scrape_job_events',
+  'users', 'scrape_jobs', 'scrape_job_events', 'usage_events',
 ];
 
 /** A client signed with the project's JWT secret, carrying arbitrary claims. */
@@ -40,7 +40,7 @@ const anonClient = () => createClient(process.env.SUPABASE_URL!, process.env.SUP
 
 beforeAll(async () => {
   orgs = await seedTwoOrgs();
-  // The shared seed leaves four tables empty; fill them for both orgs so each
+  // The shared seed leaves five tables empty; fill them for both orgs so each
   // table's "A sees its own rows" control has something to see.
   for (const org of [orgs.a, orgs.b]) {
     await sql(
@@ -52,6 +52,8 @@ beforeAll(async () => {
        VALUES ($1, 'completed', '{linkedin}', '{}') RETURNING id`, [org.orgId]);
     await sql(`INSERT INTO scrape_job_events (job_id, org_id, event) VALUES ($1, $2, '{"phase":"complete"}')`,
       [run.rows[0].id, org.orgId]);
+    await sql(`INSERT INTO usage_events (org_id, provider, operation, units) VALUES ($1, 'groq', 'seed', 10)`,
+      [org.orgId]);
   }
   dbA = createTenantContext(orgs.a.orgId, orgs.a.userId).db;
   dbB = createTenantContext(orgs.b.orgId, orgs.b.userId).db;
@@ -153,6 +155,30 @@ describe('scrape runs', () => {
   it('anon sees no runs', async () => {
     const { data } = await anonClient().from('scrape_jobs').select('id');
     expect(data ?? []).toEqual([]);
+  });
+});
+
+describe('usage_events', () => {
+  it('a tenant can record usage in its own org', async () => {
+    const { error } = await dbA.from('usage_events')
+      .insert({ org_id: orgs.a.orgId, provider: 'groq', operation: 'rls-probe', units: 1 });
+    expect(error).toBeNull();
+  });
+
+  it('a tenant cannot record usage against another org', async () => {
+    const { error } = await dbA.from('usage_events')
+      .insert({ org_id: orgs.b.orgId, provider: 'groq', operation: 'rls-smuggle', units: 1 });
+    expect(error).not.toBeNull();
+    const { rows } = await sql(`SELECT COUNT(*)::int AS n FROM usage_events WHERE operation = 'rls-smuggle'`);
+    expect(rows[0].n).toBe(0);
+  });
+
+  it('a tenant cannot erase or rewrite its usage', async () => {
+    await dbA.from('usage_events').delete().eq('org_id', orgs.a.orgId);
+    await dbA.from('usage_events').update({ units: 0 }).eq('org_id', orgs.a.orgId);
+    const { rows } = await sql(
+      `SELECT units FROM usage_events WHERE org_id = $1 AND operation = 'seed'`, [orgs.a.orgId]);
+    expect(rows.map(r => r.units)).toEqual([10]);
   });
 });
 

@@ -7,6 +7,8 @@ from datetime import timedelta
 
 from apify_client import ApifyClient
 
+import metering
+
 logger = logging.getLogger(__name__)
 
 # LinkedIn scraper needs time for browser startup + multi-keyword scraping
@@ -34,6 +36,8 @@ class ApifyBaseScraper(ABC):
             return []
         items = client.dataset(run.default_dataset_id).list_items().items
         logger.info(f"[Apify] Actor {actor_id} returned {len(items)} items")
+        metering.record("apify", f"actor:{actor_id}", len(items or []),
+                        metering.usd_to_cents(getattr(run, "usage_total_usd", None)))
         return items or []
 
     @abstractmethod

@@ -6,6 +6,8 @@ Falls back to rule-based analysis when Groq is unavailable or rate-limited.
 
 import json
 import logging
+
+import metering
 import os
 import re
 from typing import Tuple
@@ -155,6 +157,8 @@ def _call_groq(prompt: str) -> dict | None:
                 temperature=0.2,
                 max_tokens=600,
             )
+            usage = getattr(resp, "usage", None)
+            metering.record("groq", "pain_points", getattr(usage, "total_tokens", 0) or 0)
             raw = resp.choices[0].message.content
             validated = _PainPointResponse.model_validate(json.loads(raw))
             return validated.model_dump()

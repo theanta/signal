@@ -6,6 +6,8 @@ import re
 import requests
 from urllib.parse import urlparse
 
+import metering
+
 from .url_utils import clean_company_website
 
 SERPER_API_KEY = os.getenv("SERPER_API_KEY", "")
@@ -144,6 +146,7 @@ def _serp_find_person(company_name: str, location: str | None = None) -> dict | 
         )
         if r.status_code != 200:
             return None
+        metering.record("serper", "search:linkedin_person", 1)
         organic = r.json().get("organic", [])
     except Exception:
         return None
@@ -299,6 +302,7 @@ def _verify_email(email: str) -> str:
         )
         if r.status_code != 200:
             return "unknown"
+        metering.record("millionverifier", "verify", 1)
         result = r.json().get("result", "")
         if result == "ok":
             return "ok"

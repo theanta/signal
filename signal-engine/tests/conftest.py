@@ -16,6 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main
+import metering
 from main import app
 from tests.fake_store import FakeStore
 
@@ -33,3 +34,11 @@ def store(monkeypatch) -> FakeStore:
     fake = FakeStore()
     monkeypatch.setattr(main, "get_store", lambda: fake)
     return fake
+
+
+@pytest.fixture(autouse=True)
+def usage(monkeypatch) -> list[dict]:
+    """Usage rows recorded during the test, instead of writes to Postgres."""
+    rows: list[dict] = []
+    monkeypatch.setattr(metering, "_write", rows.append)
+    return rows

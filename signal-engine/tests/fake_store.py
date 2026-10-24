@@ -3,7 +3,7 @@ including one_active_scrape_per_org and org-scoped reads."""
 import uuid
 from datetime import datetime, timezone
 
-from jobstore import ACTIVE_STATUSES, ActiveRunExists
+from jobstore import ACTIVE_STATUSES, ActiveRunExists, ScrapeCapReached
 
 
 class FakeStore:
@@ -11,8 +11,18 @@ class FakeStore:
         self.runs: dict[str, dict] = {}
         self.events: list[dict] = []
         self.heartbeats: list[str] = []
+        self.caps: dict[str, int] = {}
+
+    def monthly_cap(self, org_id):
+        return self.caps.get(org_id, 100)
+
+    def runs_this_month(self, org_id):
+        return sum(1 for r in self.runs.values() if r["org_id"] == org_id)
 
     def create_run(self, org_id, sources, config):
+        cap = self.monthly_cap(org_id)
+        if self.runs_this_month(org_id) >= cap:
+            raise ScrapeCapReached(org_id, cap)
         if any(r["org_id"] == org_id and r["status"] in ACTIVE_STATUSES for r in self.runs.values()):
             raise ActiveRunExists(org_id)
         run_id = str(uuid.uuid4())

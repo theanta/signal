@@ -10,6 +10,14 @@ export class ScrapeAlreadyRunningError extends Error {
   }
 }
 
+/** The engine refused to start a scrape: the org has used its monthly cap. */
+export class ScrapeCapReachedError extends Error {
+  constructor(message = 'This organization has used all of its scrapes for this month.') {
+    super(message);
+    this.name = 'ScrapeCapReachedError';
+  }
+}
+
 /** The engine has no such scrape run for this org (or it belongs to another). */
 export class ScrapeRunNotFoundError extends Error {
   constructor() {

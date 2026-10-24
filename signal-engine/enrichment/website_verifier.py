@@ -5,6 +5,8 @@ import re
 import requests
 from urllib.parse import urlparse
 
+import metering
+
 from .url_utils import clean_company_website
 
 SERPER_API_KEY = os.getenv("SERPER_API_KEY", "")
@@ -61,6 +63,8 @@ def _serper_search(company_name: str, location: str) -> str | None:
             json={"q": query, "num": 5},
             timeout=8,
         )
+        if r.status_code == 200:
+            metering.record("serper", "search:company_website", 1)
         data = r.json()
         for result in data.get("organic", []):
             link = result.get("link", "")

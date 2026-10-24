@@ -34,7 +34,8 @@ from enrichment.website_content_scraper import scrape_website_content
 from enrichment.url_utils import clean_company_website
 from scrapers.lead_merger import merge_leads
 from auth import require_engine_key, verify_engine_key_configured
-from jobstore import ActiveRunExists, TERMINAL_STATUSES, get_store
+import metering
+from jobstore import ActiveRunExists, ScrapeCapReached, TERMINAL_STATUSES, get_store
 
 # ============================================================
 # ENTERPRISE DISQUALIFICATION
@@ -396,6 +397,7 @@ async def _analyze_lead_core(
 @app.post("/analyze", dependencies=[Depends(require_engine_key)])
 async def analyze_lead(request: AnalysisRequest):
     """Analyze a raw lead and return signals, score, pain points, tech stack, and contact."""
+    metering.bind(str(request.org_id))
     result = None
     async for phase, payload in _analyze_lead_core(request.lead, request.config, str(request.org_id)):
         if phase == "complete":
@@ -407,6 +409,9 @@ async def analyze_lead(request: AnalysisRequest):
 async def analyze_lead_stream(request: AnalysisRequest):
     """Same as /analyze but streams SSE progress events as each phase completes."""
     async def event_stream():
+        # Bound here, in the task that drives the stream: each ensure_future
+        # below copies this context into the step it runs.
+        metering.bind(str(request.org_id))
         gen = _analyze_lead_core(request.lead, request.config, str(request.org_id))
         while True:
             next_event = asyncio.ensure_future(anext(gen))
@@ -447,7 +452,8 @@ async def trigger_scrape(request: ScrapeRequest, background_tasks: BackgroundTas
     """Record a scrape run and start it in the background.
 
     409 when the org already has a run in progress: one_active_scrape_per_org
-    allows one queued/running/finalizing run per org."""
+    allows one queued/running/finalizing run per org. 429 when the org has used
+    its monthly_scrape_cap."""
     org_id = str(request.org_id)
 
     # When a config is supplied, only run sources that are both requested for
@@ -467,6 +473,12 @@ async def trigger_scrape(request: ScrapeRequest, background_tasks: BackgroundTas
             status_code=409,
             detail={"error": "scrape_already_running",
                     "message": "A scrape is already running for this organization."},
+        )
+    except ScrapeCapReached as e:
+        raise HTTPException(
+            status_code=429,
+            detail={"error": "scrape_cap_reached",
+                    "message": f"This organization has used all {e.cap} scrapes for this month."},
         )
 
     background_tasks.add_task(run_scrape_job, job_id, org_id, effective_sources, cfg)
@@ -591,6 +603,8 @@ async def run_scrape_job(job_id: str, org_id: str, sources: list[str], cfg: Opti
         os.environ["SUPABASE_SERVICE_ROLE_KEY"],
     )
 
+    # Every paid call made by this run's scrapers is attributed to it.
+    metering.bind(org_id, job_id)
     heartbeat = asyncio.create_task(_heartbeat_loop(job_id, org_id))
     try:
         await _run_scrape_job_body(job_id, org_id, sources, cfg, supabase)

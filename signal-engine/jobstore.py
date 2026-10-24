@@ -22,6 +22,19 @@ class ActiveRunExists(Exception):
     """The org already has a run in an active status (one_active_scrape_per_org)."""
 
 
+class ScrapeCapReached(Exception):
+    """The org has started organizations.monthly_scrape_cap runs this month."""
+
+    def __init__(self, org_id: str, cap: int):
+        super().__init__(f"org {org_id} reached its monthly scrape cap of {cap}")
+        self.cap = cap
+
+
+def month_start(now: Optional[datetime] = None) -> datetime:
+    now = now or datetime.now(timezone.utc)
+    return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -40,6 +53,15 @@ class JobStore:
     # ---- writes ----
 
     def create_run(self, org_id: str, sources: list[str], config: dict) -> str:
+        """Record a new running run for the org.
+
+        Raises ScrapeCapReached when the org has already started its monthly
+        cap of runs (every run counts, failed ones too: they spent credits),
+        and ActiveRunExists when it has one in progress. The count and the
+        insert cannot race: one_active_scrape_per_org admits one at a time."""
+        cap = self.monthly_cap(org_id)
+        if self.runs_this_month(org_id) >= cap:
+            raise ScrapeCapReached(org_id, cap)
         try:
             res = self.db.table("scrape_jobs").insert({
                 "org_id": org_id,
@@ -102,6 +124,19 @@ class JobStore:
         return reaped
 
     # ---- reads ----
+
+    def monthly_cap(self, org_id: str) -> int:
+        res = (self.db.table("organizations").select("monthly_scrape_cap")
+               .eq("id", org_id).limit(1).execute())
+        if not res.data:
+            raise ValueError(f"unknown org {org_id}")
+        return int(res.data[0]["monthly_scrape_cap"])
+
+    def runs_this_month(self, org_id: str) -> int:
+        res = (self.db.table("scrape_jobs").select("id", count="exact")
+               .eq("org_id", org_id).gte("created_at", month_start().isoformat())
+               .limit(1).execute())
+        return int(res.count or 0)
 
     def get_run(self, run_id: str, org_id: str) -> Optional[dict]:
         res = (self.db.table("scrape_jobs").select("*")
