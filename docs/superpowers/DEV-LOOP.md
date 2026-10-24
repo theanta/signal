@@ -51,7 +51,11 @@ on the MANUAL list. Baseline before task 2: 215 + 106 passing.
       lead_signals column is still named recommended_anta_service (rename
       is a schema change, no behavior); the cron schedule is one time zone
       for every tenant.
-- [ ] 8. Cron: parallel orgs, outreach chained to analysis, per-org analysis limit
+- [x] 8. Cron: parallel orgs, outreach chained to analysis, per-org analysis limit — `1458c77`
+      Backend 207 + 115 green; frontend tsc clean. Resolves the task 3
+      note: an org waiting out an active scrape now holds one lane, not
+      the whole run. With 3 lanes, three orgs all waiting would still
+      delay the rest.
 - [ ] 9. contact_finder fixes #3, #1, #4, #5, #6
 - [ ] 10. `updateLead` on a foreign or missing id returns 404
 - [ ] 11. Update HANDOFF.md and the cutover runbook
