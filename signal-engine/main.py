@@ -768,7 +768,11 @@ async def _run_scrape_job_body(job_id: str, org_id: str, sources: list[str],
             # promote to 'completed' once Phase 4 has the real counts.
             persisted_status = "finalizing" if log_status == "completed" else log_status
             try:
-                log_insert = supabase.table("scraping_logs").insert({
+                # Every database call in this coroutine runs in a worker thread:
+                # supabase-py is synchronous, and a direct call would freeze the
+                # event loop (other orgs' analyses and progress streams) for
+                # the length of the round trip.
+                log_row = {
                     "org_id": org_id,
                     "job_id": job_id,
                     "source": source,
@@ -782,7 +786,10 @@ async def _run_scrape_job_body(job_id: str, org_id: str, sources: list[str],
                     "completed_at": datetime.utcnow().isoformat(),
                     "error_message": error_msg,
                     "created_at": datetime.utcnow().isoformat(),
-                }).execute()
+                }
+                log_insert = await asyncio.to_thread(
+                    lambda: supabase.table("scraping_logs").insert(log_row).execute()
+                )
                 if log_insert.data:
                     source_log_ids[source] = log_insert.data[0]["id"]
                     if persisted_status == "finalizing":
@@ -823,8 +830,8 @@ async def _run_scrape_job_body(job_id: str, org_id: str, sources: list[str],
             try:
                 # Org-scoped: without it, one tenant's scrape silently skips a
                 # company because a *different* tenant already has it.
-                res = (
-                    supabase.table("leads").select("id, source_url")
+                res = await asyncio.to_thread(
+                    lambda: supabase.table("leads").select("id, source_url")
                     .eq("org_id", org_id).in_("source_url", chunk).execute()
                 )
                 for row in res.data or []:
@@ -874,26 +881,35 @@ async def _run_scrape_job_body(job_id: str, org_id: str, sources: list[str],
         # If a chunk fails (e.g. one bad row), fall back to inserting it row-by-row so a
         # single bad lead can't sink the whole chunk's worth of good ones.
         INSERT_CHUNK = 50
+
+        def _insert_chunk(chunk: list[dict]) -> list[bool]:
+            """Insert one chunk (blocking; run in a thread). Which rows made it in."""
+            try:
+                supabase.table("leads").insert(chunk).execute()
+                return [True] * len(chunk)
+            except Exception as e:
+                logger.warning(f"[Scraper] Bulk insert failed for a chunk of {len(chunk)}, retrying individually: {e}")
+            inserted = []
+            for row in chunk:
+                try:
+                    supabase.table("leads").insert(row).execute()
+                    inserted.append(True)
+                except Exception as e2:
+                    logger.error(f"[Scraper] Failed to insert '{row.get('company_name', '?')}': {e2}")
+                    inserted.append(False)
+            return inserted
+
         for i in range(0, len(new_rows), INSERT_CHUNK):
             chunk = new_rows[i:i + INSERT_CHUNK]
             chunk_sources = new_rows_sources[i:i + INSERT_CHUNK]
-            try:
-                supabase.table("leads").insert(chunk).execute()
-                total_new += len(chunk)
-                for sources in chunk_sources:
+            inserted = await asyncio.to_thread(_insert_chunk, chunk)
+            for ok, sources in zip(inserted, chunk_sources):
+                if ok:
+                    total_new += 1
                     for s in sources:
                         per_source_new[s] = per_source_new.get(s, 0) + 1
-            except Exception as e:
-                logger.warning(f"[Scraper] Bulk insert failed for a chunk of {len(chunk)}, retrying individually: {e}")
-                for row, sources in zip(chunk, chunk_sources):
-                    try:
-                        supabase.table("leads").insert(row).execute()
-                        total_new += 1
-                        for s in sources:
-                            per_source_new[s] = per_source_new.get(s, 0) + 1
-                    except Exception as e2:
-                        failed_inserts += 1
-                        logger.error(f"[Scraper] Failed to insert '{row.get('company_name', '?')}': {e2}")
+                else:
+                    failed_inserts += 1
 
         # Refresh existing leads concurrently (bounded) instead of one-by-one serially —
         # each has a different payload so it can't collapse into a single bulk call.
@@ -934,9 +950,10 @@ async def _run_scrape_job_body(job_id: str, org_id: str, sources: list[str],
             if source in finalizing_sources:
                 update_payload["status"] = "completed"
             try:
-                supabase.table("scraping_logs").update(update_payload).eq(
-                    "id", log_id
-                ).eq("org_id", org_id).execute()
+                await asyncio.to_thread(
+                    lambda: supabase.table("scraping_logs").update(update_payload)
+                    .eq("id", log_id).eq("org_id", org_id).execute()
+                )
             except Exception as e:
                 logger.error(f"[Scraper] Failed to patch log counts for {source}: {e}")
 

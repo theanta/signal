@@ -1,5 +1,6 @@
 'use client';
 
+import QueryError from '@/components/ui/QueryError';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchOutreachQueue } from '@/services/outreach';
 import { generateOutreach, updateLeadStatus } from '@/services/leads';
@@ -71,17 +72,17 @@ export default function OutreachQueuePage() {
   const [generating, setGenerating] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
 
-  const { data: leads = [], isLoading } = useQuery({
+  const { data: leads = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['outreach-queue'],
     queryFn: fetchOutreachQueue,
     refetchInterval: 30_000,
-  }) as { data: QueueLead[]; isLoading: boolean };
+  }) as { data: QueueLead[]; isLoading: boolean; isError: boolean; error: unknown; refetch: () => void };
 
   const statusMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: LeadStatus }) => updateLeadStatus(id, status),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['outreach-queue'] });
-      qc.invalidateQueries({ queryKey: ['dashboard-metrics'] });
+      qc.invalidateQueries({ queryKey: ['dashboard-all'] });
     },
   });
 
@@ -119,6 +120,8 @@ export default function OutreachQueuePage() {
             <div className="p-3">
               <ListSkeleton />
             </div>
+          ) : isError ? (
+            <QueryError title="Could not load the queue" error={error} onRetry={() => refetch()} />
           ) : leads.length === 0 ? (
             <div className="p-6 text-center text-muted text-sm">
               No leads in queue
@@ -176,7 +179,7 @@ export default function OutreachQueuePage() {
                 Choose a lead from the list to view AI-generated messages and track status.
               </p>
             </div>
-          ) : leads.length === 0 && !isLoading ? (
+          ) : leads.length === 0 && !isLoading && !isError ? (
             <div className="flex flex-col items-center justify-center h-full gap-4 p-8 text-center">
               <div className="w-14 h-14 rounded-2xl bg-surface-strong flex items-center justify-center">
                 <Send className="w-6 h-6 text-muted/40" />

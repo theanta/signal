@@ -5,17 +5,25 @@ import { fetchAllDashboard } from '@/services/metrics';
 import { useScrapeJob } from '@/hooks/useScrapeJob';
 import ScrapeProgressPanel from '@/components/scrape/ScrapeProgressPanel';
 import MetricCard from '@/components/dashboard/MetricCard';
-import PipelineBar from '@/components/dashboard/PipelineBar';
+import dynamic from 'next/dynamic';
+
+// The chart library is the bulk of this page's JavaScript; load it after the
+// rest of the dashboard instead of before it.
+const PipelineBar = dynamic(() => import('@/components/dashboard/PipelineBar'), {
+  ssr: false,
+  loading: () => <div className="card-bento p-5 h-full min-h-[220px] animate-pulse" />,
+});
 import HotLeadsWidget from '@/components/dashboard/HotLeadsWidget';
 import ActivityFeed from '@/components/dashboard/ActivityFeed';
 import AIInsightsPanel from '@/components/dashboard/AIInsightsPanel';
 import LeadQuotaCard from '@/components/dashboard/LeadQuotaCard';
 import PageHeader from '@/components/ui/PageHeader';
+import QueryError from '@/components/ui/QueryError';
 import { DashboardSkeleton } from '@/components/ui/Skeleton';
 import { Users, Flame, Send, Star, RefreshCw, LayoutDashboard } from 'lucide-react';
 
 export default function DashboardPage() {
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['dashboard-all'],
     queryFn: fetchAllDashboard,
     refetchInterval: 60_000,
@@ -47,6 +55,8 @@ export default function DashboardPage() {
 
       {isLoading ? (
         <DashboardSkeleton />
+      ) : isError && !data ? (
+        <QueryError title="Could not load the dashboard" error={error} onRetry={() => refetch()} className="flex-1" />
       ) : (
         /* ── Split: left bento grid + right AI panel ── */
         <div className="ambient-signal flex gap-5 px-6 py-5 flex-1 min-h-0">

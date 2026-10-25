@@ -198,11 +198,18 @@ describe('metrics', () => {
     }
   });
 
-  it('getPipelineRows returns only the caller org’s leads', async () => {
-    const rows = await db.getPipelineRows(orgs.a.ctx);
-    expect(rows.map(r => r.id)).toContain(orgs.a.leadId);
-    expect(rows.map(r => r.id)).not.toContain(orgs.b.leadId);
-    expect(rows.every(r => r.org_id === orgs.a.orgId)).toBe(true);
+  it('getPipelineSummary counts only the caller org’s leads', async () => {
+    // B gets two more leads, so an unscoped count would differ from A's own.
+    await sql(
+      `INSERT INTO leads (company_name, source, org_id) VALUES ('B extra 1', 'manual', $1), ('B extra 2', 'manual', $1)`,
+      [orgs.b.orgId]);
+    try {
+      const summary = await db.getPipelineSummary(orgs.a.ctx);
+      const own = await sql(`SELECT count(*)::int AS n FROM leads WHERE org_id = $1`, [orgs.a.orgId]);
+      expect(summary.reduce((n, r) => n + r.count, 0)).toBe(own.rows[0].n);
+    } finally {
+      await sql(`DELETE FROM leads WHERE company_name IN ('B extra 1', 'B extra 2')`);
+    }
   });
 
   it('getHotLeads returns only the caller org’s leads', async () => {

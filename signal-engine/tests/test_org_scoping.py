@@ -132,3 +132,46 @@ def test_run_scrape_job_stamps_every_write(monkeypatch):
     for table, op, _p, filters, _k in sb.calls:
         if op == "select":
             assert ("eq", "org_id", ORG) in filters, f"{table} lookup is not org-scoped"
+
+
+def test_a_failed_chunk_is_retried_row_by_row_and_counted(monkeypatch):
+    """A bad row fails alone: the chunk insert falls back to one row at a time,
+    and the run counts only the rows that made it in."""
+    sb = _Recorder()
+    real_table = sb.table
+
+    def table(name):
+        q = real_table(name)
+        real_execute = q.execute
+
+        def execute():
+            if name == "leads" and q.op == "insert":
+                rows = _rows(q.payload)
+                if len(rows) > 1 or rows[0]["company_name"] == "Bad":
+                    raise RuntimeError("bad row")
+            return real_execute()
+
+        q.execute = execute
+        return q
+
+    sb.table = table
+    monkeypatch.setattr("supabase.create_client", lambda *_a, **_k: sb)
+
+    class _Fake:
+        def __init__(self, *a, **k):
+            pass
+
+        def scrape(self):
+            return [
+                {"company_name": n, "website": f"https://{n.lower()}.test",
+                 "source_url": f"https://{n.lower()}.test/jobs", "source": "job_board"}
+                for n in ("Good", "Bad", "Fine")
+            ]
+
+    monkeypatch.setattr(main, "JobBoardScraper", _Fake)
+    job_id = main.get_store().create_run(ORG, ["job_board"], {})
+    asyncio.run(main.run_scrape_job(job_id, ORG, ["job_board"], tenant_config()))
+
+    run = main.get_store().get_run(job_id, ORG)
+    assert run["status"] == "completed"
+    assert run["results"] == 2

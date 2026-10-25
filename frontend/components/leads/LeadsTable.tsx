@@ -169,6 +169,7 @@ export default function LeadsTable({
   onPageChange, onSortChange, sortBy, sortOrder,
   hiddenCols = new Set(),
 }: LeadsTableProps) {
+  const router = useRouter();
   const qc = useQueryClient();
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -449,10 +450,7 @@ export default function LeadsTable({
           </button>
 
           <button
-            onClick={() => {
-              const outreachUrl = `/outreach`;
-              window.location.href = outreachUrl;
-            }}
+            onClick={() => router.push('/outreach')}
             className="flex items-center gap-1.5 text-xs font-medium text-white/80 hover:text-white transition-colors"
           >
             <Send className="w-3.5 h-3.5" />

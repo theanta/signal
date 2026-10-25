@@ -83,7 +83,19 @@ describe('reads', () => {
       `INSERT INTO lead_scores (lead_id, overall_score, org_id) VALUES ($1, 5, $2)`,
       [orgs.b.leadId, orgs.b.orgId],
     );
-    expect(await db.getScorePercentile(orgs.a.ctx, 80)).toBe(0);
+    expect(await db.getScorePercentile(orgs.a.ctx, orgs.a.leadId)).toBe(0);
+  });
+});
+
+describe('lookups that must not error', () => {
+  it('a search with commas, brackets or quotes is text, not filter syntax', async () => {
+    for (const search of ['Acme, Inc', 'a(b)c', 'say "hi"', 'back\\slash']) {
+      await expect(db.getLeads(orgs.a.ctx, { search })).resolves.toMatchObject({ data: expect.any(Array) });
+    }
+  });
+
+  it('a malformed lead id is not found, not a server error', async () => {
+    expect(await db.getLeadById(orgs.a.ctx, 'not-a-uuid')).toBeNull();
   });
 });
 

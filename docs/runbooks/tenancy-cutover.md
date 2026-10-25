@@ -98,7 +98,7 @@ changes.
    SELECT COUNT(*) FROM leads WHERE org_id IS NULL;
    ```
 
-   Then apply the five 2026-10 migrations, each a single transaction. They
+   Then apply the six 2026-10 migrations, each a single transaction. They
    must land before the deploy in step 7: the new engine writes every scrape
    to `scrape_jobs`, and the smoke test in step 9 runs one.
 
@@ -119,6 +119,9 @@ changes.
    # Lead quota columns and leads.first_analyzed_at.
    psql "$PROD_DB_URL" -v ON_ERROR_STOP=1 \
      -f supabase/migrations/2026-10-26_lead_quota.sql
+   # Dashboard counts, pipeline and score percentile as SQL functions.
+   psql "$PROD_DB_URL" -v ON_ERROR_STOP=1 \
+     -f supabase/migrations/2026-10-27_dashboard_aggregates.sql
    ```
 
    The two new tables carry their own policies from the start. Neither is

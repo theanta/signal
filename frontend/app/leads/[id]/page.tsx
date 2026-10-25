@@ -1,5 +1,7 @@
 'use client';
 
+import axios from 'axios';
+import QueryError from '@/components/ui/QueryError';
 import { useParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchLead, generateOutreach, updateLeadStatus } from '@/services/leads';
@@ -473,9 +475,11 @@ export default function LeadDetailPage() {
   const qc = useQueryClient();
   const [copied, setCopied] = useState<string | null>(null);
 
-  const { data: lead, isLoading } = useQuery({
+  const { data: lead, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['lead', id],
     queryFn: () => fetchLead(id),
+    // A missing lead stays missing; retrying only delays the "not found".
+    retry: (count, err) => !(axios.isAxiosError(err) && err.response?.status === 404) && count < 1,
   });
 
   const { phase: analysisPhase, isStreaming: isAnalyzing, start: startAnalysis } = useAnalysisStream(id);
@@ -508,6 +512,10 @@ export default function LeadDetailPage() {
   }
 
   if (isLoading) return <DetailSkeleton />;
+  const notFound = axios.isAxiosError(error) && error.response?.status === 404;
+  if (isError && !notFound) return (
+    <QueryError title="Could not load this lead" error={error} onRetry={() => refetch()} className="h-screen" />
+  );
   if (!lead) return (
     <div className="flex flex-col items-center justify-center h-screen gap-3 text-muted">
       <Building2 className="w-10 h-10" />

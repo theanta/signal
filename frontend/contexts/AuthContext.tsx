@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { tokenStore } from '@/lib/api';
 import type { AuthUser } from '../../shared/types';
 
@@ -55,7 +55,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [refreshAccessToken]);
 
-  const login = async (email: string, password: string): Promise<void> => {
+  const login = useCallback(async (email: string, password: string): Promise<void> => {
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       credentials: 'include',
@@ -69,19 +69,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data } = await res.json();
     setUser(data.user);
     tokenStore.setToken(data.accessToken);
-  };
+  }, []);
 
-  const logout = async (): Promise<void> => {
+  const logout = useCallback(async (): Promise<void> => {
     await fetch('/api/auth/logout', {
       method: 'POST',
       credentials: 'include',
     }).catch(() => {}); // best-effort
     setUser(null);
     tokenStore.setToken(null);
-  };
+  }, []);
+
+  // Stable unless the session changes, so consumers do not re-render on every
+  // render of the provider.
+  const value = useMemo(
+    () => ({ user, isLoading, isAuthenticated: !!user, login, logout, refreshAccessToken }),
+    [user, isLoading, login, logout, refreshAccessToken],
+  );
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, isAuthenticated: !!user, login, logout, refreshAccessToken }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

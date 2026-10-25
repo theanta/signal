@@ -1,8 +1,10 @@
 import type {
   Lead, LeadFilters, LeadSignal, LeadScore,
   OutreachMessage, OutreachHistory, ScrapingLog, PaginatedResponse, DashboardMetrics, CronJobLog,
+  PipelineSummary,
 } from '../../shared/types';
 import type { TenantContext } from './tenantContext';
+import { periodBounds, QUOTA_TIMEZONE } from './leadQuotaService';
 
 // No ambient client and no exported client. Every function below is reachable
 // only with a TenantContext, whose `db` already carries an org-scoped JWT — so
@@ -36,6 +38,16 @@ export class NotFoundError extends Error {
 
 // PostgREST's code for .single() matching zero rows.
 const NO_ROWS = 'PGRST116';
+// Postgres' code for text that is not a valid UUID.
+const BAD_UUID = '22P02';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const isUuid = (s: string): boolean => UUID_RE.test(s);
+
+/** A value quoted for PostgREST's or()/and() filter syntax. */
+export function orFilterValue(value: string): string {
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
 
 function stripOrgId<T extends object>(row: T): Omit<T, 'org_id'> {
   const safe = { ...row } as T & { org_id?: unknown };
@@ -66,7 +78,10 @@ export async function getLeads(ctx: TenantContext, filters: LeadFilters = {}): P
   if (industry) query = query.ilike('industry', `%${industry}%`);
   if (location) query = query.ilike('location', `%${location}%`);
   if (search) {
-    query = query.or(`company_name.ilike.%${search}%,description.ilike.%${search}%`);
+    // Quoted, so a comma or bracket in the search text stays text instead of
+    // breaking PostgREST's or() syntax.
+    const pattern = orFilterValue(`%${search}%`);
+    query = query.or(`company_name.ilike.${pattern},description.ilike.${pattern}`);
   }
 
   query = query.order(sort_by, { ascending: sort_order === 'asc' });
@@ -87,7 +102,11 @@ export async function getLeads(ctx: TenantContext, filters: LeadFilters = {}): P
 export async function getLeadById(ctx: TenantContext, id: string): Promise<Lead | null> {
   const { data, error } = await ctx.db
     .from('leads').select('*').eq('id', id).eq('org_id', ctx.orgId).single();
-  if (error) return null;
+  // Only "no such lead in this org" is a miss; a database failure is an error,
+  // not a 404.
+  // (22P02: the id is not a UUID at all, so no lead can have it.)
+  if (error?.code === NO_ROWS || error?.code === BAD_UUID) return null;
+  if (error) throw new Error(`getLeadById: ${error.message}`);
   return data as Lead;
 }
 
@@ -189,13 +208,11 @@ export async function getLeadScore(ctx: TenantContext, leadId: string): Promise<
   return data as LeadScore | null;
 }
 
-export async function getScorePercentile(ctx: TenantContext, score: number): Promise<number> {
-  const { data, error } = await ctx.db
-    .from('lead_scores').select('overall_score').eq('org_id', ctx.orgId);
-  if (error || !data || data.length < 2) return 50;
-  const scores = (data as { overall_score: number }[]).map(r => r.overall_score);
-  const below = scores.filter(s => s < score).length;
-  return Math.round((below / scores.length) * 100);
+/** Where the lead's score sits among the org's scores, 0-100 (50 with nothing to compare). */
+export async function getScorePercentile(ctx: TenantContext, leadId: string): Promise<number> {
+  const { data, error } = await ctx.db.rpc('lead_score_percentile', { p_org: ctx.orgId, p_lead: leadId });
+  if (error) throw new Error(`getScorePercentile: ${error.message}`);
+  return (data as number | null) ?? 50;
 }
 
 // ============================================================
@@ -315,55 +332,30 @@ export async function getCronJobLogs(ctx: TenantContext, limit = 40): Promise<Cr
 // ============================================================
 
 export async function getDashboardMetrics(ctx: TenantContext): Promise<DashboardMetrics> {
-  const scoped = () => ctx.db.from('leads').select('*', { count: 'exact', head: true }).eq('org_id', ctx.orgId);
-
-  const [
-    { count: total },
-    { count: hot },
-    { count: contacted },
-    { count: replied },
-    { count: meetings },
-    { count: clients },
-    { data: avgData },
-  ] = await Promise.all([
-    scoped(),
-    scoped().gte('lead_score', 70),
-    scoped().eq('status', 'contacted'),
-    scoped().eq('status', 'replied'),
-    scoped().eq('status', 'meeting'),
-    scoped().eq('status', 'client'),
-    ctx.db.from('leads').select('lead_score').eq('org_id', ctx.orgId).not('lead_score', 'is', null),
-  ]);
-
-  const scores = (avgData ?? []).map((r: { lead_score: number }) => r.lead_score).filter(Boolean);
-  const avg_score = scores.length ? Math.round(scores.reduce((a: number, b: number) => a + b, 0) / scores.length) : 0;
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const { count: new_today } = await scoped().gte('created_at', today.toISOString());
-
+  // "New today" counts from midnight in the agency's time zone, not the server's.
+  const since = periodBounds(new Date(), QUOTA_TIMEZONE).day.start.toISOString();
+  const { data, error } = await ctx.db.rpc('dashboard_metrics', { p_org: ctx.orgId, p_since: since });
+  if (error) throw new Error(`getDashboardMetrics: ${error.message}`);
+  const row = (Array.isArray(data) ? data[0] : data) as Record<keyof DashboardMetrics, number | null> | undefined;
+  const n = (k: keyof DashboardMetrics) => Number(row?.[k] ?? 0);
   return {
-    total_leads: total ?? 0,
-    hot_leads: hot ?? 0,
-    contacted: contacted ?? 0,
-    replied: replied ?? 0,
-    meetings: meetings ?? 0,
-    clients: clients ?? 0,
-    new_today: new_today ?? 0,
-    avg_score,
+    total_leads: n('total_leads'),
+    hot_leads: n('hot_leads'),
+    contacted: n('contacted'),
+    replied: n('replied'),
+    meetings: n('meetings'),
+    clients: n('clients'),
+    new_today: n('new_today'),
+    avg_score: n('avg_score'),
   };
 }
 
-/** Rows behind the pipeline chart. Shaping stays in the route; scoping lives here. */
-export async function getPipelineRows(ctx: TenantContext): Promise<
-  Pick<Lead, 'id' | 'org_id' | 'company_name' | 'location' | 'industry' | 'website' | 'lead_score' | 'status' | 'created_at'>[]
-> {
-  const { data, error } = await ctx.db
-    .from('leads')
-    .select('id, org_id, company_name, location, industry, website, lead_score, status, created_at')
-    .eq('org_id', ctx.orgId);
-  if (error) throw new Error(`getPipelineRows: ${error.message}`);
-  return (data ?? []) as never;
+/** Lead count, average score and newest lead per status. */
+export async function getPipelineSummary(ctx: TenantContext): Promise<PipelineSummary[]> {
+  const { data, error } = await ctx.db.rpc('lead_pipeline', { p_org: ctx.orgId });
+  if (error) throw new Error(`getPipelineSummary: ${error.message}`);
+  return ((data ?? []) as { status: PipelineSummary['status']; count: number; avg_score: number; last_added: string | null }[])
+    .map(r => ({ status: r.status, count: Number(r.count), avg_score: Number(r.avg_score), last_added: r.last_added ?? '' }));
 }
 
 export async function getHotLeads(ctx: TenantContext, limit = 10): Promise<Lead[]> {

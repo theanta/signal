@@ -19,9 +19,14 @@ import configRouter from '../routes/config';
 import authRouter from '../routes/auth';
 import healthRouter from '../routes/health';
 import { authenticate } from './middleware/auth';
+import { rateLimitKey } from './middleware/rateLimitKey';
 
 const app = express();
 const PORT = process.env.BACKEND_PORT ?? 3001;
+
+// One proxy hop (Render's load balancer, or the Next.js /api rewrite) sits in
+// front of the API, so req.ip is the client from X-Forwarded-For, not the proxy.
+app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS ?? 1));
 
 // ---- Security middleware ----
 app.use(helmet());
@@ -35,9 +40,12 @@ app.use(cors({
 }));
 
 // ---- Rate limiting ----
+// Per signed-in user (see rateLimitKey), not per IP: behind a proxy every
+// user can share one address.
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 500,
+  keyGenerator: rateLimitKey,
   standardHeaders: true,
   legacyHeaders: false,
 });

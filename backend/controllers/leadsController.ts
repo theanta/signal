@@ -45,11 +45,15 @@ const LeadFilterSchema = z.object({
 export async function listLeads(req: Request, res: Response): Promise<void> {
   try {
     const ctx = ctxOf(req);
-    const filters = LeadFilterSchema.parse(req.query) as LeadFilters;
-    const result = await db.getLeads(ctx, filters);
+    const parsed = LeadFilterSchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ success: false, error: parsed.error.message });
+      return;
+    }
+    const result = await db.getLeads(ctx, parsed.data as LeadFilters);
     res.json({ success: true, ...result });
   } catch (err) {
-    res.status(400).json({ success: false, error: (err as Error).message });
+    res.status(500).json({ success: false, error: (err as Error).message });
   }
 }
 
@@ -57,23 +61,25 @@ export async function getLead(req: Request, res: Response): Promise<void> {
   try {
     const ctx = ctxOf(req);
     const { id } = req.params;
-    const lead = await db.getLeadById(ctx, id);
+    if (!db.isUuid(id)) {
+      res.status(404).json({ success: false, error: 'Lead not found' });
+      return;
+    }
+    // One round of queries instead of three: everything here is keyed by the
+    // lead id, and the org scope comes from ctx, so none of it needs the lead
+    // row first.
+    const [lead, signals, score, outreach_messages, percentile] = await Promise.all([
+      db.getLeadById(ctx, id),
+      db.getLeadSignals(ctx, id),
+      db.getLeadScore(ctx, id),
+      db.getOutreachMessages(ctx, id),
+      db.getScorePercentile(ctx, id),
+    ]);
     if (!lead) {
       res.status(404).json({ success: false, error: 'Lead not found' });
       return;
     }
-
-    const [signals, score, outreach_messages] = await Promise.all([
-      db.getLeadSignals(ctx, id),
-      db.getLeadScore(ctx, id),
-      db.getOutreachMessages(ctx, id),
-    ]);
-
-    let score_detail = score;
-    if (score) {
-      const percentile = await db.getScorePercentile(ctx, score.overall_score);
-      score_detail = { ...score, score_percentile: percentile };
-    }
+    const score_detail = score ? { ...score, score_percentile: percentile } : score;
 
     res.json({ success: true, data: { ...lead, signals, score_detail, outreach_messages } });
   } catch (err) {
