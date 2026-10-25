@@ -98,7 +98,7 @@ changes.
    SELECT COUNT(*) FROM leads WHERE org_id IS NULL;
    ```
 
-   Then apply the seven 2026-10 migrations, each a single transaction. They
+   Then apply the eight 2026-10 migrations, each a single transaction. They
    must land before the deploy in step 7: the new engine writes every scrape
    to `scrape_jobs`, and the smoke test in step 9 runs one.
 
@@ -125,6 +125,9 @@ changes.
    # Platform admin flag and organization overview.
    psql "$PROD_DB_URL" -v ON_ERROR_STOP=1 \
      -f supabase/migrations/2026-10-28_platform_admin.sql
+   # Forced password change and one-time invite links.
+   psql "$PROD_DB_URL" -v ON_ERROR_STOP=1 \
+     -f supabase/migrations/2026-10-29_accounts.sql
    ```
 
    The two new tables carry their own policies from the start. Neither is
@@ -259,6 +262,14 @@ END $$;
   The backend re-reads it on every admin request, so setting it back to
   false revokes access at once. An org's admins add their team from
   Settings → Team.
+- **Invites and passwords.** New users get an emailed set-your-password
+  link (7 days, single use) or a temporary password; either way they choose
+  their own at first sign-in and can do nothing else until then. Email goes
+  through Resend when `RESEND_API_KEY` is set (with `EMAIL_FROM` on a domain
+  verified in Resend, and `APP_URL` the public frontend URL); without it the
+  link is logged and shown to the admin. Suspending an org or deactivating a
+  user deletes their sessions; they are out within 15 minutes (the access
+  token's life) and cannot sign in again until reactivated.
 - **Stuck runs.** A run with no heartbeat for 15 minutes is failed by the
   engine's reaper (checked every 5 minutes), which frees the org to scrape
   again. A run that died in a deploy therefore clears itself within ~20

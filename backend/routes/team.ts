@@ -1,38 +1,50 @@
 import { Router, Request, Response } from 'express';
-import { z } from 'zod';
 import { ctxOf, requireAdmin } from '../api/middleware/auth';
-import { addTeamMember, listTeam, TeamError } from '../services/teamService';
+import {
+  addTeamMember, listTeam, resendTeamInvite, TeamError, updateTeamMember,
+} from '../services/teamService';
+import { AddUserSchema, UpdateUserSchema } from './userSchemas';
 
-/** The caller's own organization's users. Anyone can list; admins add. */
+/** The caller's own organization's users. Anyone can list; admins manage. */
 const router = Router();
 
-const AddMemberSchema = z.object({
-  name: z.string().trim().min(1, 'Name is required'),
-  email: z.string().trim().email('Email is not valid'),
-  role: z.enum(['admin', 'member']).default('member'),
-  password: z.string().min(12, 'Password must be at least 12 characters'),
-});
+function fail(res: Response, err: unknown) {
+  const status = err instanceof TeamError ? err.status : 500;
+  res.status(status).json({ success: false, error: (err as Error).message });
+}
 
 router.get('/', async (req: Request, res: Response) => {
   try {
     res.json({ success: true, data: await listTeam(ctxOf(req)) });
-  } catch (err) {
-    res.status(500).json({ success: false, error: (err as Error).message });
-  }
+  } catch (err) { fail(res, err); }
 });
 
 router.post('/', requireAdmin, async (req: Request, res: Response) => {
-  const parsed = AddMemberSchema.safeParse(req.body);
+  const parsed = AddUserSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ success: false, error: parsed.error.issues.map(i => i.message).join('; ') });
     return;
   }
   try {
-    res.status(201).json({ success: true, data: await addTeamMember(ctxOf(req), parsed.data) });
-  } catch (err) {
-    const status = err instanceof TeamError ? err.status : 500;
-    res.status(status).json({ success: false, error: (err as Error).message });
+    res.status(201).json({ success: true, data: await addTeamMember(ctxOf(req), parsed.data, req.user!.name) });
+  } catch (err) { fail(res, err); }
+});
+
+router.patch('/:id', requireAdmin, async (req: Request, res: Response) => {
+  const parsed = UpdateUserSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, error: parsed.error.issues.map(i => i.message).join('; ') });
+    return;
   }
+  try {
+    res.json({ success: true, data: await updateTeamMember(ctxOf(req), req.params.id, parsed.data) });
+  } catch (err) { fail(res, err); }
+});
+
+router.post('/:id/resend-invite', requireAdmin, async (req: Request, res: Response) => {
+  try {
+    res.json({ success: true, data: await resendTeamInvite(ctxOf(req), req.params.id, req.user!.name) });
+  } catch (err) { fail(res, err); }
 });
 
 export default router;

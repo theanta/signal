@@ -63,6 +63,8 @@ const authLimiter = rateLimit({
 });
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
+app.use('/api/auth/set-password', authLimiter);
+app.use('/api/auth/change-password', authLimiter);
 
 // Separate, more lenient limit for refresh — the frontend calls this automatically
 // every 14 minutes per tab. 60/15min allows ~4 concurrent tabs with headroom.

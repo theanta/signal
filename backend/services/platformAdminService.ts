@@ -1,6 +1,10 @@
+import crypto from 'crypto';
 import { supabaseAdmin } from './supabaseAdmin';
 import { createOrg } from '../scripts/create-org';
-import type { AdminOrganization, CreateOrganizationInput } from '../../shared/types';
+import { revokeSessions, sendInvite } from './accountService';
+import type {
+  AdminOrganization, CreateOrganizationInput, CreateOrganizationResult, UpdateOrganizationInput,
+} from '../../shared/types';
 
 /**
  * Signal's own operators: listing and creating organizations across tenants.
@@ -35,18 +39,25 @@ export async function listOrganizations(): Promise<AdminOrganization[]> {
 
 /**
  * A new tenant: the org, its first admin and its settings row (createOrg,
- * which undoes itself on a partial failure), then its limits.
+ * which undoes itself on a partial failure), then its limits. The admin is
+ * invited by email, or given a temporary password; either way they choose
+ * their own at first sign-in.
  */
-export async function createOrganization(input: CreateOrganizationInput): Promise<AdminOrganization> {
+export async function createOrganization(input: CreateOrganizationInput): Promise<CreateOrganizationResult> {
+  if (input.admin_mode === 'password' && (input.admin_password ?? '').length < 12) {
+    throw new PlatformAdminError(400, 'Admin password must be at least 12 characters');
+  }
   let orgId: string;
+  let userId: string;
   try {
-    ({ orgId } = await createOrg({
+    ({ orgId, userId } = await createOrg({
       name: input.name,
       slug: input.slug,
       agencyName: input.agency_name,
       adminName: input.admin_name,
       adminEmail: input.admin_email,
-      adminPassword: input.admin_password,
+      // Invited: a random password nobody knows until the admin sets theirs.
+      adminPassword: input.admin_mode === 'password' ? input.admin_password! : crypto.randomBytes(32).toString('hex'),
     }));
   } catch (err) {
     const message = (err as Error).message;
@@ -62,12 +73,43 @@ export async function createOrganization(input: CreateOrganizationInput): Promis
     monthly_scrape_cap: input.monthly_scrape_cap,
   }).eq('id', orgId);
   if (error) {
-    // The tenant exists and can log in; only its limits are missing. Say so
-    // rather than pretend the whole creation failed.
+    // The tenant exists; only its limits are missing. Say so rather than
+    // pretend the whole creation failed.
     throw new PlatformAdminError(500, `Organization created, but setting its limits failed: ${error.message}`);
   }
+  await supabaseAdmin.from('users').update({ must_change_password: true }).eq('id', userId);
 
-  const created = (await listOrganizations()).find(o => o.id === orgId);
-  if (!created) throw new Error('Organization created but not found');
-  return created;
+  const organization = await getOrganization(orgId);
+  if (input.admin_mode === 'password') return { organization, email_sent: false };
+  const invite = await sendInvite(
+    { id: userId, email: input.admin_email.toLowerCase().trim(), name: input.admin_name.trim() }, organization.name,
+  );
+  return { organization, ...invite };
+}
+
+export async function getOrganization(orgId: string): Promise<AdminOrganization> {
+  const org = (await listOrganizations()).find(o => o.id === orgId);
+  if (!org) throw new PlatformAdminError(404, 'Organization not found');
+  return org;
+}
+
+/**
+ * Change an org's name, limits or status. Suspending ends every session of
+ * its users now, and sign-in stays blocked until it is reactivated. A
+ * platform admin cannot suspend their own org (they would lock themselves out).
+ */
+export async function updateOrganization(
+  orgId: string, actorOrgId: string, patch: UpdateOrganizationInput,
+): Promise<AdminOrganization> {
+  await getOrganization(orgId);
+  if (patch.status === 'suspended' && orgId === actorOrgId) {
+    throw new PlatformAdminError(400, 'You cannot suspend your own organization');
+  }
+  const { error } = await supabaseAdmin.from('organizations').update(patch).eq('id', orgId);
+  if (error) throw new Error(`updateOrganization: ${error.message}`);
+  if (patch.status === 'suspended') {
+    const { data: users } = await supabaseAdmin.from('users').select('id').eq('org_id', orgId);
+    await revokeSessions((users ?? []).map(u => u.id as string));
+  }
+  return getOrganization(orgId);
 }

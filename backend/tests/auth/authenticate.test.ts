@@ -133,4 +133,17 @@ describe('ctxOf', () => {
     const { req } = run({ headers: { authorization: `Bearer ${token}` } });
     expect(ctxOf(req).orgId).toBe(ORG_A);
   });
+
+  it('while a password change is required, only the auth routes answer', () => {
+    const token = jwt.sign(
+      { sub: USER, org_id: ORG_A, role: 'member', email: 'a@b.test', name: 'A', must_change_password: true },
+      process.env.JWT_SECRET!, { algorithm: 'HS256' },
+    );
+    const headers = { authorization: `Bearer ${token}` };
+    const blocked = run({ headers, originalUrl: '/api/leads' });
+    expect(blocked.res.status).toBe(403);
+    expect((blocked.res.body as { code: string }).code).toBe('password_change_required');
+    expect(blocked.nextCalls).toBe(0);
+    expect(run({ headers, originalUrl: '/api/auth/change-password' }).nextCalls).toBe(1);
+  });
 });

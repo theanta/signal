@@ -14,6 +14,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Shield,
+  KeyRound,
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
@@ -209,6 +210,17 @@ export default function Sidebar() {
           </div>
         )}
 
+        <Link
+          href="/change-password"
+          title={collapsed ? 'Change password' : undefined}
+          className={cn(
+            'sidebar-item w-full text-[#5a6270] hover:text-[#a0a8b4]',
+            collapsed && 'justify-center px-0',
+          )}
+        >
+          <KeyRound className="w-[15px] h-[15px] flex-shrink-0" />
+          {!collapsed && <span className="text-xs">Change password</span>}
+        </Link>
         <button
           onClick={handleLogout}
           title={collapsed ? 'Sign out' : undefined}

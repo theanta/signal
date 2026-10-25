@@ -35,6 +35,15 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
     return;
   }
 
+  // Until a temporary or invited password is replaced, only the auth routes
+  // (change password, me) answer.
+  if (payload.must_change_password && !req.originalUrl.startsWith('/api/auth/')) {
+    res.status(403).json({
+      success: false, error: 'Choose a new password to continue', code: 'password_change_required',
+    });
+    return;
+  }
+
   req.user = payload;
   try {
     // The org id comes from the verified token payload and from nowhere else.

@@ -1,16 +1,28 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { useEffect } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import Sidebar from './Sidebar';
 import { useAuth } from '@/contexts/AuthContext';
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { isLoading } = useAuth();
+  const router = useRouter();
+  const { isLoading, user } = useAuth();
 
-  const isAuthPage = pathname?.startsWith('/login');
+  // Pages that work without a session, and render without the app chrome.
+  const isAuthPage = pathname?.startsWith('/login') || pathname?.startsWith('/set-password');
+  // A temporary or invited password must be replaced before anything else.
+  const mustChange = Boolean(user?.must_change_password) && !isAuthPage;
+
+  useEffect(() => {
+    if (mustChange && pathname !== '/change-password') router.replace('/change-password');
+  }, [mustChange, pathname, router]);
 
   if (isAuthPage) return <>{children}</>;
+  // Only the change-password page renders: any other page would fire its API
+  // calls, which the backend refuses until the password is changed.
+  if (mustChange) return pathname === '/change-password' ? <>{children}</> : null;
 
   if (isLoading) {
     return (

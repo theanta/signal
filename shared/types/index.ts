@@ -404,6 +404,8 @@ export interface AuthUser {
   role: UserRole;
   // Signal's own operators: opens the Platform admin page.
   is_platform_admin?: boolean;
+  // Set until the user chooses their own password (temporary password or invite).
+  must_change_password?: boolean;
   last_login?: string;
   created_at: string;
 }
@@ -416,15 +418,32 @@ export interface TeamMember {
   name: string;
   role: UserRole;
   is_active: boolean;
+  // With no last_login: invited, has not set a password yet.
+  must_change_password: boolean;
   last_login: string | null;
   created_at: string;
 }
+
+/**
+ * 'invite' emails a set-your-password link; 'password' sets a temporary
+ * password the admin passes on. Either way the user picks their own at first
+ * sign-in.
+ */
+export type AddUserMode = 'invite' | 'password';
 
 export interface AddTeamMemberInput {
   name: string;
   email: string;
   role: UserRole;
-  password: string;
+  mode: AddUserMode;
+  password?: string;
+}
+
+export interface AddTeamMemberResult {
+  member: TeamMember;
+  email_sent: boolean;
+  /** Only when email is not set up: the invite link, for the admin to pass on. */
+  invite_url?: string;
 }
 
 // ---- Platform admin ----
@@ -451,11 +470,27 @@ export interface CreateOrganizationInput {
   agency_name?: string;
   admin_name: string;
   admin_email: string;
-  admin_password: string;
+  admin_mode: AddUserMode;
+  admin_password?: string;
   lead_quota_daily: number | null;
   lead_quota_weekly: number | null;
   lead_quota_monthly: number | null;
   monthly_scrape_cap: number;
+}
+
+export interface UpdateOrganizationInput {
+  name?: string;
+  status?: 'active' | 'suspended';
+  lead_quota_daily?: number | null;
+  lead_quota_weekly?: number | null;
+  lead_quota_monthly?: number | null;
+  monthly_scrape_cap?: number;
+}
+
+export interface CreateOrganizationResult {
+  organization: AdminOrganization;
+  email_sent: boolean;
+  invite_url?: string;
 }
 
 /** A new org's limits unless the platform admin changes them. */
@@ -469,6 +504,8 @@ export interface JwtPayload {
   email: string;
   name: string;
   role: UserRole;
+  // While true, the API only allows the auth routes (change password, me).
+  must_change_password?: boolean;
   iat?: number;
   exp?: number;
 }

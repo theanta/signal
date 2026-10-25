@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Request, Response } from 'express';
 import {
-  createOrganization, isPlatformAdmin, listOrganizations, PlatformAdminError,
+  createOrganization, isPlatformAdmin, listOrganizations, PlatformAdminError, updateOrganization,
 } from '../../services/platformAdminService';
 import { requirePlatformAdmin } from '../../api/middleware/platformAdmin';
 import { closePool, sql } from '../helpers/db';
@@ -20,7 +20,7 @@ async function cleanup() {
 
 const INPUT = {
   name: 'Admin Made', slug: SLUG, agency_name: 'Admin Made Agency',
-  admin_name: 'Owner', admin_email: EMAIL, admin_password: 'a-long-enough-password',
+  admin_name: 'Owner', admin_email: EMAIL, admin_mode: 'password' as const, admin_password: 'a-long-enough-password',
   ...DEFAULT_ORG_LIMITS,
 };
 
@@ -64,13 +64,14 @@ describe('requirePlatformAdmin', () => {
 
 describe('organizations', () => {
   it('creates the org, its admin, its settings and its limits, and lists it', async () => {
-    const created = await createOrganization(INPUT);
+    const { organization: created } = await createOrganization(INPUT);
     expect(created).toMatchObject({
       slug: SLUG, name: 'Admin Made', user_count: 1, lead_count: 0,
       lead_quota_daily: 20, lead_quota_weekly: 100, lead_quota_monthly: 400, monthly_scrape_cap: 60,
     });
-    const admin = await sql(`SELECT role, org_id FROM users WHERE email = $1`, [EMAIL]);
-    expect(admin.rows[0]).toMatchObject({ role: 'admin', org_id: created.id });
+    const admin = await sql(`SELECT role, org_id, must_change_password FROM users WHERE email = $1`, [EMAIL]);
+    // A password someone else chose is temporary.
+    expect(admin.rows[0]).toMatchObject({ role: 'admin', org_id: created.id, must_change_password: true });
     const config = await sql(`SELECT config FROM platform_config WHERE org_id = $1`, [created.id]);
     expect(config.rows[0].config.agency_name).toBe('Admin Made Agency');
 
@@ -86,3 +87,32 @@ describe('organizations', () => {
       .rejects.toMatchObject({ status: 409 });
   });
 });
+
+describe('invites and editing', () => {
+  it('invites the first admin by link when email is not set up', async () => {
+    const result = await createOrganization({ ...INPUT, admin_mode: 'invite', admin_password: undefined });
+    expect(result.email_sent).toBe(false);
+    expect(result.invite_url).toMatch(/\/set-password\?token=[0-9a-f]{64}$/);
+    const tokens = await sql(
+      `SELECT count(*)::int AS n FROM password_tokens t JOIN users u ON u.id = t.user_id WHERE u.email = $1`, [EMAIL]);
+    expect(tokens.rows[0].n).toBe(1);
+  });
+
+  it('changes limits, and suspending ends every session of the org', async () => {
+    const { organization } = await createOrganization(INPUT);
+    const user = await sql(`SELECT id FROM users WHERE email = $1`, [EMAIL]);
+    await sql(`INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, 'h-admin-made', NOW() + interval '1 day')`,
+      [user.rows[0].id]);
+
+    const updated = await updateOrganization(organization.id, orgs.a.orgId, { lead_quota_daily: 5, status: 'suspended' });
+    expect(updated).toMatchObject({ lead_quota_daily: 5, status: 'suspended' });
+    const left = await sql(`SELECT count(*)::int AS n FROM refresh_tokens WHERE user_id = $1`, [user.rows[0].id]);
+    expect(left.rows[0].n).toBe(0);
+  });
+
+  it('will not let a platform admin suspend their own org', async () => {
+    await expect(updateOrganization(orgs.a.orgId, orgs.a.orgId, { status: 'suspended' }))
+      .rejects.toMatchObject({ status: 400 });
+  });
+});
+

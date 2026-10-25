@@ -14,6 +14,8 @@ interface AuthContextValue {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshAccessToken: () => Promise<string | null>;
+  /** Adopt a session the server just started (set password, change password). */
+  applySession: (user: AuthUser, accessToken: string) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -50,7 +52,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     tokenStore.setRefreshFn(refreshAccessToken);
     // middleware.ts only lets a browser reach /login when it has no refresh
     // cookie, so a refresh there is a guaranteed 401: skip it.
-    if (window.location.pathname.startsWith('/login')) {
+    if (window.location.pathname.startsWith('/login') || window.location.pathname.startsWith('/set-password')) {
       setIsLoading(false);
     } else {
       refreshAccessToken().finally(() => setIsLoading(false));
@@ -86,11 +88,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     tokenStore.setToken(null);
   }, []);
 
+  const applySession = useCallback((next: AuthUser, accessToken: string) => {
+    setUser(next);
+    tokenStore.setToken(accessToken);
+  }, []);
+
   // Stable unless the session changes, so consumers do not re-render on every
   // render of the provider.
   const value = useMemo(
-    () => ({ user, isLoading, isAuthenticated: !!user, login, logout, refreshAccessToken }),
-    [user, isLoading, login, logout, refreshAccessToken],
+    () => ({ user, isLoading, isAuthenticated: !!user, login, logout, refreshAccessToken, applySession }),
+    [user, isLoading, login, logout, refreshAccessToken, applySession],
   );
 
   return (

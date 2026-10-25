@@ -6,8 +6,10 @@ import { NextRequest, NextResponse } from 'next/server';
 export function middleware(request: NextRequest) {
   const hasRefreshCookie = request.cookies.has('refreshToken');
   const isLoginPage = request.nextUrl.pathname.startsWith('/login');
+  // An invite link is opened before the user has ever signed in.
+  const isSetPassword = request.nextUrl.pathname.startsWith('/set-password');
 
-  if (!hasRefreshCookie && !isLoginPage) {
+  if (!hasRefreshCookie && !isLoginPage && !isSetPassword) {
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
