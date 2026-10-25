@@ -48,7 +48,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Restore session from cookie on mount, then keep it alive with a silent interval
   useEffect(() => {
     tokenStore.setRefreshFn(refreshAccessToken);
-    refreshAccessToken().finally(() => setIsLoading(false));
+    // middleware.ts only lets a browser reach /login when it has no refresh
+    // cookie, so a refresh there is a guaranteed 401: skip it.
+    if (window.location.pathname.startsWith('/login')) {
+      setIsLoading(false);
+    } else {
+      refreshAccessToken().finally(() => setIsLoading(false));
+    }
     intervalRef.current = setInterval(refreshAccessToken, REFRESH_INTERVAL_MS);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
