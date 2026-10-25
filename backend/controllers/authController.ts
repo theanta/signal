@@ -95,6 +95,7 @@ export async function login(req: Request, res: Response): Promise<void> {
     email: user.email,
     name: user.name,
     role: user.role,
+    is_platform_admin: Boolean(user.is_platform_admin),
     last_login: user.last_login,
     created_at: user.created_at,
   };
@@ -189,6 +190,7 @@ export async function refresh(req: Request, res: Response): Promise<void> {
     email: tokenRow.users.email,
     name: tokenRow.users.name,
     role: tokenRow.users.role,
+    is_platform_admin: Boolean(tokenRow.users.is_platform_admin),
     last_login: tokenRow.users.last_login,
     created_at: tokenRow.users.created_at,
   };
@@ -201,7 +203,7 @@ export async function refresh(req: Request, res: Response): Promise<void> {
 export async function me(req: Request, res: Response): Promise<void> {
   const { data: user, error } = await supabaseAdmin
     .from('users')
-    .select('id, org_id, email, name, role, last_login, created_at')
+    .select('id, org_id, email, name, role, is_platform_admin, last_login, created_at')
     .eq('id', req.user!.sub)
     .single();
 

@@ -98,7 +98,7 @@ changes.
    SELECT COUNT(*) FROM leads WHERE org_id IS NULL;
    ```
 
-   Then apply the six 2026-10 migrations, each a single transaction. They
+   Then apply the seven 2026-10 migrations, each a single transaction. They
    must land before the deploy in step 7: the new engine writes every scrape
    to `scrape_jobs`, and the smoke test in step 9 runs one.
 
@@ -122,6 +122,9 @@ changes.
    # Dashboard counts, pipeline and score percentile as SQL functions.
    psql "$PROD_DB_URL" -v ON_ERROR_STOP=1 \
      -f supabase/migrations/2026-10-27_dashboard_aggregates.sql
+   # Platform admin flag and organization overview.
+   psql "$PROD_DB_URL" -v ON_ERROR_STOP=1 \
+     -f supabase/migrations/2026-10-28_platform_admin.sql
    ```
 
    The two new tables carry their own policies from the start. Neither is
@@ -249,6 +252,13 @@ END $$;
   hand returns 429 with the date it resets. ANTA's limits:
   `UPDATE organizations SET lead_quota_daily = 20, lead_quota_weekly = 100,
   lead_quota_monthly = 400, monthly_scrape_cap = 60 WHERE slug = 'anta';`
+- **Platform admin.** `users.is_platform_admin` opens Platform admin in the
+  sidebar, where you create organizations with their first admin and limits.
+  Set it only in SQL:
+  `UPDATE users SET is_platform_admin = true WHERE email = '<you>';`
+  The backend re-reads it on every admin request, so setting it back to
+  false revokes access at once. An org's admins add their team from
+  Settings → Team.
 - **Stuck runs.** A run with no heartbeat for 15 minutes is failed by the
   engine's reaper (checked every 5 minutes), which frees the org to scrape
   again. A run that died in a deploy therefore clears itself within ~20

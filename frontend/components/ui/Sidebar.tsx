@@ -13,6 +13,7 @@ import {
   LogOut,
   ChevronLeft,
   ChevronRight,
+  Shield,
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
@@ -128,7 +129,11 @@ export default function Sidebar() {
         <div className="my-2 border-t border-[rgba(255,255,255,0.06)]" />
 
         {/* Secondary nav */}
-        {SECONDARY_NAV.map(({ href, icon: Icon, label }) => {
+        {[
+          ...SECONDARY_NAV,
+          // Signal's own operators only; the backend enforces it as well.
+          ...(user?.is_platform_admin ? [{ href: '/admin', icon: Shield, label: 'Platform admin' }] : []),
+        ].map(({ href, icon: Icon, label }) => {
           const active = isActive(href);
           return (
             <Link

@@ -18,6 +18,8 @@ import cronRouter, { initCronJobs } from '../routes/cron';
 import configRouter from '../routes/config';
 import authRouter from '../routes/auth';
 import healthRouter from '../routes/health';
+import adminRouter from '../routes/admin';
+import teamRouter from '../routes/team';
 import { authenticate } from './middleware/auth';
 import { rateLimitKey } from './middleware/rateLimitKey';
 
@@ -95,6 +97,8 @@ app.use('/api/metrics',  authenticate, metricsRouter);
 app.use('/api/config',   authenticate, configRouter);
 app.use('/api/cron',     authenticate, cronRouter);
 app.use('/api/health',   authenticate, healthRouter);
+app.use('/api/team',     authenticate, teamRouter);
+app.use('/api/admin',    authenticate, adminRouter);
 
 // ---- 404 handler ----
 app.use((_req, res) => {

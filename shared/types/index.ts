@@ -402,9 +402,66 @@ export interface AuthUser {
   email: string;
   name: string;
   role: UserRole;
+  // Signal's own operators: opens the Platform admin page.
+  is_platform_admin?: boolean;
   last_login?: string;
   created_at: string;
 }
+
+// ---- Team (an org's own users) ----
+
+export interface TeamMember {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  is_active: boolean;
+  last_login: string | null;
+  created_at: string;
+}
+
+export interface AddTeamMemberInput {
+  name: string;
+  email: string;
+  role: UserRole;
+  password: string;
+}
+
+// ---- Platform admin ----
+
+export interface AdminOrganization {
+  id: string;
+  name: string;
+  slug: string;
+  plan: string;
+  status: 'active' | 'suspended';
+  created_at: string;
+  monthly_scrape_cap: number;
+  lead_quota_daily: number | null;
+  lead_quota_weekly: number | null;
+  lead_quota_monthly: number | null;
+  user_count: number;
+  lead_count: number;
+  last_login: string | null;
+}
+
+export interface CreateOrganizationInput {
+  name: string;
+  slug: string;
+  agency_name?: string;
+  admin_name: string;
+  admin_email: string;
+  admin_password: string;
+  lead_quota_daily: number | null;
+  lead_quota_weekly: number | null;
+  lead_quota_monthly: number | null;
+  monthly_scrape_cap: number;
+}
+
+/** A new org's limits unless the platform admin changes them. */
+export const DEFAULT_ORG_LIMITS = {
+  lead_quota_daily: 20, lead_quota_weekly: 100, lead_quota_monthly: 400, monthly_scrape_cap: 60,
+} as const;
 
 export interface JwtPayload {
   sub: string;

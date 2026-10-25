@@ -1,12 +1,13 @@
 'use client';
 
+import TeamPanel from '@/components/settings/TeamPanel';
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchConfig, saveConfig } from '@/services/config';
 import { toast } from '@/lib/toast';
 import {
   RefreshCw, Settings, Zap,
-  Building2, MessageSquare, MapPin, Users, ToggleLeft, ToggleRight, Save, X, Plus, Gauge,
+  Building2, MessageSquare, MapPin, Users, ToggleLeft, ToggleRight, Save, X, Plus, Gauge, UserPlus,
 } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
 import type { PlatformConfig, ScoringWeights } from '../../../shared/types';
@@ -20,6 +21,7 @@ const TABS = [
   { id: 'icp',      label: 'ICP',              icon: Users },
   { id: 'scoring',  label: 'Scoring',          icon: Gauge },
   { id: 'sources',  label: 'Sources',          icon: Zap },
+  { id: 'team',     label: 'Team',             icon: UserPlus },
 ] as const;
 
 type TabId = typeof TABS[number]['id'];
@@ -447,6 +449,8 @@ export default function SettingsPage() {
           )}
 
           {/* ── SOURCES ── */}
+          {activeTab === 'team' && <TeamPanel />}
+
           {activeTab === 'sources' && (
             <section className="space-y-5">
               <div>
