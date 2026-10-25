@@ -24,6 +24,12 @@ export type LeadTab = 'all' | 'hiring' | 'discovery';
 export const HIRING_SOURCES: LeadSource[] = ['linkedin', 'job_board'];
 export const DISCOVERY_SOURCES: LeadSource[] = ['crunchbase', 'local_business'];
 
+// The scrapers this phase runs: LinkedIn and Google Maps. Indeed (job_board)
+// and Crunchbase stay in the code but are paused: hidden in the app, never
+// sent to the engine, and refused by the engine. Add them back here (and to
+// ENABLED_SOURCES in signal-engine/main.py) to turn them on again.
+export const ENABLED_SOURCES: LeadSource[] = ['linkedin', 'local_business'];
+
 export type OutreachChannel = 'email' | 'linkedin' | 'phone' | 'other';
 export type OutreachStatus = 'draft' | 'sent' | 'opened' | 'replied' | 'bounced';
 
@@ -379,7 +385,7 @@ export const DEFAULT_PLATFORM_CONFIG: PlatformConfig = {
   target_company_sizes: ['11-50', '51-200', '201-500'],
   target_industries: [],
   target_roles: [],
-  active_sources: ['linkedin', 'crunchbase', 'job_board', 'local_business'],
+  active_sources: ['linkedin', 'local_business'],
   daily_analysis_limit: 20,
   scoring_weights: { fit: 30, intent: 30, ai: 25, engagement: 15 },
 };

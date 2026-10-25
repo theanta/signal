@@ -90,9 +90,9 @@ def test_scrape_over_the_monthly_cap_is_429(client, store, monkeypatch):
     monkeypatch.setattr(main, "run_scrape_job", _noop)
     store.caps[ORG] = 2
     for _ in range(2):
-        run_id = client.post("/scrape", headers=H, json={"sources": ["job_board"], "org_id": ORG, "config": TEST_CONFIG}).json()["job_id"]
+        run_id = client.post("/scrape", headers=H, json={"sources": ["linkedin"], "org_id": ORG, "config": TEST_CONFIG}).json()["job_id"]
         store.finish(run_id, ORG, "completed", 0)
-    r = client.post("/scrape", headers=H, json={"sources": ["job_board"], "org_id": ORG, "config": TEST_CONFIG})
+    r = client.post("/scrape", headers=H, json={"sources": ["linkedin"], "org_id": ORG, "config": TEST_CONFIG})
     assert r.status_code == 429
     assert r.json()["detail"]["error"] == "scrape_cap_reached"
 

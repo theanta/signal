@@ -26,7 +26,7 @@ export const ANTA_PLATFORM_CONFIG: PlatformConfig = {
     'operations manager', 'operations coordinator', 'data entry specialist',
     'software engineer', 'full stack developer',
   ],
-  active_sources: ['linkedin', 'crunchbase', 'job_board', 'local_business'],
+  active_sources: ['linkedin', 'local_business'],
   daily_analysis_limit: 20,
   scoring_weights: { fit: 30, intent: 30, ai: 25, engagement: 15 },
 };

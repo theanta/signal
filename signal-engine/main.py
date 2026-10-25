@@ -184,7 +184,7 @@ class PlatformConfig(BaseModel):
     # Hiring roles that signal a need for the agency's services. Empty means
     # the generic defaults in scrapers/targeting.py.
     target_roles: list[str] = []
-    active_sources: list[str] = ["linkedin", "crunchbase", "job_board", "local_business"]
+    active_sources: list[str] = ["linkedin", "local_business"]
     # How the overall score blends fit, intent, AI judgment and engagement.
     # Missing keys fall back to scoring.model.DEFAULT_WEIGHTS.
     scoring_weights: dict = {}
@@ -208,8 +208,14 @@ class AnalysisRequest(BaseModel):
     org_id: UUID
 
 
+# The scrapers this phase runs. Indeed (job_board) and Crunchbase stay in the
+# code but are paused: a request for them is ignored, so they never spend
+# Apify credits. Keep in step with ENABLED_SOURCES in shared/types.
+ENABLED_SOURCES = {"linkedin", "local_business"}
+
+
 class ScrapeRequest(BaseModel):
-    sources: list[str] = ["linkedin", "crunchbase", "job_board", "local_business"]
+    sources: list[str] = ["linkedin", "local_business"]
     # Required: every scraper's geography and roles come from it.
     config: PlatformConfig
     org_id: UUID
@@ -528,7 +534,8 @@ async def trigger_scrape(request: ScrapeRequest, background_tasks: BackgroundTas
             detail={"error": "not_configured",
                     "message": "Set target locations in Settings before scraping."},
         )
-    effective_sources = [s for s in request.sources if s in cfg.active_sources]
+    effective_sources = [s for s in request.sources
+                         if s in cfg.active_sources and s in ENABLED_SOURCES]
 
     try:
         job_id = await asyncio.to_thread(

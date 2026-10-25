@@ -5,6 +5,7 @@ import {
 } from '../services/signalEngineService';
 import { getScrapingLogs } from '../services/supabaseService';
 import { ctxOf } from '../api/middleware/auth';
+import { ENABLED_SOURCES } from '../../shared/types';
 
 const router = Router();
 
@@ -16,7 +17,7 @@ router.get('/health', async (_req: Request, res: Response) => {
 
 router.post('/scrape', async (req: Request, res: Response) => {
   try {
-    const { sources = ['linkedin', 'crunchbase', 'job_board', 'local_business'] } = req.body;
+    const { sources = ENABLED_SOURCES } = req.body;
     const result = await triggerScrape(ctxOf(req), sources);
     res.json({ success: true, data: result });
   } catch (err) {

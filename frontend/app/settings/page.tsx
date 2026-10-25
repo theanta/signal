@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
 import type { PlatformConfig, ScoringWeights } from '../../../shared/types';
-import { DEFAULT_SCORING_WEIGHTS } from '../../../shared/types';
+import { DEFAULT_SCORING_WEIGHTS, ENABLED_SOURCES } from '../../../shared/types';
 import { cn } from '@/lib/utils';
 
 const TABS = [
@@ -30,7 +30,7 @@ const ALL_SOURCES = [
   { id: 'job_board',      label: 'Job Boards',       desc: 'Indeed — operational & tech hiring signals' },
   { id: 'crunchbase',     label: 'Crunchbase',       desc: 'Recently funded startups matching your target locations' },
   { id: 'local_business', label: 'Local Business',   desc: 'Google Maps — companies in your target locations & industries' },
-];
+].filter(s => (ENABLED_SOURCES as string[]).includes(s.id));
 
 // ---- small reusable input ----
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

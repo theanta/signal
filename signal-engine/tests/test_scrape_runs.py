@@ -12,7 +12,7 @@ H = {"X-Engine-Key": VALID_KEY}
 
 
 def _start(client, org, monkeypatch=None):
-    return client.post("/scrape", headers=H, json={"sources": ["job_board"], "org_id": org, "config": TEST_CONFIG})
+    return client.post("/scrape", headers=H, json={"sources": ["linkedin"], "org_id": org, "config": TEST_CONFIG})
 
 
 def _no_background(monkeypatch):
@@ -27,7 +27,7 @@ def test_start_records_a_running_run(client, store, monkeypatch):
     assert r.status_code == 200
     run = store.get_run(r.json()["job_id"], ORG_A)
     assert run["status"] == "running"
-    assert run["sources"] == ["job_board"]
+    assert run["sources"] == ["linkedin"]
 
 
 def test_second_active_run_for_the_same_org_is_409(client, store, monkeypatch):
@@ -170,3 +170,13 @@ def test_a_run_that_ends_without_a_complete_event_still_closes_the_stream(client
     r = client.get(f"/scrape/{run_id}/stream?org_id={ORG_A}", headers=H)
     frames = _frames(r.text)
     assert frames[-1] == {"phase": "complete", "status": "failed", "results": 0}
+
+
+def test_paused_sources_are_ignored(client, store, monkeypatch):
+    """Indeed and Crunchbase are paused this phase: asking for them starts
+    only the enabled sources, so they never spend Apify credits."""
+    _no_background(monkeypatch)
+    r = client.post("/scrape", headers=H, json={
+        "sources": ["linkedin", "job_board", "crunchbase", "local_business"],
+        "org_id": ORG_A, "config": TEST_CONFIG})
+    assert store.get_run(r.json()["job_id"], ORG_A)["sources"] == ["linkedin", "local_business"]

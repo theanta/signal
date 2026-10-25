@@ -18,8 +18,6 @@ const COMPANY_SIZES = ['1-10', '11-50', '51-200', '201-500', '500+'];
 const SOURCES = [
   { value: 'manual', label: 'Manual entry' },
   { value: 'linkedin', label: 'LinkedIn' },
-  { value: 'job_board', label: 'Job Board' },
-  { value: 'crunchbase', label: 'Crunchbase' },
   { value: 'local_business', label: 'Local Business' },
   { value: 'other', label: 'Other' },
 ] as const;

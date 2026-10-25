@@ -67,3 +67,12 @@ describe('analysis calls carry the tenant’s config', () => {
     expect(JSON.parse(init.body as string)).toEqual({ lead, config: TENANT_CONFIG, org_id: ctx.orgId });
   });
 });
+
+describe('triggerScrape', () => {
+  it('never sends a paused source (Indeed, Crunchbase) to the engine', async () => {
+    const post = vi.spyOn(axios, 'post').mockResolvedValue({ data: {} });
+    await engine.triggerScrape(ctx, ['linkedin', 'job_board', 'crunchbase', 'local_business']);
+    expect((post.mock.calls[0][1] as { sources: string[] }).sources).toEqual(['linkedin', 'local_business']);
+    post.mockRestore();
+  });
+});

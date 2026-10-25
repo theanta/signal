@@ -1,5 +1,6 @@
 import axios from 'axios';
 import type { ScrapedLeadRaw, SignalAnalysisResult } from '../../shared/types';
+import { ENABLED_SOURCES } from '../../shared/types';
 import { getConfig } from './configService';
 import type { TenantContext } from './tenantContext';
 import {
@@ -48,10 +49,12 @@ export async function triggerScrape(
   // industries, active sources) actually take effect — without this every
   // scrape silently falls back to hardcoded defaults.
   const config = await getConfig(ctx);
+  // Paused sources are never sent, whoever asked for them.
+  const enabled = sources.filter(s => (ENABLED_SOURCES as string[]).includes(s));
   try {
     const { data } = await axios.post(
       `${SIGNAL_ENGINE_URL}/scrape`,
-      { sources, config, org_id: ctx.orgId },
+      { sources: enabled, config, org_id: ctx.orgId },
       { timeout: 10_000, headers: engineHeaders },
     );
     return data;

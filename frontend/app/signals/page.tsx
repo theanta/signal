@@ -9,6 +9,7 @@ import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import { RefreshCw, Zap, CheckCircle, XCircle, Clock, Activity } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ScrapingLog, LeadSource } from '../../../shared/types';
+import { ENABLED_SOURCES } from '../../../shared/types';
 import { getSourceLabel } from '../../../shared/utils';
 
 async function fetchLogs(): Promise<ScrapingLog[]> {
@@ -21,7 +22,7 @@ async function fetchSignalHealth(): Promise<{ signal_engine_online: boolean }> {
   return data.data;
 }
 
-const ACTIVE_SOURCES: LeadSource[] = ['linkedin', 'job_board', 'crunchbase', 'local_business'];
+const ACTIVE_SOURCES: LeadSource[] = ENABLED_SOURCES;
 
 export default function SignalsPage() {
   const { data: logs = [], isLoading, refetch } = useQuery({

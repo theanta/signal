@@ -181,16 +181,17 @@ async function startScrape(ctx: TenantContext, sources: string[], trigger: CronT
 }
 
 export async function runDailyScrape(trigger: CronTrigger = 'scheduled', only?: TenantContext): Promise<void> {
-  // LinkedIn and Indeed hiring posts go stale within days, so they run daily;
-  // Crunchbase and Google Maps change slowly and run bi-weekly.
+  // LinkedIn hiring posts go stale within days, so it runs daily; Google Maps
+  // changes slowly and runs bi-weekly. Indeed (job_board) and Crunchbase are
+  // paused this phase — see ENABLED_SOURCES in shared/types.
   await forEachOrg('daily_scrape', trigger, only, async (ctx) => {
-    await startScrape(ctx, ['linkedin', 'job_board'], trigger);
+    await startScrape(ctx, ['linkedin'], trigger);
   });
 }
 
 export async function runBiweeklyScrape(trigger: CronTrigger = 'scheduled', only?: TenantContext): Promise<void> {
   await forEachOrg('biweekly_scrape', trigger, only, async (ctx) => {
-    await startScrape(ctx, ['crunchbase', 'local_business'], trigger);
+    await startScrape(ctx, ['local_business'], trigger);
   });
 }
 

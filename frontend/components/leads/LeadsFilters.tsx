@@ -5,9 +5,10 @@ import * as Popover from '@radix-ui/react-popover';
 import * as Select from '@radix-ui/react-select';
 import { cn } from '@/lib/utils';
 import type { LeadFilters, LeadStatus } from '../../../shared/types';
+import { ENABLED_SOURCES } from '../../../shared/types';
 
 const STATUSES: LeadStatus[] = ['new', 'analyzed', 'contacted', 'replied', 'meeting', 'proposal', 'client'];
-const SOURCES = ['linkedin', 'job_board', 'crunchbase', 'local_business', 'manual'];
+const SOURCES = [...ENABLED_SOURCES, 'manual'];
 
 export const TOGGLEABLE_COLS = [
   { id: 'location',   label: 'Location' },
