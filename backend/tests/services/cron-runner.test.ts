@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { getLeadQuota } from '../../services/leadQuotaService';
 import { closePool, sql } from '../helpers/db';
 import { seedTwoOrgs, teardownSeed, TwoOrgs } from '../helpers/seed';
 import type { SignalAnalysisResult } from '../../../shared/types';
@@ -284,6 +285,30 @@ describe('scaling past one org', () => {
     } finally {
       await sql(`DELETE FROM leads WHERE company_name IN ('Limit One', 'Limit Two')`);
       await sql(`DELETE FROM platform_config WHERE org_id = $1`, [orgs.a.orgId]);
+    }
+  });
+
+  it('stops at what the lead quota has left, and at zero analyzes nothing', async () => {
+    await sql(
+      `INSERT INTO leads (company_name, source, status, org_id)
+       VALUES ('Quota One', 'manual', 'new', $1), ('Quota Two', 'manual', 'new', $1),
+              ('Quota Used', 'manual', 'analyzed', $1)`, [orgs.a.orgId]);
+    await sql(`UPDATE leads SET analyzed_at = NOW() WHERE company_name = 'Quota Used'`);
+    // Earlier tests in this file analyzed leads today too: leave room for one more.
+    const used = (await getLeadQuota(orgs.a.ctx)).periods[0].used;
+    await sql(`UPDATE organizations SET lead_quota_daily = $2 WHERE id = $1`, [orgs.a.orgId, used + 1]);
+    analyzeLeadSignals.mockResolvedValue(ANALYSIS);
+    try {
+      await runLeadAnalysis('manual', orgs.a.ctx);
+      expect(analyzeLeadSignals.mock.calls).toHaveLength(1);
+
+      analyzeLeadSignals.mockClear();
+      await sql(`UPDATE organizations SET lead_quota_daily = $2 WHERE id = $1`, [orgs.a.orgId, used]);
+      await runLeadAnalysis('manual', orgs.a.ctx);
+      expect(analyzeLeadSignals).not.toHaveBeenCalled();
+    } finally {
+      await sql(`DELETE FROM leads WHERE company_name LIKE 'Quota %'`);
+      await sql(`UPDATE organizations SET lead_quota_daily = NULL WHERE id = $1`, [orgs.a.orgId]);
     }
   });
 

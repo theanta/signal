@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { getDashboardMetrics, getPipelineRows, getHotLeads } from '../services/supabaseService';
 import { ctxOf } from '../api/middleware/auth';
+import { getLeadQuota } from '../services/leadQuotaService';
 
 const router = Router();
 
@@ -28,6 +29,14 @@ function summarizePipeline(rows: PipelineRow[]) {
     last_added: g.dates.sort().at(-1) ?? '',
   }));
 }
+
+router.get('/lead-quota', async (req: Request, res: Response) => {
+  try {
+    res.json({ success: true, data: await getLeadQuota(ctxOf(req)) });
+  } catch (err) {
+    res.status(500).json({ success: false, error: (err as Error).message });
+  }
+});
 
 router.get('/dashboard', async (req: Request, res: Response) => {
   try {

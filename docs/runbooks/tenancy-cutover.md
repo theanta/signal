@@ -98,7 +98,7 @@ changes.
    SELECT COUNT(*) FROM leads WHERE org_id IS NULL;
    ```
 
-   Then apply the four 2026-10 migrations, each a single transaction. They
+   Then apply the five 2026-10 migrations, each a single transaction. They
    must land before the deploy in step 7: the new engine writes every scrape
    to `scrape_jobs`, and the smoke test in step 9 runs one.
 
@@ -116,6 +116,9 @@ changes.
    # Scoring model columns on lead_scores (fit, intent, AI, engagement).
    psql "$PROD_DB_URL" -v ON_ERROR_STOP=1 \
      -f supabase/migrations/2026-10-25_scoring_model.sql
+   # Lead quota columns and leads.first_analyzed_at.
+   psql "$PROD_DB_URL" -v ON_ERROR_STOP=1 \
+     -f supabase/migrations/2026-10-26_lead_quota.sql
    ```
 
    The two new tables carry their own policies from the start. Neither is
@@ -234,6 +237,15 @@ END $$;
   Over it, scrapes are refused with "Monthly scrape limit reached". Raise it
   for an org with
   `UPDATE organizations SET monthly_scrape_cap = 200 WHERE slug = '<slug>';`
+- **Lead quota.** `organizations.lead_quota_daily`, `_weekly` and
+  `_monthly` cap how many leads an org may have analyzed for the first time
+  in each period (re-analysis is free). NULL means no limit, which is where
+  every new org starts. Periods follow `CRON_TIMEZONE` (day from local
+  midnight, week from Monday, month from the 1st). When a limit is reached
+  the scheduled analysis stops for that period, and analyzing a new lead by
+  hand returns 429 with the date it resets. ANTA's limits:
+  `UPDATE organizations SET lead_quota_daily = 20, lead_quota_weekly = 100,
+  lead_quota_monthly = 400, monthly_scrape_cap = 60 WHERE slug = 'anta';`
 - **Stuck runs.** A run with no heartbeat for 15 minutes is failed by the
   engine's reaper (checked every 5 minutes), which frees the org to scrape
   again. A run that died in a deploy therefore clears itself within ~20

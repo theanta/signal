@@ -9,6 +9,7 @@ import PipelineBar from '@/components/dashboard/PipelineBar';
 import HotLeadsWidget from '@/components/dashboard/HotLeadsWidget';
 import ActivityFeed from '@/components/dashboard/ActivityFeed';
 import AIInsightsPanel from '@/components/dashboard/AIInsightsPanel';
+import LeadQuotaCard from '@/components/dashboard/LeadQuotaCard';
 import PageHeader from '@/components/ui/PageHeader';
 import { DashboardSkeleton } from '@/components/ui/Skeleton';
 import { Users, Flame, Send, Star, RefreshCw, LayoutDashboard } from 'lucide-react';
@@ -84,6 +85,8 @@ export default function DashboardPage() {
                 sublabel="Across all leads"
               />
             </div>
+
+            <LeadQuotaCard />
 
             {/* Row 2: Pipeline (3/5) + Hot Leads (2/5) */}
             <div className="grid grid-cols-5 gap-4">

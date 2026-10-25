@@ -1,5 +1,5 @@
 import { api } from '@/lib/api';
-import type { DashboardMetrics, PipelineSummary, Lead } from '../../shared/types';
+import type { DashboardMetrics, PipelineSummary, Lead, LeadQuota } from '../../shared/types';
 
 export async function fetchDashboardMetrics(): Promise<DashboardMetrics> {
   const { data } = await api.get('/metrics/dashboard');
@@ -24,5 +24,10 @@ export interface AllDashboardData {
 
 export async function fetchAllDashboard(): Promise<AllDashboardData> {
   const { data } = await api.get('/metrics/all');
+  return data.data;
+}
+
+export async function fetchLeadQuota(): Promise<LeadQuota> {
+  const { data } = await api.get('/metrics/lead-quota');
   return data.data;
 }

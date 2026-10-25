@@ -196,8 +196,12 @@ function useAnalysisStream(id: string) {
       signal: abort.signal,
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     })
-      .then(response => {
-        if (!response.ok || !response.body) throw new Error('Stream failed');
+      .then(async response => {
+        if (!response.ok || !response.body) {
+          // A refusal (e.g. the lead quota is used up) comes back as JSON with the reason.
+          const body = await response.json().catch(() => null) as { error?: string } | null;
+          throw new Error(body?.error ?? 'Analysis failed');
+        }
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
@@ -228,6 +232,7 @@ function useAnalysisStream(id: string) {
                     setIsStreaming(false);
                     setPhase(null);
                     qc.invalidateQueries({ queryKey: ['lead', id] });
+                    qc.invalidateQueries({ queryKey: ['lead-quota'] });
                     toast.success('Analysis complete');
                     return;
                   }
@@ -247,7 +252,8 @@ function useAnalysisStream(id: string) {
         return pump();
       })
       .catch(err => {
-        if ((err as Error).name !== 'AbortError') toast.error('Analysis failed');
+        if ((err as Error).name !== 'AbortError') toast.error((err as Error).message || 'Analysis failed');
+        qc.invalidateQueries({ queryKey: ['lead-quota'] });
         setIsStreaming(false);
         setPhase(null);
       });

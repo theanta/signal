@@ -7,7 +7,8 @@
 #         migration in supabase/migrations/README.md's chronological order,
 #         plus 2026-08-26_tenancy_foundation.sql, 2026-10-24_drop_job_postings.sql,
 #         2026-08-26_rls_policies.sql, 2026-10-24_scrape_job_store.sql and
-#         2026-10-24_usage_events.sql and 2026-10-25_scoring_model.sql.
+#         2026-10-24_usage_events.sql, 2026-10-25_scoring_model.sql and
+#         2026-10-26_lead_quota.sql.
 #   DB_B ("fresh build" path):        the current supabase/schema.sql, alone.
 #
 # Then it diffs `pg_dump --schema-only` of the two. See
@@ -78,6 +79,7 @@ psql -q -d "$DB_A" -v ON_ERROR_STOP=1 -f supabase/migrations/2026-08-26_rls_poli
 psql -q -d "$DB_A" -v ON_ERROR_STOP=1 -f supabase/migrations/2026-10-24_scrape_job_store.sql >/dev/null || exit 1
 psql -q -d "$DB_A" -v ON_ERROR_STOP=1 -f supabase/migrations/2026-10-24_usage_events.sql >/dev/null || exit 1
 psql -q -d "$DB_A" -v ON_ERROR_STOP=1 -f supabase/migrations/2026-10-25_scoring_model.sql >/dev/null || exit 1
+psql -q -d "$DB_A" -v ON_ERROR_STOP=1 -f supabase/migrations/2026-10-26_lead_quota.sql >/dev/null || exit 1
 
 echo "=== DB_B ($DB_B): schema.sql alone ==="
 psql -q -d "$DB_B" -v ON_ERROR_STOP=1 -f "$WORK/bootstrap.sql" || exit 1

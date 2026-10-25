@@ -22,7 +22,8 @@ describe('organizations table', () => {
     );
     const names = rows.map(r => r.column_name);
     expect(names).toEqual([
-      'created_at', 'id', 'monthly_scrape_cap', 'name', 'plan', 'slug', 'status',
+      'created_at', 'id', 'lead_quota_daily', 'lead_quota_monthly', 'lead_quota_weekly',
+      'monthly_scrape_cap', 'name', 'plan', 'slug', 'status',
     ]);
   });
 

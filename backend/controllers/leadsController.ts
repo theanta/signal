@@ -4,6 +4,7 @@ import * as db from '../services/supabaseService';
 import { rescoreLeadQuietly } from '../services/scoringService';
 import { ctxOf } from '../api/middleware/auth';
 import { persistAnalysis } from '../services/persistAnalysis';
+import { assertCanAnalyze, LeadQuotaReachedError } from '../services/leadQuotaService';
 import { analyzeLeadSignals, getAnalyzeStreamResponse } from '../services/signalEngineService';
 import { generateOutreach, analyzeOpportunity } from '../services/claudeService';
 import type { Lead, LeadFilters, LeadSignal, LeadSource, OutreachChannel, SignalAnalysisResult } from '../../shared/types';
@@ -159,12 +160,17 @@ export async function analyzeLead(req: Request, res: Response): Promise<void> {
       return;
     }
 
+    await assertCanAnalyze(ctx, lead);
     const existingSignals = await db.getLeadSignals(ctx, lead.id);
     const signals = await analyzeLeadSignals(ctx, _buildLeadPayload(lead, existingSignals));
     await persistAnalysis(ctx, lead, existingSignals, signals);
 
     res.json({ success: true, data: signals });
   } catch (err) {
+    if (err instanceof LeadQuotaReachedError) {
+      res.status(429).json({ success: false, error: err.message });
+      return;
+    }
     res.status(500).json({ success: false, error: (err as Error).message });
   }
 }
@@ -178,6 +184,7 @@ export async function streamAnalyzeLead(req: Request, res: Response): Promise<vo
       return;
     }
 
+    await assertCanAnalyze(ctx, lead);
     const existingSignals = await db.getLeadSignals(ctx, lead.id);
     const leadPayload = _buildLeadPayload(lead, existingSignals);
 
@@ -247,7 +254,9 @@ export async function streamAnalyzeLead(req: Request, res: Response): Promise<vo
 
     res.end();
   } catch (err) {
-    if (!res.headersSent) {
+    if (err instanceof LeadQuotaReachedError && !res.headersSent) {
+      res.status(429).json({ success: false, error: err.message });
+    } else if (!res.headersSent) {
       res.status(500).json({ success: false, error: (err as Error).message });
     } else {
       res.write(`data: ${JSON.stringify({ phase: 'error', message: (err as Error).message })}\n\n`);
@@ -296,6 +305,8 @@ export async function generateLeadOutreach(req: Request, res: Response): Promise
         } : null,
       };
     } else {
+      // Never analyzed: drafting analyzes it first, so the quota applies.
+      await assertCanAnalyze(ctx, lead);
       signalData = await analyzeLeadSignals(ctx, {
         company_name: lead.company_name,
         website: lead.website,
@@ -325,6 +336,10 @@ export async function generateLeadOutreach(req: Request, res: Response): Promise
 
     res.json({ success: true, data: saved });
   } catch (err) {
+    if (err instanceof LeadQuotaReachedError) {
+      res.status(429).json({ success: false, error: err.message });
+      return;
+    }
     res.status(500).json({ success: false, error: (err as Error).message });
   }
 }

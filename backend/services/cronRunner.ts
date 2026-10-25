@@ -1,6 +1,7 @@
 import { supabaseAdmin } from './supabaseAdmin';
 import { createTenantContext, TenantContext } from './tenantContext';
 import * as db from './supabaseService';
+import { getLeadQuota, quotaMessage } from './leadQuotaService';
 import { persistAnalysis } from './persistAnalysis';
 import { analyzeLeadSignals, triggerScrape, healthCheck } from './signalEngineService';
 import { ScrapeAlreadyRunningError } from './engineErrors';
@@ -206,7 +207,13 @@ export const DEFAULT_DAILY_ANALYSIS_LIMIT = 20;
 export const MAX_DAILY_ANALYSIS_LIMIT = 100;
 
 async function analyzeNewLeads(ctx: TenantContext): Promise<number> {
-  const limit = await dailyAnalysisLimit(ctx);
+  // The org's own daily setting, never past what its lead quota has left.
+  const quota = await getLeadQuota(ctx);
+  const limit = Math.min(await dailyAnalysisLimit(ctx), quota.remaining ?? Infinity);
+  if (limit <= 0) {
+    console.log(`[CRON] Org ${ctx.orgId}: ${quotaMessage(quota)}`);
+    return 0;
+  }
   const { data: leads } = await db.getLeads(ctx, { status: 'new', per_page: limit });
 
   for (const lead of leads) {

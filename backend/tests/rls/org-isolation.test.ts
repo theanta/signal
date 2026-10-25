@@ -189,10 +189,11 @@ describe('organizations', () => {
     expect((data ?? []).map(r => r.id)).toEqual([orgs.a.orgId]);
   });
 
-  it('a tenant cannot change its own plan, status or cap', async () => {
-    await dbA.from('organizations').update({ monthly_scrape_cap: 999999, status: 'active' }).eq('id', orgs.a.orgId);
-    const { rows } = await sql(`SELECT monthly_scrape_cap FROM organizations WHERE id = $1`, [orgs.a.orgId]);
+  it('a tenant cannot change its own plan, status, cap or lead quota', async () => {
+    await dbA.from('organizations').update({ monthly_scrape_cap: 999999, status: 'active', lead_quota_monthly: 999999 }).eq('id', orgs.a.orgId);
+    const { rows } = await sql(`SELECT monthly_scrape_cap, lead_quota_monthly FROM organizations WHERE id = $1`, [orgs.a.orgId]);
     expect(rows[0].monthly_scrape_cap).toBe(100);
+    expect(rows[0].lead_quota_monthly).toBeNull();
   });
 });
 

@@ -60,6 +60,8 @@ export interface Lead {
   contributing_sources?: string[];
   scraped_at?: string;
   analyzed_at?: string;
+  // Set by the database on the first analysis; the lead quota counts these.
+  first_analyzed_at?: string | null;
   contacted_at?: string;
   created_at: string;
   updated_at: string;
@@ -486,6 +488,28 @@ export function asOrgId(value: string): OrgId {
   return value as OrgId;
 }
 
+// ---- Lead quota (GET /api/metrics/lead-quota) ----
+
+export type QuotaPeriod = 'day' | 'week' | 'month';
+
+export interface QuotaPeriodUsage {
+  period: QuotaPeriod;
+  limit: number | null;
+  used: number;
+  remaining: number | null;
+  /** When this period's count starts again from zero. */
+  resets_at: string;
+}
+
+export interface LeadQuota {
+  timezone: string;
+  periods: QuotaPeriodUsage[];
+  /** New leads that can still be analyzed now: the smallest remaining, or null when no period is limited. */
+  remaining: number | null;
+  /** When it is 0: the earliest time every exhausted period has reset. */
+  blocked_until: string | null;
+}
+
 export interface Organization {
   id: string;
   name: string;
@@ -493,5 +517,9 @@ export interface Organization {
   plan: string;
   status: 'active' | 'suspended';
   monthly_scrape_cap: number;
+  // Leads that may be analyzed for the first time per period; null = no limit.
+  lead_quota_daily: number | null;
+  lead_quota_weekly: number | null;
+  lead_quota_monthly: number | null;
   created_at: string;
 }
