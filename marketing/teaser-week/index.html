@@ -1,0 +1,720 @@
+<title>Signal Teaser Week</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a field log. Sticky day rail on top, one column of days, each day a log entry with its tasks and ready-to-copy posts. */
+:root {
+  --bg: #F7F8F4;
+  --surface: #FFFFFF;
+  --fg: #141A15;
+  --muted: #5C665E;
+  --line: #DFE4DC;
+  --accent: #15803D;
+  --accent-soft: #E3F2E7;
+  --warn: #9A5B00;
+  --warn-soft: #FBF0DC;
+  --code-bg: #F1F4EE;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0B0E0C; --surface: #121714; --fg: #E6ECE6; --muted: #93A097; --line: #232B25;
+    --accent: #3DDC84; --accent-soft: #14281B; --warn: #F0B45A; --warn-soft: #2A2112; --code-bg: #0F1311;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0B0E0C; --surface: #121714; --fg: #E6ECE6; --muted: #93A097; --line: #232B25;
+  --accent: #3DDC84; --accent-soft: #14281B; --warn: #F0B45A; --warn-soft: #2A2112; --code-bg: #0F1311;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 15px; line-height: 1.55; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+.wrap { max-width: 860px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 40px 80px; display: flex; flex-direction: column; gap: 48px; }
+h1, h2, h3 { text-wrap: balance; line-height: 1.2; margin: 0; }
+h1 { font-size: 2.1rem; font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: 1.45rem; font-weight: 700; }
+h3 { font-size: 1.05rem; font-weight: 600; }
+p { margin: 0; max-width: 65ch; }
+a { color: var(--accent); }
+.eyebrow { font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+.muted { color: var(--muted); }
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.stack-lg { display: flex; flex-direction: column; gap: 20px; }
+
+header.top { display: flex; flex-direction: column; gap: 14px; }
+.lede { font-size: 1.05rem; color: var(--muted); }
+
+nav.rail { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); margin: -24px calc(-1 * max(16px, env(safe-area-inset-left, 0px))) 0; padding: 10px max(16px, env(safe-area-inset-left, 0px)); overflow-x: auto; }
+nav.rail ul { list-style: none; margin: 0; padding: 0; display: flex; gap: 8px; width: max-content; }
+nav.rail a { display: block; font-family: var(--mono); font-size: 0.78rem; text-decoration: none; color: var(--fg); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; background: var(--surface); white-space: nowrap; }
+nav.rail a:hover, nav.rail a:focus-visible { border-color: var(--accent); color: var(--accent); outline: none; }
+
+.rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.rule { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.rule strong { font-size: 0.95rem; }
+.rule p { font-size: 0.9rem; color: var(--muted); }
+
+.note { background: var(--warn-soft); color: var(--fg); border-radius: 10px; padding: 14px 16px; font-size: 0.9rem; }
+.note b { color: var(--warn); }
+
+.videos { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+.vid { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.vid video { width: 100%; max-width: 100%; aspect-ratio: 9 / 16; background: #000; border-radius: 10px; border: 1px solid var(--line); }
+.vid .meta { font-size: 0.88rem; color: var(--muted); }
+.vid .file { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); word-break: break-all; }
+
+section.day { display: flex; flex-direction: column; gap: 18px; scroll-margin-top: 64px; padding-top: 8px; border-top: 1px solid var(--line); }
+.day-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; }
+.day-head .date { font-family: var(--mono); font-size: 0.85rem; color: var(--accent); }
+.tag { display: inline-block; font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+.tag.build { background: var(--warn-soft); color: var(--warn); }
+
+ul.tasks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+ul.tasks li { display: grid; grid-template-columns: 84px 1fr; gap: 12px; font-size: 0.93rem; }
+ul.tasks .t { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); padding-top: 2px; font-variant-numeric: tabular-nums; }
+ul.tasks li > span:last-child { min-width: 0; }
+
+.post { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; min-width: 0; }
+.post-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.platform { font-weight: 600; font-size: 0.92rem; }
+.post-head .asset { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); flex: 1 1 200px; min-width: 0; }
+button.copy { font-family: var(--mono); font-size: 0.75rem; border: 1px solid var(--line); background: var(--bg); color: var(--fg); padding: 5px 12px; border-radius: 6px; cursor: pointer; }
+button.copy:hover { border-color: var(--accent); color: var(--accent); }
+button.copy:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.copy.done { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.post pre { margin: 0; padding: 14px 16px; white-space: pre-wrap; word-wrap: break-word; font-family: var(--sans); font-size: 0.93rem; line-height: 1.6; background: var(--surface); color: var(--fg); }
+.post .why { padding: 0 16px 14px; font-size: 0.82rem; color: var(--muted); }
+
+table.track { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table.track th, table.track td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.track th { font-family: var(--mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 400; }
+table.track tr:last-child td { border-bottom: 0; }
+
+.ph { background: var(--warn-soft); color: var(--warn); border-radius: 3px; padding: 0 3px; }
+@media (max-width: 480px) {
+  h1 { font-size: 1.7rem; }
+  ul.tasks li { grid-template-columns: 1fr; gap: 0; }
+}
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+html { scroll-behavior: smooth; }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <span class="eyebrow">Signal · teaser week · Oct 27 to Nov 3</span>
+    <h1>Teaser week plan and every post, ready to copy</h1>
+    <p class="lede">Four days of teasers, a weekend to build the landing page, sign-up and pricing, and the reveal on Monday Nov 2. All copy is written in your voice: first person, direct, specific, no hype words, no emoji, no em dashes.</p>
+  </header>
+
+  <nav class="rail" aria-label="Days">
+    <ul>
+      <li><a href="#rules">Rules</a></li>
+      <li><a href="#videos">Videos</a></li>
+      <li><a href="#tue">Tue 27</a></li>
+      <li><a href="#wed">Wed 28</a></li>
+      <li><a href="#thu">Thu 29</a></li>
+      <li><a href="#fri">Fri 30</a></li>
+      <li><a href="#weekend">Sat 31 + Sun 1</a></li>
+      <li><a href="#mon">Mon 2 reveal</a></li>
+      <li><a href="#after">After launch</a></li>
+      <li><a href="#replies">Replies + DMs</a></li>
+      <li><a href="#track">Tracking</a></li>
+    </ul>
+  </nav>
+
+  <section id="rules" class="stack-lg" style="scroll-margin-top:64px">
+    <div class="stack">
+      <span class="eyebrow">How the week works</span>
+      <h2>Five rules for every post</h2>
+    </div>
+    <div class="rules">
+      <div class="rule"><strong>One action: comment RADAR</strong><p>Every teaser ends with it. Comments boost reach, and each one is a sign-up before the sign-up page exists.</p></div>
+      <div class="rule"><strong>Log every RADAR</strong><p>Handle, platform, date, and what they said they need. This sheet is your first waitlist. Template is at the bottom.</p></div>
+      <div class="rule"><strong>Never say the name before Monday</strong><p>Show what it does, never what it is called. The mystery is the name and the link, not the idea.</p></div>
+      <div class="rule"><strong>20 minutes either side of a post</strong><p>Comment on bigger freelance, agency and SaaS accounts before posting. Reply to every comment in the first hour after.</p></div>
+      <div class="rule"><strong>Reddit gets no mystery</strong><p>Teasers get removed there. Ask real questions and share the build openly in subs that allow it.</p></div>
+    </div>
+    <div class="note"><b>Check before posting:</b> the posts use your real story that your first 17 cold emails got zero replies. If you would rather not share that publicly, swap that line out. Anything in <span class="ph">[brackets]</span> is a number or link only you have. The clips use demo data (Northwind Freight is not a real customer), so the captions call it a demo run.</div>
+  </section>
+
+  <section id="videos" class="stack-lg" style="scroll-margin-top:64px">
+    <div class="stack">
+      <span class="eyebrow">Video kit</span>
+      <h2>Three short reels cut from your night-shift video</h2>
+      <p class="muted">Each plays your voiceover at its original speed, cut only at natural pauses, with hook text from the first frame, captions timed to the agent log for viewers with the sound off, and a "Comment RADAR" end card. Dark versions are shown here; post dark first, since yesterday's light version didn't get much traction. Every file also exists in light, and Reel B also comes in a 4:5 feed version for LinkedIn and X.</p>
+    </div>
+    <div class="videos">
+      <div class="vid">
+        <video src="videos/B-night-shift-9x16-dark.mp4" controls muted playsinline preload="metadata"></video>
+        <h3>B · Night shift · 32s</h3>
+        <p class="meta">The main teaser. The whole overnight run from company found to email drafted. Posts Tue.</p>
+        <span class="file">B-night-shift-9x16-dark.mp4 · 4x5 for LinkedIn and X</span>
+      </div>
+      <div class="vid">
+        <video src="videos/C-score-94-9x16-dark.mp4" controls muted playsinline preload="metadata"></video>
+        <h3>C · Score 94 · 19s</h3>
+        <p class="meta">Curiosity hook built on one lead and one number. Posts Wed.</p>
+        <span class="file">C-score-94-9x16-dark.mp4</span>
+      </div>
+      <div class="vid">
+        <video src="videos/A-pipeline-at-zero-9x16-dark.mp4" controls muted playsinline preload="metadata"></video>
+        <h3>A · Pipeline at zero · 19s</h3>
+        <p class="meta">The pain, no product shown. The most relatable of the three. Posts Thu.</p>
+        <span class="file">A-pipeline-at-zero-9x16-dark.mp4</span>
+      </div>
+    </div>
+    <p class="muted" style="font-size:0.88rem">On Instagram, consider replacing the audio with a trending sound when you upload. The clip is designed to work without its own audio.</p>
+  </section>
+
+  <!-- ===================== TUESDAY ===================== -->
+  <section id="tue" class="day">
+    <div class="day-head"><span class="date">TUE OCT 27</span><h2>Day 1 · The night shift</h2><span class="tag">Teaser</span></div>
+    <p class="muted">Today you put Reel B out everywhere and post the founder story on LinkedIn. Times are US Eastern, when your buyers are online.</p>
+    <ul class="tasks">
+      <li><span class="t">09:00</span><span>LinkedIn: story post with B-night-shift-4x5-light.mp4. LinkedIn's feed is light, so the light version blends less and reads better.</span></li>
+      <li><span class="t">10:00</span><span>X: post with B-night-shift-4x5-dark.mp4.</span></li>
+      <li><span class="t">12:00</span><span>Instagram Reel: B-night-shift-9x16-dark.mp4. Share it to your Story with a poll sticker.</span></li>
+      <li><span class="t">19:00</span><span>Threads: question post with the same 9:16 clip.</span></li>
+      <li><span class="t">Anytime</span><span>Reddit: no posts today. Leave 5 genuinely useful comments on "how do I find clients" threads in r/freelance, r/agency and r/consulting so your account has history. Example comment below.</span></li>
+      <li><span class="t">Evening</span><span>Log every RADAR comment and send the instant DM from the Replies section.</span></li>
+    </ul>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">LinkedIn</span><span class="asset">B-night-shift-4x5-light.mp4</span><button class="copy" type="button">Copy</button></div>
+<pre>My first 17 cold emails as a founder got zero replies.
+
+Looking back, the problem was obvious. I was writing to companies that matched a filter. None of them had a reason to talk to me that week.
+
+So I built a system that looks for the reason first.
+
+Every night it reads job posts, product launches and company sites. When a company is hiring for work that could be automated, running its operations on spreadsheets, or has just launched and needs pipeline, it flags them. Then it finds the founder, scores the fit from 0 to 100, and drafts a first email about that specific signal.
+
+Anything under 65 gets dropped. I only see the ones worth my time.
+
+The clip is a demo run. I built this for my own pipeline at ANTA, and next week I am opening it up to other founders, freelancers and small agencies.
+
+If you want early access, comment RADAR and I will message you first.</pre>
+      <p class="why">LinkedIn is where your buyers spend their day. The failure-first opening is the strongest hook you have.</p>
+    </div>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">X</span><span class="asset">B-night-shift-4x5-dark.mp4</span><button class="copy" type="button">Copy</button></div>
+<pre>I stopped prospecting.
+
+Now something does it overnight:
+
+- reads company sites, job posts and launches
+- spots who is hiring for work that should be automated
+- finds and verifies the founder
+- scores the fit out of 100
+- drafts the first email
+
+Revealing it Monday. Reply RADAR if you want in early.
+
+#buildinpublic</pre>
+    </div>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">Instagram Reel caption</span><span class="asset">B-night-shift-9x16-dark.mp4</span><button class="copy" type="button">Copy</button></div>
+<pre>I stopped prospecting a few weeks ago.
+
+I still need clients. I just built something that does the prospecting overnight.
+
+It reads company sites, job posts and product launches. It spots who is hiring for work that should be automated. It finds the founder, scores the fit, and drafts the first email before I wake up.
+
+In this demo run it found a freight company hiring an AP automation specialist while running on QuickBooks and Google Sheets. Score: 94.
+
+Revealing what it is on Monday.
+
+Comment RADAR and I will send you early access before anyone else.
+
+#buildinpublic #freelancer #agencyowner #leadgeneration #b2bsales #solofounder #coldoutreach</pre>
+    </div>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">Instagram Story</span><span class="asset">Share the reel + poll sticker</span><button class="copy" type="button">Copy</button></div>
+<pre>Poll: How many hours a week do you spend finding clients?
+Options: Under 2 / More than I want to admit</pre>
+    </div>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">Threads</span><span class="asset">B-night-shift-9x16-dark.mp4</span><button class="copy" type="button">Copy</button></div>
+<pre>Freelancers and agency people: how many hours a week do you spend finding your next client?
+
+My first 17 cold emails got zero replies, so I stopped doing it by hand and built something that does it while I sleep.
+
+This is one night of it. Showing what it is on Monday.</pre>
+    </div>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">Reddit comment template</span><span class="asset">For "how do I find clients" threads. No link, no product.</span><button class="copy" type="button">Copy</button></div>
+<pre>What changed things for me was dropping list-based outreach and looking for timing signals first. A company posting a job for work you do, a product launch, a new funding round, or a founder complaining about a manual process. Those people have a reason to reply this week.
+
+Then the first line of the email is about that signal and nothing else. It is easier to write and harder to ignore than anything about you or your services.</pre>
+      <p class="why">Edit it to fit each thread so it never reads as copy-paste.</p>
+    </div>
+  </section>
+
+  <!-- ===================== WEDNESDAY ===================== -->
+  <section id="wed" class="day">
+    <div class="day-head"><span class="date">WED OCT 28</span><h2>Day 2 · Score 94</h2><span class="tag">Teaser</span></div>
+    <ul class="tasks">
+      <li><span class="t">09:00</span><span>LinkedIn: how-the-scoring-works post with C-score-94-9x16-light.mp4.</span></li>
+      <li><span class="t">10:00</span><span>X: the 5-signals thread. Attach C-score-94-9x16-dark.mp4 to the last tweet.</span></li>
+      <li><span class="t">10:00</span><span>Reddit r/freelance: the hours question. No product, no link.</span></li>
+      <li><span class="t">12:00</span><span>Instagram Reel: C-score-94-9x16-dark.mp4.</span></li>
+      <li><span class="t">19:00</span><span>Threads: where-clients-come-from question.</span></li>
+    </ul>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">LinkedIn</span><span class="asset">C-score-94-9x16-light.mp4</span><button class="copy" type="button">Copy</button></div>
+<pre>How I decide which companies are worth an email:
+
+Size. Can they afford help, and are they small enough that the founder still reads their inbox?
+Hiring urgency. Are they hiring for work that is mostly manual right now?
+Operational pain. Spreadsheets, legacy systems, email chains holding the business together.
+Growth. A launch, a funding round, a new location.
+
+Each lead gets a score from 0 to 100. Under 65 I never see it. Over 90 I write to them that morning.
+
+The one in this demo run scored 94: hiring an AP automation specialist, running on QuickBooks and Google Sheets, founder verified.
+
+I built this for my own pipeline. Next week other people get to use it. Comment RADAR if you want in first.</pre>
+    </div>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">X thread · 7 tweets</span><span class="asset">Video on tweet 7</span><button class="copy" type="button">Copy</button></div>
+<pre>1/ Most cold outreach goes out at the wrong moment. Here are 5 signals that a company needs outside help this month.
+
+2/ They are hiring for a role that is mostly manual work. AP clerk, data entry, ops coordinator, SDR. The job post lists the exact tasks they want off their plate.
+
+3/ They just launched. Product Hunt, a new site, a press release. Launch week is when the gaps show.
+
+4/ Their stack is spreadsheets plus tools that don't talk to each other. You can often read it straight from the job post: "experience with QuickBooks and Google Sheets required."
+
+5/ They just raised. The money is there and so is the pressure to scale.
+
+6/ The founder posts about doing something by hand. That is close to an invitation.
+
+7/ I got tired of checking these by hand, so I built something that checks them every night and scores each company out of 100. Showing it Monday. Reply RADAR for early access.</pre>
+    </div>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">Reddit · r/freelance</span><span class="asset">Text post. No link, no product.</span><button class="copy" type="button">Copy</button></div>
+<pre>Title: How many hours a week do you actually spend finding clients?
+
+I am trying to get a real number, not a guess.
+
+I run a small software consultancy. When I added it up, prospecting (finding companies, researching them, finding the right person, writing the first email) was taking more time than some of my client work. And my first batch of 17 cold emails got zero replies, so the time was not even paying off.
+
+For those of you who do outbound:
+1. How many hours a week?
+2. Which part eats the most time: research, finding the right person, or writing the email?
+3. What have you stopped doing because it never worked?</pre>
+      <p class="why">The answers are your landing page copy. Save the best phrases word for word.</p>
+    </div>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">Instagram Reel caption</span><span class="asset">C-score-94-9x16-dark.mp4</span><button class="copy" type="button">Copy</button></div>
+<pre>This company scored 94 out of 100.
+
+Fit 98. Intent 95.
+
+They are hiring for AP automation, their stack is QuickBooks and Google Sheets, and the founder is reachable. Every signal says they need help right now.
+
+They have no idea anyone noticed.
+
+Demo data, real logic. That is the whole idea behind what I am launching Monday.
+
+Comment RADAR for early access.
+
+#buildinpublic #freelancer #agencyowner #leadgeneration #b2bsales #aitools</pre>
+    </div>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">Threads</span><span class="asset">Text only</span><button class="copy" type="button">Copy</button></div>
+<pre>Honest question for freelancers and agency owners. Where do your best clients actually come from?
+
+1. Referrals
+2. Cold outreach
+3. Content
+4. Platforms like Upwork
+
+I am building something for number 2 and I want to know how many of you have given up on it.</pre>
+    </div>
+  </section>
+
+  <!-- ===================== THURSDAY ===================== -->
+  <section id="thu" class="day">
+    <div class="day-head"><span class="date">THU OCT 29</span><h2>Day 3 · Pipeline at zero</h2><span class="tag">Teaser</span></div>
+    <ul class="tasks">
+      <li><span class="t">09:00</span><span>Reddit r/SideProject: the validation post with B-night-shift-9x16-light.mp4. Self-promotion is allowed there. Reply to every comment for 2 hours.</span></li>
+      <li><span class="t">10:00</span><span>X: build-in-public lessons post.</span></li>
+      <li><span class="t">12:00</span><span>Instagram Reel: A-pipeline-at-zero-9x16-dark.mp4, plus a Story poll.</span></li>
+      <li><span class="t">19:00</span><span>Threads: guessing game with B-night-shift-9x16-dark.mp4.</span></li>
+      <li><span class="t">Anytime</span><span>LinkedIn: no post. Spend 20 minutes commenting on posts by agency owners and founders.</span></li>
+    </ul>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">Reddit · r/SideProject</span><span class="asset">B-night-shift-9x16-light.mp4</span><button class="copy" type="button">Copy</button></div>
+<pre>Title: I built an agent that finds clients for my consultancy overnight. Would you use it?
+
+I run a one-person software consultancy in Detroit. My first 17 cold emails got zero replies, mostly because I was emailing companies that had no reason to talk to me that week.
+
+So I built a system that looks for the reason first. Every morning it:
+
+- pulls from job boards, Wellfound, Product Hunt and local business news
+- detects buying signals: hiring for manual work, new launches, spreadsheet-heavy operations
+- scores each company 0 to 100 on size, hiring urgency, operational pain and growth
+- drafts a first email for anything above 65, written around that one signal
+
+Stack: Next.js, Express, FastAPI, Supabase, and Llama 3.3 70B on Groq for the writing.
+
+I am thinking about opening it to freelancers and small agencies. Two questions:
+
+1. Would you use this, or do you prefer doing the research yourself?
+2. What would you pay per month for it? I am pricing it this weekend and want real numbers.
+
+The video is a demo run with sample data.</pre>
+      <p class="why">This post feeds your weekend pricing page directly. Write every price people mention into the tracking sheet.</p>
+    </div>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">X</span><span class="asset">Text, or attach a screenshot of the agent log</span><button class="copy" type="button">Copy</button></div>
+<pre>3 things I learned building a client-finding agent:
+
+1. Job posts are the best buying signal on the internet. Companies describe their own pain in public.
+
+2. "Hiring" alone means nothing. "Hiring an AP clerk while running on Google Sheets" means a lot.
+
+3. AI-written emails are bad by default. They get good when you give the model one specific signal and tell it to write about that and nothing else.
+
+Showing the whole thing Monday.
+
+#buildinpublic</pre>
+    </div>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">Instagram Reel caption</span><span class="asset">A-pipeline-at-zero-9x16-dark.mp4</span><button class="copy" type="button">Copy</button></div>
+<pre>Every freelancer knows this graph.
+
+You get busy with client work, you stop prospecting, and a month later every number is zero.
+
+I kept hitting this cycle, so I built something that keeps prospecting while I do the work. It finds companies with a reason to need me, scores them, and drafts the first email.
+
+Showing it Monday. Comment RADAR if you want early access.
+
+#freelancer #freelancelife #agencyowner #buildinpublic #solofounder #clientacquisition</pre>
+    </div>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">Instagram Story</span><span class="asset">Poll sticker</span><button class="copy" type="button">Copy</button></div>
+<pre>Poll: Do you keep prospecting when you are busy with client work?
+Options: Always / Never, that is the problem</pre>
+    </div>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">Threads</span><span class="asset">B-night-shift-9x16-dark.mp4</span><button class="copy" type="button">Copy</button></div>
+<pre>Something runs on my laptop every night. By 7am it has done this.
+
+Guess what it is. Closest guess gets the first invite on Monday.</pre>
+    </div>
+  </section>
+
+  <!-- ===================== FRIDAY ===================== -->
+  <section id="fri" class="day">
+    <div class="day-head"><span class="date">FRI OCT 30</span><h2>Day 4 · Revealing Monday</h2><span class="tag">Teaser</span></div>
+    <ul class="tasks">
+      <li><span class="t">09:00</span><span>LinkedIn: opinion post with no video.</span></li>
+      <li><span class="t">10:00</span><span>Indie Hackers: build log post with your real numbers from the week.</span></li>
+      <li><span class="t">10:00</span><span>X: "Monday" post. Quote-tweet your best-performing post from the week.</span></li>
+      <li><span class="t">12:00</span><span>Instagram: repost this week's best reel to your Story with a countdown sticker for Monday 9am. No new reel today.</span></li>
+      <li><span class="t">19:00</span><span>Threads: "Monday" post.</span></li>
+      <li><span class="t">Afternoon</span><span>Product Hunt: create your product page and schedule a launch 2 to 3 weeks out so people can follow it. Don't launch on Monday; give it time to collect followers.</span></li>
+      <li><span class="t">Night</span><span>Decision review (below). This sets your weekend.</span></li>
+    </ul>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">LinkedIn</span><span class="asset">Text only</span><button class="copy" type="button">Copy</button></div>
+<pre>Unpopular opinion: your cold email copy is probably fine. Your timing is the problem.
+
+A company that posted a job yesterday for the exact work you do is a different conversation from a company that matched a database filter.
+
+The first one has a reason to reply this week. The second one has a reason to archive.
+
+I have spent the last few weeks building a tool around this idea. It goes live Monday. If you want to try it first, comment RADAR.</pre>
+    </div>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">Indie Hackers</span><span class="asset">Post in the Building in Public group. Attach B-night-shift-9x16-light.mp4.</span><button class="copy" type="button">Copy</button></div>
+<pre>Title: Teasing a launch for a week with no landing page. Here are the numbers.
+
+I built a tool for my own consultancy that finds companies with a buying signal (hiring for manual work, new launches, spreadsheet-heavy operations), scores them 0 to 100, and drafts the first email. My first 17 manual cold emails got zero replies, so this started as a fix for my own pipeline.
+
+Before building a landing page, I wanted to know if anyone else wants it. So this week I posted short teaser clips with one call to action: comment RADAR for early access.
+
+Results after 4 days:
+- RADAR comments: [X]
+- DMs asking what it is: [X]
+- Best platform: [platform]
+- Best clip: [clip], [views] views
+- Price people said they would pay: [range]
+
+What worked: [one line]
+What flopped: my first 50-second reel. Too long, tiny text, no hook in the first frame.
+
+This weekend I am building the landing page, sign-up and pricing. Launching Monday.
+
+If you have launched a B2B tool to freelancers and agencies: did you start with a free tier or a paid founding-member offer?</pre>
+      <p class="why">Fill the brackets with real numbers Friday morning. Indie Hackers readers respond to honest numbers, small ones included.</p>
+    </div>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">X</span><span class="asset">Quote-tweet your best post of the week</span><button class="copy" type="button">Copy</button></div>
+<pre>[X] people asked for early access this week without knowing what it is called.
+
+Building the landing page this weekend. Revealing Monday.
+
+Still time to reply RADAR.</pre>
+    </div>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">Threads</span><span class="asset">Text only</span><button class="copy" type="button">Copy</button></div>
+<pre>All week I have been posting clips of something that finds clients overnight.
+
+Monday you get the name, the link, and early access if you commented RADAR.
+
+This weekend I build the last pieces. Wish me luck.</pre>
+    </div>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">Friday night decision</span><span class="asset">Count RADARs and DMs across all platforms</span><button class="copy" type="button">Copy</button></div>
+<pre>Strong (50+ RADAR comments or DMs, people asking "what is it"):
+Build the full landing page, sign-up and pricing. Reveal Monday as planned.
+
+Medium (15 to 50):
+Build the landing page and sign-up. Skip the full pricing page. Offer a founding-member price in the reveal instead and learn pricing from who pays.
+
+Weak (under 15):
+Reveal Monday with only a waitlist page. Next week, test a different angle: lead with the AI-written emails instead of the lead scoring, and post more on LinkedIn, where your buyers are.</pre>
+    </div>
+  </section>
+
+  <!-- ===================== WEEKEND ===================== -->
+  <section id="weekend" class="day">
+    <div class="day-head"><span class="date">SAT OCT 31 + SUN NOV 1</span><h2>Build weekend</h2><span class="tag build">Build</span></div>
+    <ul class="tasks">
+      <li><span class="t">Sat</span><span>Landing page. Use the exact phrases people wrote in the Reddit comments and DMs for the headline and pain points.</span></li>
+      <li><span class="t">Sat</span><span>Sign-up or waitlist form. Add UTM links for each platform so you know where sign-ups come from.</span></li>
+      <li><span class="t">Sun</span><span>Pricing page, based on the numbers from r/SideProject and DMs. Include the founding-member tier you promised.</span></li>
+      <li><span class="t">Sun</span><span>Unredacted reveal reel: re-export your original video with the name shown on the final card, and add "Link in bio".</span></li>
+      <li><span class="t">Sun night</span><span>Schedule Monday's posts. Prepare the RADAR DM with the live link.</span></li>
+      <li><span class="t">Both days</span><span>One light build-in-public post each day on X and Threads. Nothing else.</span></li>
+    </ul>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">X + Threads · Saturday</span><span class="asset">Screenshot of the landing page in progress (blur the name)</span><button class="copy" type="button">Copy</button></div>
+<pre>Saturday. Building the landing page for the thing I teased all week.
+
+[X] people asked for early access. Pricing page tomorrow.</pre>
+    </div>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">X + Threads · Sunday</span><span class="asset">Text only</span><button class="copy" type="button">Copy</button></div>
+<pre>Last night of building before tomorrow's reveal.
+
+One question: what would make you trust an AI to write the first email to a prospect for you?</pre>
+      <p class="why">The answers become your landing page FAQ.</p>
+    </div>
+  </section>
+
+  <!-- ===================== MONDAY ===================== -->
+  <section id="mon" class="day">
+    <div class="day-head"><span class="date">MON NOV 2</span><h2>Reveal day</h2><span class="tag">Launch</span></div>
+    <ul class="tasks">
+      <li><span class="t">08:00</span><span>DM every RADAR person the link before posting anywhere. They should feel first.</span></li>
+      <li><span class="t">09:00</span><span>LinkedIn: reveal post with the full unredacted video.</span></li>
+      <li><span class="t">09:30</span><span>X: launch thread. Pin it. Put the link in the second tweet, not the first.</span></li>
+      <li><span class="t">10:00</span><span>Indie Hackers: comment on your Friday post with the launch link. Don't make a second post the same week.</span></li>
+      <li><span class="t">12:00</span><span>Instagram: reveal reel. Link in bio. Story with a link sticker.</span></li>
+      <li><span class="t">19:00</span><span>Threads: reveal post.</span></li>
+      <li><span class="t">Reddit</span><span>Reply on your r/SideProject thread with the link. Post fresh in r/microsaas or r/indiehackers. Don't repost in r/SideProject this week.</span></li>
+    </ul>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">LinkedIn</span><span class="asset">Full reveal video, name shown</span><button class="copy" type="button">Copy</button></div>
+<pre>Last week I posted clips of something that finds clients overnight. Today it has a name: Signal.
+
+Signal reads job boards, product launches and local business news every morning. It finds companies with a real reason to need help, like hiring for manual work, running their operations on spreadsheets, or launching something new. It scores each one from 0 to 100, finds the decision-maker, and drafts a first email about that specific signal.
+
+I built it because my first 17 cold emails got zero replies. I was emailing the wrong companies at the wrong time. Signal fixes the timing.
+
+[X] people asked for early access last week. It is open now: [link]
+
+Founding members get [offer]. I am taking feedback from every one of you personally.</pre>
+    </div>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">X thread · 4 tweets</span><span class="asset">Reveal video on tweet 1</span><button class="copy" type="button">Copy</button></div>
+<pre>1/ It is called Signal.
+
+It finds companies that need you right now, scores them out of 100, and drafts the first email before you wake up.
+
+2/ Try it: [link]
+
+Founding-member pricing for the first [N] people.
+
+3/ How it works:
+- every morning it reads job boards, Wellfound, Product Hunt and local business news
+- detects buying signals: hiring for manual work, launches, spreadsheet-heavy ops
+- scores fit and intent from 0 to 100
+- drafts an email around the one signal that matters
+
+4/ Built by one person in Detroit with Next.js, FastAPI, Supabase and Llama 3.3 on Groq.
+
+If you replied RADAR last week, check your DMs. You already have the link.</pre>
+    </div>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">Instagram Reel caption</span><span class="asset">Full reveal video, name shown</span><button class="copy" type="button">Copy</button></div>
+<pre>It is called Signal.
+
+All last week I showed you what it does. It finds companies with a reason to need you, scores them out of 100, and drafts the first email overnight.
+
+Today it is open. Link in bio.
+
+If you commented RADAR, check your DMs. You got it first.
+
+#buildinpublic #freelancer #agencyowner #leadgeneration #b2bsales #solofounder #saaslaunch</pre>
+    </div>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">Threads</span><span class="asset">Full reveal video</span><button class="copy" type="button">Copy</button></div>
+<pre>The thing I have been teasing all week is called Signal.
+
+It does your prospecting overnight. You wake up to scored leads and drafted emails.
+
+Link in my bio. Tell me what is confusing and I will fix it today.</pre>
+    </div>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">Reddit · r/microsaas</span><span class="asset">Text post with the video</span><button class="copy" type="button">Copy</button></div>
+<pre>Title: Launched today: Signal, a tool that finds clients for freelancers and small agencies overnight
+
+Last week I asked r/SideProject whether anyone would use this. Enough people said yes that I built the landing page and pricing over the weekend.
+
+What it does: every morning it reads job boards, Wellfound, Product Hunt and local business news, detects companies with a buying signal, scores them 0 to 100, and drafts a first email for anything above 65.
+
+Pricing came straight from what people told me they would pay: [pricing summary].
+
+Link: [link]
+
+I would like blunt feedback on two things. Is the pricing page clear? And would you trust the drafted emails enough to send them with light edits?</pre>
+    </div>
+  </section>
+
+  <!-- ===================== AFTER ===================== -->
+  <section id="after" class="day">
+    <div class="day-head"><span class="date">NOV 3 ONWARD</span><h2>After launch: developer communities</h2><span class="tag">Launch</span></div>
+    <ul class="tasks">
+      <li><span class="t">Tue Nov 3</span><span>dev.to and Hashnode: technical write-up, "How I built a buying-signal detector with FastAPI and Llama 3.3 on Groq". Cover scraping, the scoring components, and the prompt that keeps emails specific. Link Signal at the end.</span></li>
+      <li><span class="t">Sat Nov 7</span><span>r/webdev: self-promotion is only allowed on Showoff Saturday. Post the stack and the agent-log UI.</span></li>
+      <li><span class="t">Week 2</span><span>BetaList: submit once the landing page is live. Their review queue takes a while, so submit early.</span></li>
+      <li><span class="t">Week 2</span><span>X Communities: share the launch thread in Build in Public and Indie Hackers.</span></li>
+      <li><span class="t">Week 2 to 3</span><span>Show HN, once people can try it without a sales call. Title: "Show HN: Signal, finds companies with buying signals and drafts the first email". Stay in the comments all day.</span></li>
+      <li><span class="t">Week 3</span><span>Product Hunt launch on a Tuesday, Wednesday or Thursday, with everyone who followed the page.</span></li>
+    </ul>
+  </section>
+
+  <!-- ===================== REPLIES ===================== -->
+  <section id="replies" class="day">
+    <div class="day-head"><span class="eyebrow">Every day</span><h2>Replies and DMs</h2></div>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">DM when someone comments RADAR</span><span class="asset">Send within the hour</span><button class="copy" type="button">Copy</button></div>
+<pre>Thanks for commenting. I will send you the link Monday morning before it goes public.
+
+Quick question so I build the right thing: what kind of clients are you trying to find right now?</pre>
+      <p class="why">Their answer goes in the tracking sheet. It tells you who your buyer is.</p>
+    </div>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">Reveal DM · Monday 8am</span><span class="asset">To everyone on the RADAR list</span><button class="copy" type="button">Copy</button></div>
+<pre>Hey [name], it is live. You commented RADAR last week, so you are getting this before I post it anywhere: [link]
+
+Founding members get [offer]. If anything is confusing, reply here and I will fix it today.</pre>
+    </div>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">Reply to "what is it?"</span><span class="asset">Comments before Monday</span><button class="copy" type="button">Copy</button></div>
+<pre>It finds companies that have a reason to need you this week, scores them, and writes the first email. Full reveal Monday. Comment RADAR and I will send it to you first.</pre>
+    </div>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">Reply to "isn't this just Apollo?"</span><span class="asset">You will get this one</span><button class="copy" type="button">Copy</button></div>
+<pre>Apollo gives you a list of people who match a filter. This looks for a reason to reach out first, like a job post, a launch, or a spreadsheet-heavy stack, and writes the email about that reason. I used Apollo before building it and the reason was always the missing piece.</pre>
+    </div>
+
+    <div class="post">
+      <div class="post-head"><span class="platform">Reply to "how much?"</span><span class="asset">Before Monday</span><button class="copy" type="button">Copy</button></div>
+<pre>Pricing goes up Monday. What would you expect to pay for it? I am setting the price this weekend based on what people tell me.</pre>
+    </div>
+  </section>
+
+  <!-- ===================== TRACKING ===================== -->
+  <section id="track" class="day">
+    <div class="day-head"><span class="eyebrow">Every day</span><h2>Tracking sheet</h2></div>
+    <p class="muted">One row per person who comments RADAR or DMs you. Add a daily total row per platform to compare clips.</p>
+    <div class="table-scroll">
+      <table class="track">
+        <thead><tr><th>Column</th><th>Example</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td>Handle</td><td>@someagency</td><td>Who gets the Monday DM</td></tr>
+          <tr><td>Platform</td><td>Instagram</td><td>Where your buyers are</td></tr>
+          <tr><td>Clip or post</td><td>C · Score 94</td><td>Which teaser works</td></tr>
+          <tr><td>Date</td><td>Oct 28</td><td>Momentum over the week</td></tr>
+          <tr><td>Who they are</td><td>3-person design agency</td><td>Who you are building for</td></tr>
+          <tr><td>Clients they want</td><td>SaaS startups, US</td><td>Landing page copy</td></tr>
+          <tr><td>Price mentioned</td><td>$30 to $50 a month</td><td>Pricing page</td></tr>
+          <tr><td>Monday DM sent</td><td>Yes</td><td>Nobody gets missed</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<script>
+document.querySelectorAll('.post').forEach(function (post) {
+  var btn = post.querySelector('button.copy');
+  var pre = post.querySelector('pre');
+  if (!btn || !pre) return;
+  btn.addEventListener('click', function () {
+    var text = pre.innerText.trim();
+    var ok = function () {
+      btn.textContent = 'Copied';
+      btn.classList.add('done');
+      setTimeout(function () { btn.textContent = 'Copy'; btn.classList.remove('done'); }, 1600);
+    };
+    var fallback = function () {
+      var r = document.createRange();
+      r.selectNodeContents(pre);
+      var s = window.getSelection();
+      s.removeAllRanges();
+      s.addRange(r);
+      btn.textContent = 'Selected';
+      setTimeout(function () { btn.textContent = 'Copy'; }, 1600);
+    };
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(ok, fallback);
+      } else { fallback(); }
+    } catch (e) { fallback(); }
+  });
+});
+</script>
