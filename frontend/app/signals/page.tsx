@@ -1,5 +1,6 @@
 'use client';
 
+import QueryError from '@/components/ui/QueryError';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useScrapeJob } from '@/hooks/useScrapeJob';
@@ -9,6 +10,7 @@ import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import { RefreshCw, Zap, CheckCircle, XCircle, Clock, Activity } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ScrapingLog, LeadSource } from '../../../shared/types';
+import { ENABLED_SOURCES } from '../../../shared/types';
 import { getSourceLabel } from '../../../shared/utils';
 
 async function fetchLogs(): Promise<ScrapingLog[]> {
@@ -21,10 +23,10 @@ async function fetchSignalHealth(): Promise<{ signal_engine_online: boolean }> {
   return data.data;
 }
 
-const ACTIVE_SOURCES: LeadSource[] = ['linkedin', 'job_board', 'crunchbase', 'local_business', 'remote_jobs'];
+const ACTIVE_SOURCES: LeadSource[] = ENABLED_SOURCES;
 
 export default function SignalsPage() {
-  const { data: logs = [], isLoading, refetch } = useQuery({
+  const { data: logs = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['scraping-logs'],
     queryFn: fetchLogs,
     refetchInterval: 30_000,
@@ -118,6 +120,8 @@ export default function SignalsPage() {
           </div>
           {isLoading ? (
             <LoadingSpinner />
+          ) : isError ? (
+            <QueryError title="Could not load scraping activity" error={error} onRetry={() => refetch()} />
           ) : logs.length === 0 ? (
             <div className="py-12 text-center text-muted text-sm">
               No scraping activity yet. Click &quot;Run Scrape&quot; to start.

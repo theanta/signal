@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { tokenStore } from '@/lib/api';
 import type { AuthUser } from '../../shared/types';
 
@@ -14,6 +14,8 @@ interface AuthContextValue {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshAccessToken: () => Promise<string | null>;
+  /** Adopt a session the server just started (set password, change password). */
+  applySession: (user: AuthUser, accessToken: string) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -48,14 +50,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Restore session from cookie on mount, then keep it alive with a silent interval
   useEffect(() => {
     tokenStore.setRefreshFn(refreshAccessToken);
-    refreshAccessToken().finally(() => setIsLoading(false));
+    // middleware.ts only lets a browser reach /login when it has no refresh
+    // cookie, so a refresh there is a guaranteed 401: skip it.
+    if (window.location.pathname.startsWith('/login') || window.location.pathname.startsWith('/set-password')) {
+      setIsLoading(false);
+    } else {
+      refreshAccessToken().finally(() => setIsLoading(false));
+    }
     intervalRef.current = setInterval(refreshAccessToken, REFRESH_INTERVAL_MS);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [refreshAccessToken]);
 
-  const login = async (email: string, password: string): Promise<void> => {
+  const login = useCallback(async (email: string, password: string): Promise<void> => {
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       credentials: 'include',
@@ -69,19 +77,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data } = await res.json();
     setUser(data.user);
     tokenStore.setToken(data.accessToken);
-  };
+  }, []);
 
-  const logout = async (): Promise<void> => {
+  const logout = useCallback(async (): Promise<void> => {
     await fetch('/api/auth/logout', {
       method: 'POST',
       credentials: 'include',
     }).catch(() => {}); // best-effort
     setUser(null);
     tokenStore.setToken(null);
-  };
+  }, []);
+
+  const applySession = useCallback((next: AuthUser, accessToken: string) => {
+    setUser(next);
+    tokenStore.setToken(accessToken);
+  }, []);
+
+  // Stable unless the session changes, so consumers do not re-render on every
+  // render of the provider.
+  const value = useMemo(
+    () => ({ user, isLoading, isAuthenticated: !!user, login, logout, refreshAccessToken, applySession }),
+    [user, isLoading, login, logout, refreshAccessToken, applySession],
+  );
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, isAuthenticated: !!user, login, logout, refreshAccessToken }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

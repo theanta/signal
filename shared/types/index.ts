@@ -1,5 +1,5 @@
 // ============================================================
-// ANTA Lead Radar - Shared Types
+// Intentlark - Shared Types
 // ============================================================
 
 export type LeadStatus =
@@ -16,7 +16,6 @@ export type LeadSource =
   | 'local_business'
   | 'linkedin'
   | 'crunchbase'
-  | 'remote_jobs'
   | 'manual'
   | 'other';
 
@@ -25,12 +24,19 @@ export type LeadTab = 'all' | 'hiring' | 'discovery';
 export const HIRING_SOURCES: LeadSource[] = ['linkedin', 'job_board'];
 export const DISCOVERY_SOURCES: LeadSource[] = ['crunchbase', 'local_business'];
 
+// The scrapers this phase runs: LinkedIn and Google Maps. Indeed (job_board)
+// and Crunchbase stay in the code but are paused: hidden in the app, never
+// sent to the engine, and refused by the engine. Add them back here (and to
+// ENABLED_SOURCES in signal-engine/main.py) to turn them on again.
+export const ENABLED_SOURCES: LeadSource[] = ['linkedin', 'local_business'];
+
 export type OutreachChannel = 'email' | 'linkedin' | 'phone' | 'other';
 export type OutreachStatus = 'draft' | 'sent' | 'opened' | 'replied' | 'bounced';
 
 // ---- Core Lead ----
 
 export interface Lead {
+  org_id: string;
   id: string;
   company_name: string;
   website?: string;
@@ -54,6 +60,8 @@ export interface Lead {
   contributing_sources?: string[];
   scraped_at?: string;
   analyzed_at?: string;
+  // Set by the database on the first analysis; the lead quota counts these.
+  first_analyzed_at?: string | null;
   contacted_at?: string;
   created_at: string;
   updated_at: string;
@@ -65,139 +73,10 @@ export interface LeadWithSignals extends Lead {
   outreach_messages?: OutreachMessage[];
 }
 
-// ---- Job (remote job postings — a separate entity from Lead) ----
-
-export type JobStatus =
-  | 'new'
-  | 'reviewed'
-  | 'applied'
-  | 'interviewing'
-  | 'placed'
-  | 'rejected'
-  | 'archived'
-  | 'converted';
-
-export type JobSource = 'indeed' | 'linkedin' | 'remoteok' | 'remotive';
-
-// Rule-based apply-worthiness triage, computed at ingest
-export type JobVerdict = 'apply' | 'caution' | 'skip';
-
-export interface Job {
-  id: string;
-  external_id?: string;
-  company_name: string;
-  job_title?: string;
-  location?: string;
-  employment_type?: string;
-  salary_text?: string;
-  posted_at_raw?: string;
-  posted_at?: string;
-  technologies?: string[];
-  source_url?: string;
-  source: JobSource;
-  description?: string;
-  status: JobStatus;
-  verdict?: JobVerdict;
-  verdict_reasons?: string[];
-  converted_lead_id?: string;
-  scraped_at?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface JobFilters {
-  status?: JobStatus;
-  verdict?: JobVerdict;
-  search?: string;
-  location?: string;
-  source?: JobSource;
-  /** Only jobs posted (or, lacking posted_at, scraped) within the last N days */
-  posted_within_days?: number;
-  /** Matches against the scraped technologies/tags array, case-tolerant */
-  technology?: string;
-  page?: number;
-  per_page?: number;
-  sort_by?: 'created_at' | 'company_name' | 'job_title' | 'location' | 'source' | 'posted_at' | 'status' | 'verdict';
-  sort_order?: 'asc' | 'desc';
-}
-
-// ---- Job analysis (AI decode of a posting — mirrors LeadSignal) ----
-
-export interface SalaryParsed {
-  min?: number;
-  max?: number;
-  currency?: string;
-  period?: 'hour' | 'month' | 'year';
-  normalized_annual_usd?: number;
-}
-
-export interface ResumePlaybook {
-  headline?: string;
-  lead_with?: string[];
-  demote?: string[];
-  keyword_checklist?: string[];
-  framing_tips?: string[];
-  sample_bullets?: string[];
-  screening_risks?: string[];
-}
-
-export interface JobSignal {
-  id: string;
-  job_id: string;
-  seniority?: string;
-  contract_type?: string;
-  contract_duration?: string;
-  must_have_skills?: string[];
-  nice_to_have_skills?: string[];
-  ats_keywords?: string[];
-  salary_parsed?: SalaryParsed;
-  red_flags?: string[];
-  timezone_note?: string;
-  resume_playbook?: ResumePlaybook;
-  summary?: string;
-  model_version?: string;
-  created_at: string;
-}
-
-// ---- Job submissions (multiple resumes per posting) ----
-
-export type SubmissionStatus =
-  | 'submitted'
-  | 'screening'
-  | 'interviewing'
-  | 'offer'
-  | 'placed'
-  | 'rejected'
-  | 'withdrawn';
-
-export interface JobSubmission {
-  id: string;
-  job_id: string;
-  profile_label: string;
-  status: SubmissionStatus;
-  submitted_at: string;
-  notes?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-// Cross-references for the job detail page: other postings and past
-// submissions at the same company (dedupe guard), plus an existing lead.
-export interface JobRelated {
-  company_jobs: Job[];
-  company_submissions: JobSubmission[];
-  lead_id?: string;
-}
-
-export interface JobWithIntel extends Job {
-  signals?: JobSignal[];
-  submissions?: JobSubmission[];
-  related?: JobRelated;
-}
-
 // ---- Signal ----
 
 export interface LeadSignal {
+  org_id: string;
   id: string;
   lead_id: string;
   signal_type: string;
@@ -217,14 +96,61 @@ export interface LeadSignal {
 
 // ---- Score ----
 
+// ---- Scoring model ----
+
+/** One rule that contributed to a score, e.g. "Company size 35/35". */
+export interface ScoreFactor {
+  label: string;
+  points: number;
+  max: number;
+  detail: string;
+}
+
+/** A rule-based score (fit, intent, engagement): 0-100, or null when nothing it
+ *  depends on is known. `unknown` lists the rules left out for missing data. */
+export interface RuleScore {
+  score: number | null;
+  factors: ScoreFactor[];
+  unknown: string[];
+}
+
+export interface ScoringWeights {
+  fit: number;
+  intent: number;
+  ai: number;
+  engagement: number;
+}
+
+export const DEFAULT_SCORING_WEIGHTS: ScoringWeights = { fit: 30, intent: 30, ai: 25, engagement: 15 };
+
+export interface ScoreBreakdown {
+  fit: RuleScore | null;
+  intent: RuleScore | null;
+  ai: { score: number; reason: string | null } | null;
+  engagement: RuleScore | null;
+  weights: ScoringWeights;
+  overall: number;
+  disqualified?: string;
+}
+
 export interface LeadScore {
+  org_id: string;
   id: string;
   lead_id: string;
   overall_score: number;
+  // Legacy 0-25 points model, still written for older readers.
   company_size_score?: number;
   hiring_urgency_score?: number;
   complexity_score?: number;
   digital_score?: number;
+  // The scoring model: four 0-100 scores and how they were reached.
+  fit_score?: number | null;
+  intent_score?: number | null;
+  ai_score?: number | null;
+  engagement_score?: number | null;
+  ai_reason?: string | null;
+  breakdown?: Partial<ScoreBreakdown>;
+  weights?: Partial<ScoringWeights>;
   scoring_rationale?: string;
   score_percentile?: number;
   scored_at: string;
@@ -234,6 +160,7 @@ export interface LeadScore {
 // ---- Outreach ----
 
 export interface OutreachMessage {
+  org_id: string;
   id: string;
   lead_id: string;
   channel: OutreachChannel;
@@ -287,6 +214,7 @@ export interface ScrapedLeadRaw {
 }
 
 export interface ScrapingLog {
+  org_id: string;
   id: string;
   source: LeadSource;
   status: 'running' | 'finalizing' | 'completed' | 'failed' | 'partial';
@@ -356,6 +284,8 @@ export interface SignalAnalysisResult {
     digital_score: number;
   };
   scoring_rationale: string;
+  // The scoring model (fit, intent, AI judgment; engagement is added by the backend).
+  scores?: ScoreBreakdown;
   // Enrichment
   tech_stack?: string[];
   tech_gaps?: string[];
@@ -430,37 +360,36 @@ export interface PlatformConfig {
   target_locations: string[];
   target_company_sizes: string[];
   target_industries: string[];
+  // Hiring roles that signal a need for the agency's services. Empty means
+  // the engine's generic defaults.
+  target_roles: string[];
   active_sources: string[];
-  remote_job_roles: string[];
-  remote_experience_level: string;
-  remote_technologies: string[];
-  remote_regions: string[];
+  // How many new leads the 07:00 run analyzes for this org (1-100).
+  daily_analysis_limit: number;
+  // How the overall score blends fit, intent, AI judgment and engagement.
+  scoring_weights: ScoringWeights;
 }
 
+// What a tenant has before it fills in Settings. Deliberately no agency's
+// identity or market: getConfig merges a tenant's saved row over this, and any
+// key the tenant has not set must come out empty, not as ANTA's value. ANTA's
+// own settings live in backend/scripts/anta-config.ts.
 export const DEFAULT_PLATFORM_CONFIG: PlatformConfig = {
-  agency_name: 'ANTA',
-  agency_location: 'Detroit, Michigan',
+  agency_name: '',
+  agency_location: '',
   agency_website: '',
-  agency_tagline: 'Software consultancy specializing in operational modernization',
-  services: [
-    'SaaS development and React/Next.js systems',
-    'AI automation systems and intelligent workflows',
-    'Operational dashboards and internal tools',
-    'CRM systems and AI-powered operational software',
-    'Startup MVP development',
-    'Workflow automation and process optimization',
-  ],
-  outreach_tone: 'intelligent, consultative, NOT salesy, operationally focused',
+  agency_tagline: '',
+  services: [],
+  outreach_tone: 'consultative and specific, not salesy',
   cta_style: '15-min call',
-  sign_off: 'ANTA Team',
-  target_locations: ['Detroit', 'Michigan', 'MI', 'Dearborn', 'Warren', 'Troy', 'Ann Arbor', 'Livonia', 'Sterling Heights'],
+  sign_off: '',
+  target_locations: [],
   target_company_sizes: ['11-50', '51-200', '201-500'],
   target_industries: [],
-  active_sources: ['linkedin', 'crunchbase', 'job_board', 'local_business', 'remote_jobs'],
-  remote_job_roles: ['software engineer', 'full stack developer', 'product designer'],
-  remote_experience_level: '',
-  remote_technologies: [],
-  remote_regions: ['United States'],
+  target_roles: [],
+  active_sources: ['linkedin', 'local_business'],
+  daily_analysis_limit: 20,
+  scoring_weights: { fit: 30, intent: 30, ai: 25, engagement: 15 },
 };
 
 // ---- Auth ----
@@ -468,19 +397,115 @@ export const DEFAULT_PLATFORM_CONFIG: PlatformConfig = {
 export type UserRole = 'admin' | 'member';
 
 export interface AuthUser {
+  org_id: string;
   id: string;
   email: string;
   name: string;
   role: UserRole;
+  // Signal's own operators: opens the Platform admin page.
+  is_platform_admin?: boolean;
+  // Set until the user chooses their own password (temporary password or invite).
+  must_change_password?: boolean;
   last_login?: string;
   created_at: string;
 }
 
-export interface JwtPayload {
-  sub: string;
+// ---- Team (an org's own users) ----
+
+export interface TeamMember {
+  id: string;
   email: string;
   name: string;
   role: UserRole;
+  is_active: boolean;
+  // With no last_login: invited, has not set a password yet.
+  must_change_password: boolean;
+  last_login: string | null;
+  created_at: string;
+}
+
+/**
+ * 'invite' emails a set-your-password link; 'password' sets a temporary
+ * password the admin passes on. Either way the user picks their own at first
+ * sign-in.
+ */
+export type AddUserMode = 'invite' | 'password';
+
+export interface AddTeamMemberInput {
+  name: string;
+  email: string;
+  role: UserRole;
+  mode: AddUserMode;
+  password?: string;
+}
+
+export interface AddTeamMemberResult {
+  member: TeamMember;
+  email_sent: boolean;
+  /** Only when email is not set up: the invite link, for the admin to pass on. */
+  invite_url?: string;
+}
+
+// ---- Platform admin ----
+
+export interface AdminOrganization {
+  id: string;
+  name: string;
+  slug: string;
+  plan: string;
+  status: 'active' | 'suspended';
+  created_at: string;
+  monthly_scrape_cap: number;
+  lead_quota_daily: number | null;
+  lead_quota_weekly: number | null;
+  lead_quota_monthly: number | null;
+  user_count: number;
+  lead_count: number;
+  last_login: string | null;
+}
+
+export interface CreateOrganizationInput {
+  name: string;
+  slug: string;
+  agency_name?: string;
+  admin_name: string;
+  admin_email: string;
+  admin_mode: AddUserMode;
+  admin_password?: string;
+  lead_quota_daily: number | null;
+  lead_quota_weekly: number | null;
+  lead_quota_monthly: number | null;
+  monthly_scrape_cap: number;
+}
+
+export interface UpdateOrganizationInput {
+  name?: string;
+  status?: 'active' | 'suspended';
+  lead_quota_daily?: number | null;
+  lead_quota_weekly?: number | null;
+  lead_quota_monthly?: number | null;
+  monthly_scrape_cap?: number;
+}
+
+export interface CreateOrganizationResult {
+  organization: AdminOrganization;
+  email_sent: boolean;
+  invite_url?: string;
+}
+
+/** A new org's limits unless the platform admin changes them. */
+export const DEFAULT_ORG_LIMITS = {
+  lead_quota_daily: 20, lead_quota_weekly: 100, lead_quota_monthly: 400, monthly_scrape_cap: 60,
+} as const;
+
+export interface JwtPayload {
+  sub: string;
+  org_id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  // While true, the API only allows the auth routes (change password, me).
+  must_change_password?: boolean;
   iat?: number;
   exp?: number;
 }
@@ -505,6 +530,7 @@ export interface AuthResponse {
 // ---- Cron Job Logs ----
 
 export interface CronJobLog {
+  org_id: string;
   id: string;
   job_name: string;
   trigger_type: 'scheduled' | 'manual';
@@ -531,4 +557,63 @@ export interface LeadFilters {
   per_page?: number;
   sort_by?: 'lead_score' | 'created_at' | 'company_name';
   sort_order?: 'asc' | 'desc';
+}
+
+// ============================================================
+// TENANCY
+// ============================================================
+
+/**
+ * A branded organization id.
+ *
+ * A plain `orgId: string` parameter is satisfied by any string in scope —
+ * a user id, a lead id, a route param — and the compiler is happy while the
+ * query returns another tenant's rows. Only `asOrgId` produces an `OrgId`,
+ * and only the auth middleware should call it.
+ */
+export type OrgId = string & { readonly __brand: 'OrgId' };
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function asOrgId(value: string): OrgId {
+  if (!UUID_RE.test(value)) {
+    throw new Error(`Invalid OrgId: ${JSON.stringify(value)}`);
+  }
+  return value as OrgId;
+}
+
+// ---- Lead quota (GET /api/metrics/lead-quota) ----
+
+export type QuotaPeriod = 'day' | 'week' | 'month';
+
+export interface QuotaPeriodUsage {
+  period: QuotaPeriod;
+  limit: number | null;
+  used: number;
+  remaining: number | null;
+  /** When this period's count starts again from zero. */
+  resets_at: string;
+}
+
+export interface LeadQuota {
+  timezone: string;
+  periods: QuotaPeriodUsage[];
+  /** New leads that can still be analyzed now: the smallest remaining, or null when no period is limited. */
+  remaining: number | null;
+  /** When it is 0: the earliest time every exhausted period has reset. */
+  blocked_until: string | null;
+}
+
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  plan: string;
+  status: 'active' | 'suspended';
+  monthly_scrape_cap: number;
+  // Leads that may be analyzed for the first time per period; null = no limit.
+  lead_quota_daily: number | null;
+  lead_quota_weekly: number | null;
+  lead_quota_monthly: number | null;
+  created_at: string;
 }

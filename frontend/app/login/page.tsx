@@ -55,8 +55,8 @@ export default function LoginPage() {
             <Radar className="w-5 h-5 text-[#04130b]" />
           </div>
           <div>
-            <div className="text-base font-semibold text-white tracking-wide">Lead Radar</div>
-            <div className="text-3xs text-white/40 font-medium tracking-[0.2em] uppercase">ANTA</div>
+            <div className="text-base font-semibold text-white tracking-wide">Intentlark</div>
+            <div className="text-3xs text-white/40 font-medium tracking-[0.2em] uppercase">by ANTA</div>
           </div>
         </div>
 
@@ -101,7 +101,7 @@ export default function LoginPage() {
             <div className="w-8 h-8 rounded-lg bg-brand flex items-center justify-center">
               <Radar className="w-4 h-4 text-[#04130b]" />
             </div>
-            <span className="text-base font-semibold text-ink">Lead Radar</span>
+            <span className="text-base font-semibold text-ink">Intentlark</span>
           </div>
 
           <div className="mb-8">
@@ -159,7 +159,7 @@ export default function LoginPage() {
           </form>
 
           <p className="mt-10 text-[11.5px] text-neutral-300 text-center">
-            Internal tool · ANTA Software
+            Intentlark by ANTA
           </p>
         </div>
       </div>

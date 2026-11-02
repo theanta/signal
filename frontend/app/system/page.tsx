@@ -90,7 +90,7 @@ export default function SystemPage() {
           {[
             { job: 'scrape',    label: 'Run Daily Scrape',       desc: 'Scrape LinkedIn and job boards now' },
             { job: 'biweekly', label: 'Run Bi-weekly Scrape',   desc: 'Scrape Crunchbase and local business sources now' },
-            { job: 'analyze',  label: 'Analyze New Leads',      desc: 'Run signal detection on unanalyzed leads (batch of 20)' },
+            { job: 'analyze',  label: 'Analyze New Leads',      desc: 'Run signal detection on unanalyzed leads (up to your daily limit in Settings)' },
             { job: 'outreach', label: 'Generate Outreach',      desc: 'Generate cold emails for top-scored analyzed leads' },
           ].map(({ job, label, desc }) => (
             <div key={job} className="flex items-center justify-between p-4 bg-surface-soft rounded-md">
@@ -235,7 +235,7 @@ export default function SystemPage() {
             <Brain className="w-4 h-4 text-muted" />
             <span className="text-sm font-medium text-ink">About</span>
           </div>
-          <p><span className="text-ink font-medium">Platform:</span> Lead Radar v1.0.0</p>
+          <p><span className="text-ink font-medium">Platform:</span> Intentlark v1.0.0</p>
           <p><span className="text-ink font-medium">AI Model:</span> Groq / llama-3.3-70b-versatile</p>
           <p><span className="text-ink font-medium">Agency:</span> {config ? `${config.agency_name} · ${config.agency_location}` : '—'}</p>
           <p><span className="text-ink font-medium">Stack:</span> Next.js 14 · Node.js · Python FastAPI · Supabase</p>

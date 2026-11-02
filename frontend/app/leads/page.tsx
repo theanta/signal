@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { fetchLeads } from '@/services/leads';
 import LeadsTable from '@/components/leads/LeadsTable';
+import QueryError from '@/components/ui/QueryError';
 import LeadsFilters from '@/components/leads/LeadsFilters';
 import PageHeader from '@/components/ui/PageHeader';
 import type { LeadFilters, LeadTab } from '../../../shared/types';
@@ -42,7 +43,7 @@ export default function LeadsPage() {
     source: activeTab === 'all' ? filters.source : undefined,
   };
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['leads', effectiveFilters],
     queryFn:  () => fetchLeads(effectiveFilters),
     placeholderData: prev => prev,
@@ -114,6 +115,9 @@ export default function LeadsPage() {
           onToggleCol={toggleCol}
         />
 
+        {isError && !data ? (
+          <QueryError title="Could not load leads" error={error} onRetry={() => refetch()} className="card" />
+        ) : (
         <LeadsTable
           leads={data?.data ?? []}
           total={data?.total ?? 0}
@@ -127,6 +131,7 @@ export default function LeadsPage() {
           sortOrder={filters.sort_order ?? 'desc'}
           hiddenCols={hiddenCols}
         />
+        )}
       </div>
     </div>
   );

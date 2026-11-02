@@ -1,16 +1,16 @@
-"""ANTA Lead Radar - Signal Engine (FastAPI)"""
+"""Intentlark - Signal Engine (FastAPI)"""
 
 import asyncio
+from contextlib import asynccontextmanager
 import json
 import logging
 import re
-import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import AsyncGenerator, Optional
+from uuid import UUID
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, BackgroundTasks, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, BackgroundTasks, Depends, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -23,11 +23,10 @@ from scrapers.linkedin import LinkedInJobsScraper
 from scrapers.crunchbase import CrunchbaseScraper
 from scrapers.job_boards import JobBoardScraper
 from scrapers.local_business import LocalBusinessScraper
-from scrapers.remote_jobs import RemoteJobsScraper
 from analyzers.signal_detector import SignalDetector
-from analyzers.job_qualifier import qualify_job
 from scoring.lead_scorer import LeadScorer
-from analyzers.pain_point_analyzer import PainPointAnalyzer
+from scoring.model import blend, fit_score, intent_score, normalize_weights
+from analyzers.pain_point_analyzer import AgencyProfile, PainPointAnalyzer
 from classifiers.industry_classifier import IndustryClassifier
 from enrichment.website_verifier import verify_website
 from enrichment.tech_stack_detector import detect_tech_stack, infer_gaps
@@ -35,10 +34,13 @@ from enrichment.contact_finder import find_contact
 from enrichment.website_content_scraper import scrape_website_content
 from enrichment.url_utils import clean_company_website
 from scrapers.lead_merger import merge_leads
+from auth import require_engine_key, verify_engine_key_configured
+import metering
+from jobstore import ActiveRunExists, ScrapeCapReached, TERMINAL_STATUSES, get_store
 
 # ============================================================
 # ENTERPRISE DISQUALIFICATION
-# Companies too large for ANTA's SMB target market.
+# Companies too large to be a small or mid-sized agency's client.
 # Matched after stripping common legal suffixes (Inc, LLC, Corp…).
 # ============================================================
 
@@ -53,7 +55,7 @@ ENTERPRISE_BRANDS: frozenset[str] = frozenset([
     "ibm", "intel", "cisco", "dell", "hp", "hewlett packard", "nvidia",
     "qualcomm", "broadcom", "amd", "texas instruments",
     "salesforce", "sap", "servicenow", "workday", "snowflake", "palantir",
-    # Michigan auto
+    # Automotive
     "general motors", "ford", "stellantis", "chrysler", "fiat chrysler",
     "toyota", "honda", "hyundai", "kia", "bmw", "mercedes", "volkswagen",
     # Defense / industrial
@@ -84,31 +86,60 @@ ENTERPRISE_BRANDS: frozenset[str] = frozenset([
 def _is_enterprise_company(company_name: str, company_size: str | None) -> tuple[bool, str]:
     """Return (True, reason) when a lead should be disqualified as enterprise."""
     if (company_size or "").lower() == "1000+":
-        return True, "company size is 1,000+ employees — outside ANTA's SMB target market"
+        return True, "company size is 1,000+ employees — outside the SMB target market"
     normalized = _CORP_SUFFIX_RE.sub("", company_name.lower()).strip()
     if normalized in ENTERPRISE_BRANDS:
-        return True, f"{company_name} is a known enterprise company — outside ANTA's SMB target market"
+        return True, f"{company_name} is a known enterprise company — outside the SMB target market"
     return False, ""
 
 
+# A running scrape heartbeats this often; the reaper fails any active run
+# whose heartbeat is older than STALE_AFTER, checking every REAP_INTERVAL.
+# Without the reaper, a run killed by a deploy holds its org's one active-run
+# slot (one_active_scrape_per_org) forever.
+HEARTBEAT_SECONDS = 60
+STALE_AFTER = timedelta(minutes=15)
+REAP_INTERVAL_SECONDS = 300
+
+
+async def _reaper_loop() -> None:
+    while True:
+        try:
+            reaped = await asyncio.to_thread(get_store().reap_stale, STALE_AFTER)
+            for run in reaped:
+                logger.warning(f"[reaper] failed stale scrape run {run['id']} (org {run['org_id']})")
+        except Exception as e:
+            logger.error(f"[reaper] sweep failed: {e}")
+        await asyncio.sleep(REAP_INTERVAL_SECONDS)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Surface a missing shared secret on boot rather than on the first request.
+    verify_engine_key_configured()
+    reaper = asyncio.create_task(_reaper_loop())
+    yield
+    reaper.cancel()
+
+
 app = FastAPI(
-    title="ANTA Lead Radar Signal Engine",
+    title="Intentlark Signal Engine",
     description="Python signal detection and lead analysis microservice",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# No CORSMiddleware. This service is called server-to-server by the Express
+# backend only; the browser reaches its SSE stream proxied through Express.
+# A browser-facing CORS policy would only widen the attack surface.
 
-# ---- In-memory job tracker (use Redis in production) ----
-scrape_jobs: dict[str, dict] = {}
-# One condition per active job — lets the SSE generator wait for new events
-# and replay everything already emitted to any (re)connecting client.
-scrape_conditions: dict[str, asyncio.Condition] = {}
+# Scrape runs live in Postgres (jobstore.py), so a restart does not lose them
+# and any engine instance can report on any run.
+# How often the SSE stream polls scrape_job_events for new rows.
+STREAM_POLL_SECONDS = 1.0
+# find_contact's own budget; see the enrichment step of _analyze_lead_core.
+CONTACT_BUDGET_SECONDS = 40
+STREAM_PING_SECONDS = 10.0
 
 
 # ============================================================
@@ -138,32 +169,56 @@ class RawLead(BaseModel):
 
 
 class PlatformConfig(BaseModel):
-    agency_name: str = "ANTA"
-    agency_location: str = "Detroit, Michigan"
+    """The tenant's settings, sent by the backend on every call. No field
+    defaults to any one agency: an unset value is empty, not ANTA's."""
+    agency_name: str
+    agency_location: str = ""
+    agency_tagline: str = ""
     services: list[str] = []
-    outreach_tone: str = "intelligent, consultative, NOT salesy"
-    cta_style: str = "15-min call"
-    sign_off: str = "ANTA Team"
-    target_locations: list[str] = ["Detroit", "Michigan", "MI", "Dearborn", "Warren", "Troy", "Ann Arbor", "Livonia", "Sterling Heights"]
-    target_company_sizes: list[str] = ["11-50", "51-200", "201-500"]
+    outreach_tone: str = ""
+    cta_style: str = ""
+    sign_off: str = ""
+    target_locations: list[str] = []
+    target_company_sizes: list[str] = []
     target_industries: list[str] = []
-    active_sources: list[str] = ["linkedin", "crunchbase", "job_board", "local_business", "remote_jobs"]
-    # Remote job scraping settings — independent of target_locations, since remote
-    # postings are location-agnostic by definition
-    remote_job_roles: list[str] = ["software engineer", "full stack developer", "product designer"]
-    remote_experience_level: str = ""
-    remote_technologies: list[str] = []
-    remote_regions: list[str] = ["United States"]
+    # Hiring roles that signal a need for the agency's services. Empty means
+    # the generic defaults in scrapers/targeting.py.
+    target_roles: list[str] = []
+    active_sources: list[str] = ["linkedin", "local_business"]
+    # How the overall score blends fit, intent, AI judgment and engagement.
+    # Missing keys fall back to scoring.model.DEFAULT_WEIGHTS.
+    scoring_weights: dict = {}
+
+    def agency(self) -> AgencyProfile:
+        return AgencyProfile(
+            name=self.agency_name,
+            location=self.agency_location,
+            tagline=self.agency_tagline,
+            services=tuple(self.services),
+        )
 
 
 class AnalysisRequest(BaseModel):
     lead: RawLead
-    config: Optional[PlatformConfig] = None
+    # Required: the analysis is written for this agency (its name, services
+    # and target market), and there is no one agency to default to.
+    config: PlatformConfig
+    # Required, and a UUID: the engine holds the service-role key and can write
+    # into any org, so it never picks one. An authenticated backend supplies it.
+    org_id: UUID
+
+
+# The scrapers this phase runs. Indeed (job_board) and Crunchbase stay in the
+# code but are paused: a request for them is ignored, so they never spend
+# Apify credits. Keep in step with ENABLED_SOURCES in shared/types.
+ENABLED_SOURCES = {"linkedin", "local_business"}
 
 
 class ScrapeRequest(BaseModel):
-    sources: list[str] = ["linkedin", "crunchbase", "job_board", "local_business", "remote_jobs"]
-    config: Optional[PlatformConfig] = None
+    sources: list[str] = ["linkedin", "local_business"]
+    # Required: every scraper's geography and roles come from it.
+    config: PlatformConfig
+    org_id: UUID
 
 
 # ============================================================
@@ -181,7 +236,10 @@ def health():
 
 async def _analyze_lead_core(
     lead: RawLead,
-    config: Optional[PlatformConfig],
+    config: PlatformConfig,
+    # Present so that any persistence added here inherits the caller's org
+    # rather than reaching for a global default.
+    org_id: str,
 ) -> AsyncGenerator[tuple[str, object], None]:
     """
     Core analysis logic expressed as an async generator.
@@ -209,7 +267,7 @@ async def _analyze_lead_core(
             "likely_pain_points": [],
             "recommended_anta_service": "N/A — Enterprise",
             "outreach_angle": "",
-            "operational_maturity": "N/A — Enterprise company, not ANTA's target market",
+            "operational_maturity": "N/A — Enterprise company, outside the target market",
             "growth_indicators": [],
             "digital_maturity_score": 10,
             "signal_type": "disqualified",
@@ -225,13 +283,19 @@ async def _analyze_lead_core(
             "tech_gaps": [],
             "verified_website": lead.website,
             "contact": None,
+            "scores": {
+                "fit": None, "intent": None, "ai": None, "engagement": None,
+                "weights": normalize_weights(config.scoring_weights),
+                "overall": 0,
+                "disqualified": disqualify_reason,
+            },
         })
         return
 
-    target_locations = config.target_locations if config else None
+    target_locations = config.target_locations
     detector = SignalDetector(target_locations=target_locations)
     scorer = LeadScorer(target_locations=target_locations)
-    pain_analyzer = PainPointAnalyzer()
+    pain_analyzer = PainPointAnalyzer(config.agency())
     classifier = IndustryClassifier()
 
     # ---- Step 1: Parallel enrichment ----
@@ -262,10 +326,14 @@ async def _analyze_lead_core(
             else _with_timeout(asyncio.to_thread(verify_website, lead.website, lead.company_name, lead.location or ""), 15),
         _cached(lead.cached_tech_stack) if use_cached_tech
             else _with_timeout(asyncio.to_thread(detect_tech_stack, lead.website or ""), 15),
-        # 45s budget: find_contact's worst case (SERP lookup + seven contact-page
-        # fetches + several email verification calls) can exceed 40s.
+        # find_contact stops starting new stages after CONTACT_BUDGET_SECONDS and
+        # returns what it has, so a slow site or verifier no longer discards
+        # the LinkedIn person it already found. The outer timeout is only a
+        # backstop for a single call that hangs past its own timeout.
         _cached(lead.cached_contact) if use_cached_contact
-            else _with_timeout(asyncio.to_thread(find_contact, lead.company_name, lead.website, lead.location), 45),
+            else _with_timeout(asyncio.to_thread(find_contact, lead.company_name, lead.website,
+                                                 lead.location, CONTACT_BUDGET_SECONDS),
+                               CONTACT_BUDGET_SECONDS + 20),
         _with_timeout(scrape_website_content(lead.website or ""), 20),
         return_exceptions=True,
     )
@@ -312,7 +380,7 @@ async def _analyze_lead_core(
 
     pain_result, score_result = await asyncio.gather(
         asyncio.to_thread(
-            pain_analyzer.analyze,
+            pain_analyzer.analyze_with_judgment,
             company_name=lead.company_name,
             industry=industry,
             hiring_signal=lead.hiring_signal or "",
@@ -337,10 +405,39 @@ async def _analyze_lead_core(
             source_count=lead.source_count,
         ),
     )
-    pain_points, recommended_service, outreach_angle = pain_result
+    pain_points = pain_result["pain_points"]
+    recommended_service = pain_result["recommended_service"]
+    outreach_angle = pain_result["outreach_angle"]
+
+    # ---- Step 6: the scoring model ----
+    # Fit and intent are rules; the AI judgment came with the pain points;
+    # engagement is added by the backend once outreach exists.
+    fit = fit_score(
+        company_size=lead.company_size, industry=industry, location=lead.location,
+        tech_stack=tech_stack, tech_gaps=tech_gaps,
+        target_company_sizes=config.target_company_sizes,
+        target_industries=config.target_industries,
+        target_locations=config.target_locations,
+    )
+    intent = intent_score(
+        job_title=lead.job_title, hiring_signal=lead.hiring_signal,
+        description=lead.description, source_count=lead.source_count,
+        target_roles=config.target_roles,
+    )
+    ai = ({"score": pain_result["fit_score"], "reason": pain_result["fit_reason"]}
+          if pain_result.get("fit_score") is not None else None)
+    weights = normalize_weights(config.scoring_weights)
+    overall = blend(weights, {
+        "fit": fit["score"], "intent": intent["score"],
+        "ai": ai["score"] if ai else None,
+    })
 
     yield ("complete", {
-        "lead_score": score_result["overall_score"],
+        "lead_score": overall,
+        "scores": {
+            "fit": fit, "intent": intent, "ai": ai, "engagement": None,
+            "weights": weights, "overall": overall,
+        },
         "industry": industry,
         "likely_pain_points": pain_points,
         "recommended_anta_service": recommended_service,
@@ -365,21 +462,25 @@ async def _analyze_lead_core(
     })
 
 
-@app.post("/analyze")
+@app.post("/analyze", dependencies=[Depends(require_engine_key)])
 async def analyze_lead(request: AnalysisRequest):
     """Analyze a raw lead and return signals, score, pain points, tech stack, and contact."""
+    metering.bind(str(request.org_id))
     result = None
-    async for phase, payload in _analyze_lead_core(request.lead, request.config):
+    async for phase, payload in _analyze_lead_core(request.lead, request.config, str(request.org_id)):
         if phase == "complete":
             result = payload
     return result
 
 
-@app.post("/analyze/stream")
+@app.post("/analyze/stream", dependencies=[Depends(require_engine_key)])
 async def analyze_lead_stream(request: AnalysisRequest):
     """Same as /analyze but streams SSE progress events as each phase completes."""
     async def event_stream():
-        gen = _analyze_lead_core(request.lead, request.config)
+        # Bound here, in the task that drives the stream: each ensure_future
+        # below copies this context into the step it runs.
+        metering.bind(str(request.org_id))
+        gen = _analyze_lead_core(request.lead, request.config, str(request.org_id))
         while True:
             next_event = asyncio.ensure_future(anext(gen))
             # Long quiet gaps (the Groq phase can run 30s+) get idle-killed by
@@ -414,148 +515,159 @@ async def analyze_lead_stream(request: AnalysisRequest):
 # SCRAPING
 # ============================================================
 
-@app.post("/scrape")
+@app.post("/scrape", dependencies=[Depends(require_engine_key)])
 async def trigger_scrape(request: ScrapeRequest, background_tasks: BackgroundTasks):
-    """Trigger a scraping run in the background."""
-    job_id = str(uuid.uuid4())
+    """Record a scrape run and start it in the background.
+
+    409 when the org already has a run in progress: one_active_scrape_per_org
+    allows one queued/running/finalizing run per org. 429 when the org has used
+    its monthly_scrape_cap."""
+    org_id = str(request.org_id)
 
     # When a config is supplied, only run sources that are both requested for
     # this call (e.g. a cron job's cadence-specific list) AND currently toggled
     # on in Settings — so a per-cadence trigger can't run a source the user disabled.
     cfg = request.config
-    effective_sources = (
-        [s for s in request.sources if s in cfg.active_sources] if cfg else request.sources
-    )
+    if not cfg.target_locations:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "not_configured",
+                    "message": "Set target locations in Settings before scraping."},
+        )
+    effective_sources = [s for s in request.sources
+                         if s in cfg.active_sources and s in ENABLED_SOURCES]
 
-    scrape_jobs[job_id] = {
-        "status": "running",
-        "started_at": datetime.utcnow().isoformat(),
-        "results": 0,
-        "sources": {s: {"status": "pending"} for s in effective_sources},
-        "events": [],
-    }
-    scrape_conditions[job_id] = asyncio.Condition()
+    try:
+        job_id = await asyncio.to_thread(
+            get_store().create_run, org_id, effective_sources, cfg.model_dump(),
+        )
+    except ActiveRunExists:
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "scrape_already_running",
+                    "message": "A scrape is already running for this organization."},
+        )
+    except ScrapeCapReached as e:
+        raise HTTPException(
+            status_code=429,
+            detail={"error": "scrape_cap_reached",
+                    "message": f"This organization has used all {e.cap} scrapes for this month."},
+        )
 
-    background_tasks.add_task(run_scrape_job, job_id, effective_sources, cfg)
+    background_tasks.add_task(run_scrape_job, job_id, org_id, effective_sources, cfg)
 
     return {"job_id": job_id, "status": "running", "sources": effective_sources}
 
 
-async def _emit_scrape_event(job_id: str, event: dict) -> None:
-    """Append an event to the job's history and wake any listening SSE stream."""
-    condition = scrape_conditions.get(job_id)
-    if not condition:
-        return
-    async with condition:
-        scrape_jobs[job_id]["events"].append(event)
-        condition.notify_all()
+async def _emit_scrape_event(job_id: str, org_id: str, event: dict) -> None:
+    """Persist an event for the run's SSE stream. A failed write is logged and
+    dropped: progress reporting must never fail the scrape itself."""
+    try:
+        await asyncio.to_thread(get_store().append_event, job_id, org_id, event)
+    except Exception as e:
+        logger.error(f"[Scraper] Failed to record event for run {job_id}: {e}")
 
 
-@app.get("/scrape/{job_id}")
-async def get_scrape_job(job_id: str):
-    """Get the status of a scraping job."""
-    job = scrape_jobs.get(job_id)
-    if not job:
+async def _update_run(job_id: str, org_id: str, **fields) -> None:
+    try:
+        await asyncio.to_thread(get_store().update_run, job_id, org_id, **fields)
+    except Exception as e:
+        logger.error(f"[Scraper] Failed to update run {job_id}: {e}")
+
+
+def _parse_last_event_id(value: Optional[str]) -> int:
+    """The seq a reconnecting client last saw; 0 (replay everything) when the
+    header is missing or not a non-negative integer."""
+    try:
+        seq = int(value) if value is not None else 0
+    except ValueError:
+        return 0
+    return seq if seq > 0 else 0
+
+
+def _run_view(run: dict) -> dict:
+    return {
+        "job_id": run["id"],
+        "org_id": run["org_id"],
+        "status": run["status"],
+        "started_at": run["created_at"],
+        "completed_at": run.get("finished_at"),
+        "results": run.get("results", 0),
+        "sources": run.get("source_state") or {},
+        "error": run.get("error"),
+    }
+
+
+@app.get("/scrape/{job_id}", dependencies=[Depends(require_engine_key)])
+async def get_scrape_job(job_id: UUID, org_id: UUID):
+    """Status of one of the org's scrape runs. Another org's run is a 404."""
+    run = await asyncio.to_thread(get_store().get_run, str(job_id), str(org_id))
+    if not run:
         raise HTTPException(status_code=404, detail="Job not found")
-    return {"job_id": job_id, **{k: v for k, v in job.items() if k != "events"}}
+    return _run_view(run)
 
 
-@app.get("/scrape/{job_id}/stream")
-async def stream_scrape_job(job_id: str):
-    """Server-sent events: per-source scrape progress, in real time."""
-    job = scrape_jobs.get(job_id)
-    if not job:
+@app.get("/scrape/{job_id}/stream", dependencies=[Depends(require_engine_key)])
+async def stream_scrape_job(
+    job_id: UUID, org_id: UUID, last_event_id: Optional[str] = Header(default=None),
+):
+    """Server-sent events: per-source scrape progress, read from Postgres.
+
+    Every event carries `id: <seq>`. A client that reconnects with
+    Last-Event-ID resumes after that event instead of replaying the run, and
+    any engine instance can serve the stream because the events are rows."""
+    run_id, org = str(job_id), str(org_id)
+    store = get_store()
+    run = await asyncio.to_thread(store.get_run, run_id, org)
+    if not run:
         raise HTTPException(status_code=404, detail="Job not found")
 
     async def event_stream() -> AsyncGenerator[str, None]:
         # Always lead with the full current state — covers reconnects and
         # clients that connect after some (or all) sources already finished.
-        yield f"data: {json.dumps({'phase': 'snapshot', 'sources': job['sources'], 'overall_status': job['status']})}\n\n"
-
-        if job["status"] != "running":
+        view = _run_view(run)
+        yield f"data: {json.dumps({'phase': 'snapshot', 'sources': view['sources'], 'overall_status': view['status']})}\n\n"
+        if run["status"] in TERMINAL_STATUSES:
             return
 
-        condition = scrape_conditions.get(job_id)
-        if not condition:
-            return
-
-        sent = 0
+        last_seq = _parse_last_event_id(last_event_id)
+        idle_polls = 0
         while True:
-            async with condition:
-                await condition.wait_for(lambda: len(job["events"]) > sent or job["status"] != "running")
-                pending_events = job["events"][sent:]
-                sent = len(job["events"])
-            for event in pending_events:
-                yield f"data: {json.dumps(event)}\n\n"
-                if event.get("phase") == "complete":
+            rows = await asyncio.to_thread(store.events_after, run_id, org, last_seq)
+            for row in rows:
+                last_seq = row["seq"]
+                yield f"id: {row['seq']}\ndata: {json.dumps(row['event'])}\n\n"
+                if row["event"].get("phase") == "complete":
                     return
-            if job["status"] != "running":
-                return
+            if not rows:
+                current = await asyncio.to_thread(store.get_run, run_id, org)
+                if not current or current["status"] in TERMINAL_STATUSES:
+                    # Terminal with no complete event (e.g. reaped): close the
+                    # stream with one so the client is not left waiting.
+                    status = current["status"] if current else "failed"
+                    yield f"data: {json.dumps({'phase': 'complete', 'status': status, 'results': (current or {}).get('results', 0)})}\n\n"
+                    return
+                # A scraper can run for minutes without an event. Proxies
+                # (Vercel, Render) idle-kill a silent connection; an SSE
+                # comment keeps it open and clients ignore it.
+                idle_polls += 1
+                if idle_polls * STREAM_POLL_SECONDS >= STREAM_PING_SECONDS:
+                    idle_polls = 0
+                    yield ": ping\n\n"
+                await asyncio.sleep(STREAM_POLL_SECONDS)
+            else:
+                idle_polls = 0
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
-def _chunked(items: list, size: int):
-    for i in range(0, len(items), size):
-        yield items[i:i + size]
+async def run_scrape_job(job_id: str, org_id: str, sources: list[str], cfg: PlatformConfig):
+    """Background task: runs all scrapers, saves leads, and writes scraping_logs rows.
 
-
-def _persist_job_postings(supabase, postings: list[dict]) -> tuple[int, int]:
-    """Upsert job postings into the `jobs` table (one row per posting).
-    Returns (new_count, updated_count)."""
-    now = datetime.utcnow().isoformat()
-    # Triage every posting at ingest — verdict/reasons/posted_at land on the row.
-    postings = [{**p, **qualify_job(p)} for p in postings]
-    with_ext = [p for p in postings if p.get("external_id")]
-    without_ext = [p for p in postings if not p.get("external_id")]
-
-    new_count = 0
-    updated_count = 0
-
-    # PostgREST `in_` filters are serialized into the request URL, so large runs
-    # (1000+ postings) must be chunked or httpx rejects the URL as too long.
-    # source_url chunks are smaller because job-board URLs run hundreds of chars.
-
-    # Postings with a stable external_id: upsert directly on that column.
-    if with_ext:
-        existing_ids: set[str] = set()
-        for chunk in _chunked([p["external_id"] for p in with_ext], 200):
-            existing = supabase.table("jobs").select("external_id").in_(
-                "external_id", chunk
-            ).execute()
-            existing_ids.update(row["external_id"] for row in (existing.data or []))
-        rows = [{**p, "scraped_at": now, "updated_at": now} for p in with_ext]
-        for chunk in _chunked(rows, 500):
-            supabase.table("jobs").upsert(chunk, on_conflict="external_id").execute()
-        for p in with_ext:
-            if p["external_id"] in existing_ids:
-                updated_count += 1
-            else:
-                new_count += 1
-
-    # Postings without an external_id (actor didn't return one): fall back to
-    # matching by source_url so re-scrapes update rather than duplicate.
-    if without_ext:
-        urls = [p["source_url"] for p in without_ext if p.get("source_url")]
-        existing_by_url: dict[str, str] = {}
-        for chunk in _chunked(urls, 50):
-            existing = supabase.table("jobs").select("id, source_url").in_("source_url", chunk).execute()
-            existing_by_url.update({row["source_url"]: row["id"] for row in (existing.data or [])})
-        for p in without_ext:
-            url = p.get("source_url")
-            existing_id = existing_by_url.get(url) if url else None
-            if existing_id:
-                supabase.table("jobs").update({**p, "updated_at": now}).eq("id", existing_id).execute()
-                updated_count += 1
-            else:
-                supabase.table("jobs").insert({**p, "scraped_at": now, "created_at": now, "updated_at": now}).execute()
-                new_count += 1
-
-    return new_count, updated_count
-
-
-async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[PlatformConfig] = None):
-    """Background task: runs all scrapers, saves leads, and writes scraping_logs rows."""
+    Runs with the service-role key, which can write into any org — so every
+    row written here is stamped with `org_id`, and every lookup and update is
+    filtered by it. The org comes from the authenticated backend, never from
+    scraped data."""
     from supabase import create_client
     import os
 
@@ -564,32 +676,44 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
         os.environ["SUPABASE_SERVICE_ROLE_KEY"],
     )
 
-    target_locations = cfg.target_locations if cfg else None
-    target_industries = cfg.target_industries if cfg else None
-    agency_location = cfg.agency_location if cfg else None
+    # Every paid call made by this run's scrapers is attributed to it.
+    metering.bind(org_id, job_id)
+    heartbeat = asyncio.create_task(_heartbeat_loop(job_id, org_id))
+    try:
+        await _run_scrape_job_body(job_id, org_id, sources, cfg, supabase)
+    finally:
+        heartbeat.cancel()
 
+
+async def _heartbeat_loop(job_id: str, org_id: str) -> None:
+    """Keep the run's heartbeat fresh while a scraper runs for minutes without
+    a progress write, so the reaper only ever fails runs whose worker died."""
+    while True:
+        await asyncio.sleep(HEARTBEAT_SECONDS)
+        try:
+            await asyncio.to_thread(get_store().heartbeat, job_id, org_id)
+        except Exception as e:
+            logger.error(f"[Scraper] heartbeat for run {job_id} failed: {e}")
+
+
+async def _run_scrape_job_body(job_id: str, org_id: str, sources: list[str],
+                               cfg: PlatformConfig, supabase) -> None:
     scrapers = {
-        "linkedin": LinkedInJobsScraper(target_locations=target_locations),
-        "crunchbase": CrunchbaseScraper(),
-        "job_board": JobBoardScraper(target_locations=target_locations, agency_location=agency_location),
+        "linkedin": LinkedInJobsScraper(target_locations=cfg.target_locations, target_roles=cfg.target_roles),
+        "crunchbase": CrunchbaseScraper(target_locations=cfg.target_locations,
+                                        target_industries=cfg.target_industries),
+        "job_board": JobBoardScraper(target_locations=cfg.target_locations, target_roles=cfg.target_roles),
         "local_business": LocalBusinessScraper(
-            target_locations=target_locations,
-            target_industries=target_industries,
-        ),
-    }
-
-    # Remote jobs is a separate entity (jobs table), not a lead source — it's
-    # scraped and persisted independently of the leads merge/scoring pipeline below.
-    job_scrapers = {
-        "remote_jobs": RemoteJobsScraper(
-            job_roles=cfg.remote_job_roles if cfg else None,
-            experience_level=cfg.remote_experience_level if cfg else None,
-            technologies=cfg.remote_technologies if cfg else None,
-            regions=cfg.remote_regions if cfg else None,
+            target_locations=cfg.target_locations,
+            target_industries=cfg.target_industries,
         ),
     }
 
     any_success = False
+    total_new = 0
+    # Per-source progress, written whole to scrape_jobs.source_state after each
+    # source. Sources run one after another, so this process is its only writer.
+    source_state: dict[str, dict] = {s: {"status": "pending"} for s in sources}
     all_raw_leads: list[dict] = []
     source_log_ids: dict[str, int] = {}
     # Sources whose own scrape succeeded and are logged as 'finalizing' — Phase 4
@@ -600,59 +724,6 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
     try:
         # ---- Phase 1: Run all scrapers; collect raw leads + write per-source logs ----
         for source in sources:
-            if source in job_scrapers:
-                # Jobs persist immediately (upserted into `jobs`) rather than flowing
-                # through the leads merge/insert phases below.
-                scraper = job_scrapers[source]
-                source_started = datetime.utcnow()
-                leads_found = 0
-                log_status = "failed"
-                error_msg = None
-                new_count = updated_count = 0
-
-                try:
-                    postings = await asyncio.to_thread(scraper.scrape)
-                    leads_found = len(postings)
-                    new_count, updated_count = await asyncio.to_thread(_persist_job_postings, supabase, postings)
-                    log_status = "completed"
-                    any_success = True
-                except Exception as e:
-                    error_msg = str(e)
-                    logger.error(f"[Scraper] {source} failed: {e}")
-
-                scrape_jobs[job_id]["sources"][source] = {
-                    "status": log_status,
-                    "leads_found": leads_found,
-                    "error": error_msg,
-                }
-                await _emit_scrape_event(job_id, {
-                    "phase": "source",
-                    "source": source,
-                    "status": log_status,
-                    "leads_found": leads_found,
-                    "error": error_msg,
-                })
-
-                duration_ms = int((datetime.utcnow() - source_started).total_seconds() * 1000)
-                try:
-                    supabase.table("scraping_logs").insert({
-                        "job_id": job_id,
-                        "source": source,
-                        "status": log_status,
-                        "leads_found": leads_found,
-                        "leads_new": new_count,
-                        "leads_updated": updated_count,
-                        "duration_ms": duration_ms,
-                        "started_at": source_started.isoformat(),
-                        "completed_at": datetime.utcnow().isoformat(),
-                        "error_message": error_msg,
-                        "created_at": datetime.utcnow().isoformat(),
-                    }).execute()
-                except Exception as e:
-                    logger.error(f"[Scraper] Failed to write log for {source}: {e}")
-
-                continue
-
             scraper = scrapers.get(source)
             if not scraper:
                 continue
@@ -676,12 +747,13 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
             # round-trip below — so the frontend sees it in real time. This is
             # purely "did the scraper itself finish" progress and is fine as
             # 'completed'/'failed' — the persisted log row below is different.
-            scrape_jobs[job_id]["sources"][source] = {
+            source_state[source] = {
                 "status": log_status,
                 "leads_found": leads_found,
                 "error": error_msg,
             }
-            await _emit_scrape_event(job_id, {
+            await _update_run(job_id, org_id, source_state=source_state)
+            await _emit_scrape_event(job_id, org_id, {
                 "phase": "source",
                 "source": source,
                 "status": log_status,
@@ -696,7 +768,12 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
             # promote to 'completed' once Phase 4 has the real counts.
             persisted_status = "finalizing" if log_status == "completed" else log_status
             try:
-                log_insert = supabase.table("scraping_logs").insert({
+                # Every database call in this coroutine runs in a worker thread:
+                # supabase-py is synchronous, and a direct call would freeze the
+                # event loop (other orgs' analyses and progress streams) for
+                # the length of the round trip.
+                log_row = {
+                    "org_id": org_id,
                     "job_id": job_id,
                     "source": source,
                     "status": persisted_status,
@@ -709,13 +786,18 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
                     "completed_at": datetime.utcnow().isoformat(),
                     "error_message": error_msg,
                     "created_at": datetime.utcnow().isoformat(),
-                }).execute()
+                }
+                log_insert = await asyncio.to_thread(
+                    lambda: supabase.table("scraping_logs").insert(log_row).execute()
+                )
                 if log_insert.data:
                     source_log_ids[source] = log_insert.data[0]["id"]
                     if persisted_status == "finalizing":
                         finalizing_sources.add(source)
             except Exception as e:
                 logger.error(f"[Scraper] Failed to write log for {source}: {e}")
+
+        await _update_run(job_id, org_id, status="finalizing")
 
         # ---- Phase 2: Cross-source merge ----
         merged_leads = merge_leads(all_raw_leads)
@@ -731,7 +813,6 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
         # network calls, which is exactly why sources sat in a misleading 'finalizing'-
         # equivalent state for minutes. Now: one batched pre-fetch, chunked bulk inserts,
         # and bounded-concurrency updates.
-        total_new = 0
         failed_inserts = 0
         per_source_new: dict[str, int] = {}
         per_source_updated: dict[str, int] = {}
@@ -747,7 +828,12 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
         for i in range(0, len(all_urls_flat), URL_LOOKUP_CHUNK):
             chunk = all_urls_flat[i:i + URL_LOOKUP_CHUNK]
             try:
-                res = supabase.table("leads").select("id, source_url").in_("source_url", chunk).execute()
+                # Org-scoped: without it, one tenant's scrape silently skips a
+                # company because a *different* tenant already has it.
+                res = await asyncio.to_thread(
+                    lambda: supabase.table("leads").select("id, source_url")
+                    .eq("org_id", org_id).in_("source_url", chunk).execute()
+                )
                 for row in res.data or []:
                     existing_by_url[row["source_url"]] = row["id"]
             except Exception as e:
@@ -783,6 +869,7 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
             else:
                 new_rows.append({
                     **lead_data,
+                    "org_id": org_id,
                     "status": "new",
                     "scraped_at": datetime.utcnow().isoformat(),
                     "created_at": datetime.utcnow().isoformat(),
@@ -794,26 +881,35 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
         # If a chunk fails (e.g. one bad row), fall back to inserting it row-by-row so a
         # single bad lead can't sink the whole chunk's worth of good ones.
         INSERT_CHUNK = 50
+
+        def _insert_chunk(chunk: list[dict]) -> list[bool]:
+            """Insert one chunk (blocking; run in a thread). Which rows made it in."""
+            try:
+                supabase.table("leads").insert(chunk).execute()
+                return [True] * len(chunk)
+            except Exception as e:
+                logger.warning(f"[Scraper] Bulk insert failed for a chunk of {len(chunk)}, retrying individually: {e}")
+            inserted = []
+            for row in chunk:
+                try:
+                    supabase.table("leads").insert(row).execute()
+                    inserted.append(True)
+                except Exception as e2:
+                    logger.error(f"[Scraper] Failed to insert '{row.get('company_name', '?')}': {e2}")
+                    inserted.append(False)
+            return inserted
+
         for i in range(0, len(new_rows), INSERT_CHUNK):
             chunk = new_rows[i:i + INSERT_CHUNK]
             chunk_sources = new_rows_sources[i:i + INSERT_CHUNK]
-            try:
-                supabase.table("leads").insert(chunk).execute()
-                total_new += len(chunk)
-                for sources in chunk_sources:
+            inserted = await asyncio.to_thread(_insert_chunk, chunk)
+            for ok, sources in zip(inserted, chunk_sources):
+                if ok:
+                    total_new += 1
                     for s in sources:
                         per_source_new[s] = per_source_new.get(s, 0) + 1
-            except Exception as e:
-                logger.warning(f"[Scraper] Bulk insert failed for a chunk of {len(chunk)}, retrying individually: {e}")
-                for row, sources in zip(chunk, chunk_sources):
-                    try:
-                        supabase.table("leads").insert(row).execute()
-                        total_new += 1
-                        for s in sources:
-                            per_source_new[s] = per_source_new.get(s, 0) + 1
-                    except Exception as e2:
-                        failed_inserts += 1
-                        logger.error(f"[Scraper] Failed to insert '{row.get('company_name', '?')}': {e2}")
+                else:
+                    failed_inserts += 1
 
         # Refresh existing leads concurrently (bounded) instead of one-by-one serially —
         # each has a different payload so it can't collapse into a single bulk call.
@@ -823,7 +919,8 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
             async with update_semaphore:
                 try:
                     await asyncio.to_thread(
-                        lambda: supabase.table("leads").update(refresh).eq("id", existing_id).execute()
+                        lambda: supabase.table("leads").update(refresh)
+                        .eq("id", existing_id).eq("org_id", org_id).execute()
                     )
                     return True
                 except Exception as e:
@@ -853,22 +950,28 @@ async def run_scrape_job(job_id: str, sources: list[str], cfg: Optional[Platform
             if source in finalizing_sources:
                 update_payload["status"] = "completed"
             try:
-                supabase.table("scraping_logs").update(update_payload).eq("id", log_id).execute()
+                await asyncio.to_thread(
+                    lambda: supabase.table("scraping_logs").update(update_payload)
+                    .eq("id", log_id).eq("org_id", org_id).execute()
+                )
             except Exception as e:
                 logger.error(f"[Scraper] Failed to patch log counts for {source}: {e}")
 
         overall_status = "completed" if any_success else "failed"
-        scrape_jobs[job_id].update({
-            "status": overall_status,
-            "completed_at": datetime.utcnow().isoformat(),
-            "results": total_new,
-        })
-        await _emit_scrape_event(job_id, {"phase": "complete", "status": overall_status, "results": total_new})
+        await _finish_run(job_id, org_id, overall_status, total_new, None, source_state)
 
     except Exception as e:
-        scrape_jobs[job_id]["status"] = "failed"
-        scrape_jobs[job_id]["error"] = str(e)
-        await _emit_scrape_event(job_id, {"phase": "complete", "status": "failed", "results": scrape_jobs[job_id].get("results", 0)})
+        logger.error(f"[Scraper] Run {job_id} failed: {e}")
+        await _finish_run(job_id, org_id, "failed", total_new, str(e), source_state)
 
-    finally:
-        scrape_conditions.pop(job_id, None)
+
+async def _finish_run(job_id: str, org_id: str, status: str, results: int,
+                      error: Optional[str], source_state: dict) -> None:
+    """Mark the run terminal, then emit the complete event the SSE stream
+    closes on. Terminal first: a client that reconnects between the two still
+    sees a finished run."""
+    try:
+        await asyncio.to_thread(get_store().finish, job_id, org_id, status, results, error, source_state)
+    except Exception as e:
+        logger.error(f"[Scraper] Failed to finish run {job_id}: {e}")
+    await _emit_scrape_event(job_id, org_id, {"phase": "complete", "status": status, "results": results})

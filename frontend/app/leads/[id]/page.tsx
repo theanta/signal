@@ -1,8 +1,11 @@
 'use client';
 
+import axios from 'axios';
+import QueryError from '@/components/ui/QueryError';
 import { useParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchLead, generateOutreach, updateLeadStatus } from '@/services/leads';
+import ScoreModelCard from '@/components/leads/ScoreModelCard';
 import PageHeader from '@/components/ui/PageHeader';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -195,8 +198,12 @@ function useAnalysisStream(id: string) {
       signal: abort.signal,
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     })
-      .then(response => {
-        if (!response.ok || !response.body) throw new Error('Stream failed');
+      .then(async response => {
+        if (!response.ok || !response.body) {
+          // A refusal (e.g. the lead quota is used up) comes back as JSON with the reason.
+          const body = await response.json().catch(() => null) as { error?: string } | null;
+          throw new Error(body?.error ?? 'Analysis failed');
+        }
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
@@ -227,6 +234,7 @@ function useAnalysisStream(id: string) {
                     setIsStreaming(false);
                     setPhase(null);
                     qc.invalidateQueries({ queryKey: ['lead', id] });
+                    qc.invalidateQueries({ queryKey: ['lead-quota'] });
                     toast.success('Analysis complete');
                     return;
                   }
@@ -246,7 +254,8 @@ function useAnalysisStream(id: string) {
         return pump();
       })
       .catch(err => {
-        if ((err as Error).name !== 'AbortError') toast.error('Analysis failed');
+        if ((err as Error).name !== 'AbortError') toast.error((err as Error).message || 'Analysis failed');
+        qc.invalidateQueries({ queryKey: ['lead-quota'] });
         setIsStreaming(false);
         setPhase(null);
       });
@@ -466,9 +475,11 @@ export default function LeadDetailPage() {
   const qc = useQueryClient();
   const [copied, setCopied] = useState<string | null>(null);
 
-  const { data: lead, isLoading } = useQuery({
+  const { data: lead, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['lead', id],
     queryFn: () => fetchLead(id),
+    // A missing lead stays missing; retrying only delays the "not found".
+    retry: (count, err) => !(axios.isAxiosError(err) && err.response?.status === 404) && count < 1,
   });
 
   const { phase: analysisPhase, isStreaming: isAnalyzing, start: startAnalysis } = useAnalysisStream(id);
@@ -501,6 +512,10 @@ export default function LeadDetailPage() {
   }
 
   if (isLoading) return <DetailSkeleton />;
+  const notFound = axios.isAxiosError(error) && error.response?.status === 404;
+  if (isError && !notFound) return (
+    <QueryError title="Could not load this lead" error={error} onRetry={() => refetch()} className="h-screen" />
+  );
   if (!lead) return (
     <div className="flex flex-col items-center justify-center h-screen gap-3 text-muted">
       <Building2 className="w-10 h-10" />
@@ -728,7 +743,7 @@ export default function LeadDetailPage() {
                     {latestSignal.operational_maturity}
                   </p>
                   <p className="text-xs text-muted mt-2">
-                    Falls outside ANTA&apos;s SMB target market. No outreach will be generated.
+                    Falls outside the SMB target market. No outreach will be generated.
                   </p>
                 </div>
               </div>
@@ -938,8 +953,16 @@ export default function LeadDetailPage() {
         <div className="sticky top-6">
           <div className="bg-canvas border border-hairline rounded-lg divide-y divide-hairline overflow-hidden">
 
-            {/* Score breakdown */}
-            {lead.score_detail && (
+            {/* Score breakdown — the scoring model when this lead was scored
+                under it, the legacy points bars otherwise. */}
+            {lead.score_detail && (lead.score_detail.fit_score != null || lead.score_detail.intent_score != null) && (
+              <ScoreModelCard
+                score={lead.score_detail}
+                leadScore={lead.lead_score ?? 0}
+                percentile={lead.score_detail.score_percentile}
+              />
+            )}
+            {lead.score_detail && lead.score_detail.fit_score == null && lead.score_detail.intent_score == null && (
               <div className="p-4">
                 <h3 className="text-2xs font-semibold text-muted uppercase tracking-wider mb-3">Score Breakdown</h3>
                 <div className="flex items-center justify-between mb-3 pb-2.5 border-b border-hairline">

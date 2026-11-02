@@ -1,16 +1,17 @@
 'use client';
 
+import TeamPanel from '@/components/settings/TeamPanel';
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchConfig, saveConfig } from '@/services/config';
 import { toast } from '@/lib/toast';
 import {
   RefreshCw, Settings, Zap,
-  Building2, MessageSquare, MapPin, Users, ToggleLeft, ToggleRight, Save, X, Plus,
-  Globe,
+  Building2, MessageSquare, MapPin, Users, ToggleLeft, ToggleRight, Save, X, Plus, Gauge, UserPlus,
 } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
-import type { PlatformConfig } from '../../../shared/types';
+import type { PlatformConfig, ScoringWeights } from '../../../shared/types';
+import { DEFAULT_SCORING_WEIGHTS, ENABLED_SOURCES } from '../../../shared/types';
 import { cn } from '@/lib/utils';
 
 const TABS = [
@@ -18,21 +19,20 @@ const TABS = [
   { id: 'voice',    label: 'Brand Voice',      icon: MessageSquare },
   { id: 'targeting',label: 'Targeting',        icon: MapPin },
   { id: 'icp',      label: 'ICP',              icon: Users },
+  { id: 'scoring',  label: 'Scoring',          icon: Gauge },
   { id: 'sources',  label: 'Sources',          icon: Zap },
-  { id: 'remote',   label: 'Remote Jobs',      icon: Globe },
+  { id: 'team',     label: 'Team',             icon: UserPlus },
 ] as const;
 
 type TabId = typeof TABS[number]['id'];
 
 const COMPANY_SIZES = ['1-10', '11-50', '51-200', '201-500', '501-1000', '1000+'];
-const EXPERIENCE_LEVELS = ['Entry Level', 'Mid Level', 'Senior', 'Lead / Principal'];
 const ALL_SOURCES = [
   { id: 'linkedin',       label: 'LinkedIn Jobs',    desc: 'Job postings filtered to your target locations — last 24 h' },
   { id: 'job_board',      label: 'Job Boards',       desc: 'Indeed — operational & tech hiring signals' },
   { id: 'crunchbase',     label: 'Crunchbase',       desc: 'Recently funded startups matching your target locations' },
   { id: 'local_business', label: 'Local Business',   desc: 'Google Maps — companies in your target locations & industries' },
-  { id: 'remote_jobs',    label: 'Remote Jobs',      desc: 'Indeed, LinkedIn, RemoteOK & Remotive — remote-only postings, citizenship/residency-restricted roles excluded' },
-];
+].filter(s => (ENABLED_SOURCES as string[]).includes(s.id));
 
 // ---- small reusable input ----
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -224,14 +224,14 @@ export default function SettingsPage() {
                   <TextInput
                     value={draft.agency_name}
                     onChange={v => patch({ agency_name: v })}
-                    placeholder="ANTA"
+                    placeholder="e.g. Harbor Growth Partners"
                   />
                 </Field>
                 <Field label="Location">
                   <TextInput
                     value={draft.agency_location}
                     onChange={v => patch({ agency_location: v })}
-                    placeholder="Detroit, Michigan"
+                    placeholder="e.g. Austin, Texas"
                   />
                 </Field>
                 <Field label="Website">
@@ -286,7 +286,7 @@ export default function SettingsPage() {
                   <TextInput
                     value={draft.sign_off}
                     onChange={v => patch({ sign_off: v })}
-                    placeholder="e.g. ANTA Team"
+                    placeholder="e.g. The Harbor Team"
                   />
                   <p className="text-xs text-muted mt-1">How emails are signed off.</p>
                 </Field>
@@ -320,12 +320,89 @@ export default function SettingsPage() {
                 <div className="pt-1 border-t border-hairline">
                   <p className="text-xs text-muted">
                     Leads matching any of these locations get a +5 score bonus and higher confidence signal.
-                    Scrapers use the first two locations as their primary search geography.
+                    Scrapers search the first two full place names (abbreviations like &quot;TX&quot; are used
+                    only when nothing longer is listed). Scraping is paused until at least one is set.
                   </p>
                 </div>
               </div>
+
+              <div>
+                <h2 className="text-sm font-medium text-ink mb-0.5">Hiring Signals</h2>
+                <p className="text-xs text-muted">
+                  Job titles whose postings suggest a company needs what you sell. LinkedIn and Indeed search for these.
+                </p>
+              </div>
+              <div className="card p-5 space-y-4">
+                <TagList
+                  label="Hiring Roles"
+                  values={draft.target_roles ?? []}
+                  onChange={v => patch({ target_roles: v })}
+                  placeholder="e.g. marketing coordinator, operations manager"
+                />
+                <p className="text-xs text-muted">Leave empty to search a general set of operations and engineering roles.</p>
+              </div>
             </section>
           )}
+
+          {/* ── SCORING ── */}
+          {activeTab === 'scoring' && (() => {
+            const w = { ...DEFAULT_SCORING_WEIGHTS, ...(draft.scoring_weights ?? {}) };
+            const total = (Object.values(w) as number[]).reduce((n, v) => n + (v > 0 ? v : 0), 0);
+            const parts: { key: keyof ScoringWeights; label: string; desc: string }[] = [
+              { key: 'fit',        label: 'Fit',         desc: 'Company size, industry and location against your ICP and targeting, plus tech gaps found on their website.' },
+              { key: 'intent',     label: 'Intent',      desc: 'Hiring for your target roles, operational pain (spreadsheets, legacy systems), growth signals, and being seen on several sources.' },
+              { key: 'ai',         label: 'AI Judgment', desc: 'The AI reads the evidence against your services and rates how likely you are to win the work, with a one-line reason.' },
+              { key: 'engagement', label: 'Engagement',  desc: 'Sends, opens, replies and pipeline stage. Counts once outreach is sent, and fades after 30 days of silence.' },
+            ];
+            return (
+              <section className="space-y-5">
+                <div>
+                  <h2 className="text-sm font-medium text-ink mb-0.5">Lead Scoring</h2>
+                  <p className="text-xs text-muted">
+                    Each lead gets four scores from 0 to 100. The overall lead score blends them with these weights;
+                    it sorts your leads, decides which get outreach drafted (65+) and which are hot (70+).
+                    A score that is not known yet is left out and the others share its weight.
+                  </p>
+                </div>
+                <div className="card divide-y divide-hairline">
+                  {parts.map(p => {
+                    const share = total > 0 ? Math.round((100 * Math.max(0, w[p.key])) / total) : 0;
+                    return (
+                      <div key={p.key} className="flex items-center justify-between gap-4 px-5 py-4">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-ink">{p.label}</p>
+                          <p className="text-xs text-muted mt-0.5">{p.desc}</p>
+                        </div>
+                        <div className="flex items-center gap-3 flex-shrink-0">
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            value={w[p.key]}
+                            onChange={e => patch({ scoring_weights: { ...w, [p.key]: Math.max(0, Math.min(100, Number(e.target.value) || 0)) } })}
+                            className="w-20 px-3 py-2 text-sm text-ink bg-canvas border border-hairline rounded-md"
+                          />
+                          <span className="text-xs text-muted w-10 text-right">{share}%</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center justify-between px-1">
+                  <p className="text-xs text-muted">
+                    Weights are relative. Set one to 0 to ignore that score. Changes apply as each lead is next analyzed or engaged.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => patch({ scoring_weights: { ...DEFAULT_SCORING_WEIGHTS } })}
+                    className="text-xs text-muted hover:text-ink underline whitespace-nowrap"
+                  >
+                    Reset to defaults
+                  </button>
+                </div>
+              </section>
+            );
+          })()}
 
           {/* ── ICP ── */}
           {activeTab === 'icp' && (
@@ -372,6 +449,8 @@ export default function SettingsPage() {
           )}
 
           {/* ── SOURCES ── */}
+          {activeTab === 'team' && <TeamPanel />}
+
           {activeTab === 'sources' && (
             <section className="space-y-5">
               <div>
@@ -409,64 +488,22 @@ export default function SettingsPage() {
                 {ALL_SOURCES.filter(s => draft.active_sources.includes(s.id)).length} of {ALL_SOURCES.length} sources active.
                 Changes take effect on the next scrape run.
               </p>
-            </section>
-          )}
 
-          {/* ── REMOTE JOBS ── */}
-          {activeTab === 'remote' && (
-            <section className="space-y-5">
-              <div>
-                <h2 className="text-sm font-medium text-ink mb-0.5">Remote Job Openings</h2>
-                <p className="text-xs text-muted">
-                  Settings for the Remote Jobs source, pulled from Indeed, LinkedIn, RemoteOK, and Remotive.
-                  Roles restricted to a single country&apos;s citizens/residents (e.g. &quot;US citizens only&quot;)
-                  are automatically disqualified since this source targets globally-open remote roles.
-                </p>
-              </div>
-              <div className="card p-5 space-y-5">
-                <TagList
-                  label="Job Roles"
-                  values={draft.remote_job_roles}
-                  onChange={v => patch({ remote_job_roles: v })}
-                  placeholder="e.g. software engineer, product designer"
-                />
-
-                <Field label="Experience Level">
-                  <div className="flex flex-wrap gap-2">
-                    {EXPERIENCE_LEVELS.map(level => {
-                      const on = draft.remote_experience_level === level;
-                      return (
-                        <button
-                          key={level}
-                          onClick={() => patch({ remote_experience_level: on ? '' : level })}
-                          className={cn(
-                            'px-3 py-1.5 text-xs rounded-md border font-medium transition-colors',
-                            on
-                              ? 'bg-ink text-canvas border-ink'
-                              : 'bg-canvas text-muted border-hairline hover:border-border-strong hover:text-ink',
-                          )}
-                        >
-                          {level}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <p className="text-xs text-muted mt-1">Leave unselected to search all experience levels.</p>
+              <div className="card p-5">
+                <Field label="Leads analyzed per day">
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={draft.daily_analysis_limit ?? 20}
+                    onChange={e => patch({ daily_analysis_limit: Math.min(100, Math.max(1, Number(e.target.value) || 1)) })}
+                    className="w-28 px-3 py-2 text-sm text-ink bg-canvas border border-hairline rounded-md"
+                  />
                 </Field>
-
-                <TagList
-                  label="Technologies"
-                  values={draft.remote_technologies}
-                  onChange={v => patch({ remote_technologies: v })}
-                  placeholder="e.g. React, Node.js, Python"
-                />
-
-                <TagList
-                  label="Region"
-                  values={draft.remote_regions}
-                  onChange={v => patch({ remote_regions: v })}
-                  placeholder="e.g. United States, United Kingdom, Worldwide"
-                />
+                <p className="text-xs text-muted mt-2">
+                  The morning run analyzes up to this many new leads (1–100). Each analysis uses AI and search
+                  credits, so a higher number costs more.
+                </p>
               </div>
             </section>
           )}

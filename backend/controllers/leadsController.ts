@@ -1,11 +1,13 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import * as db from '../services/supabaseService';
-import { analyzeLeadSignals } from '../services/signalEngineService';
+import { rescoreLeadQuietly } from '../services/scoringService';
+import { ctxOf } from '../api/middleware/auth';
+import { persistAnalysis } from '../services/persistAnalysis';
+import { assertCanAnalyze, LeadQuotaReachedError } from '../services/leadQuotaService';
+import { analyzeLeadSignals, getAnalyzeStreamResponse } from '../services/signalEngineService';
 import { generateOutreach, analyzeOpportunity } from '../services/claudeService';
 import type { Lead, LeadFilters, LeadSignal, LeadSource, OutreachChannel, SignalAnalysisResult } from '../../shared/types';
-
-const SIGNAL_ENGINE_URL = process.env.SIGNAL_ENGINE_URL ?? 'http://localhost:8001';
 
 // Mirrors signal-engine/enrichment/url_utils.py — a social/aggregator page is
 // never a company's own website, so it must not be treated as verified.
@@ -42,34 +44,42 @@ const LeadFilterSchema = z.object({
 
 export async function listLeads(req: Request, res: Response): Promise<void> {
   try {
-    const filters = LeadFilterSchema.parse(req.query) as LeadFilters;
-    const result = await db.getLeads(filters);
+    const ctx = ctxOf(req);
+    const parsed = LeadFilterSchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ success: false, error: parsed.error.message });
+      return;
+    }
+    const result = await db.getLeads(ctx, parsed.data as LeadFilters);
     res.json({ success: true, ...result });
   } catch (err) {
-    res.status(400).json({ success: false, error: (err as Error).message });
+    res.status(500).json({ success: false, error: (err as Error).message });
   }
 }
 
 export async function getLead(req: Request, res: Response): Promise<void> {
   try {
+    const ctx = ctxOf(req);
     const { id } = req.params;
-    const lead = await db.getLeadById(id);
+    if (!db.isUuid(id)) {
+      res.status(404).json({ success: false, error: 'Lead not found' });
+      return;
+    }
+    // One round of queries instead of three: everything here is keyed by the
+    // lead id, and the org scope comes from ctx, so none of it needs the lead
+    // row first.
+    const [lead, signals, score, outreach_messages, percentile] = await Promise.all([
+      db.getLeadById(ctx, id),
+      db.getLeadSignals(ctx, id),
+      db.getLeadScore(ctx, id),
+      db.getOutreachMessages(ctx, id),
+      db.getScorePercentile(ctx, id),
+    ]);
     if (!lead) {
       res.status(404).json({ success: false, error: 'Lead not found' });
       return;
     }
-
-    const [signals, score, outreach_messages] = await Promise.all([
-      db.getLeadSignals(id),
-      db.getLeadScore(id),
-      db.getOutreachMessages(id),
-    ]);
-
-    let score_detail = score;
-    if (score) {
-      const percentile = await db.getScorePercentile(score.overall_score);
-      score_detail = { ...score, score_percentile: percentile };
-    }
+    const score_detail = score ? { ...score, score_percentile: percentile } : score;
 
     res.json({ success: true, data: { ...lead, signals, score_detail, outreach_messages } });
   } catch (err) {
@@ -79,7 +89,8 @@ export async function getLead(req: Request, res: Response): Promise<void> {
 
 export async function createLead(req: Request, res: Response): Promise<void> {
   try {
-    const lead = await db.createLead({ ...req.body, source: req.body.source ?? 'manual' });
+    const ctx = ctxOf(req);
+    const lead = await db.createLead(ctx, { ...req.body, source: req.body.source ?? 'manual' });
     res.status(201).json({ success: true, data: lead });
   } catch (err) {
     res.status(500).json({ success: false, error: (err as Error).message });
@@ -88,73 +99,25 @@ export async function createLead(req: Request, res: Response): Promise<void> {
 
 export async function updateLead(req: Request, res: Response): Promise<void> {
   try {
+    const ctx = ctxOf(req);
     const updates = { ...req.body };
     if (updates.status === 'contacted' && !updates.contacted_at) {
       updates.contacted_at = new Date().toISOString();
     }
-    const lead = await db.updateLead(req.params.id, updates);
+    let lead = await db.updateLead(ctx, req.params.id, updates);
+    // A pipeline-stage change (meeting, proposal, client) is engagement.
+    if ('status' in updates) {
+      await rescoreLeadQuietly(ctx, lead.id);
+      lead = (await db.getLeadById(ctx, lead.id)) ?? lead;
+    }
     res.json({ success: true, data: lead });
   } catch (err) {
+    if (err instanceof db.NotFoundError) {
+      res.status(404).json({ success: false, error: 'Lead not found' });
+      return;
+    }
     res.status(500).json({ success: false, error: (err as Error).message });
   }
-}
-
-// Shared helper: write analysis results to DB. Used by both analyzeLead and streamAnalyzeLead.
-async function _persistAnalysisResult(
-  lead: Lead,
-  existingSignals: LeadSignal[],
-  signals: SignalAnalysisResult,
-): Promise<void> {
-  const leadUpdate: Record<string, unknown> = {
-    lead_score: signals.lead_score,
-    status: 'analyzed',
-    analyzed_at: new Date().toISOString(),
-  };
-  if (signals.industry)                  leadUpdate.industry                 = signals.industry;
-  if (signals.verified_website)          leadUpdate.website                  = signals.verified_website;
-  if (signals.contact?.name)             leadUpdate.contact_name             = signals.contact.name;
-  if (signals.contact?.title)            leadUpdate.contact_title            = signals.contact.title;
-  if (signals.contact?.linkedin_url)     leadUpdate.contact_linkedin_url     = signals.contact.linkedin_url;
-  if (signals.contact?.email) {
-    leadUpdate.contact_email            = signals.contact.email;
-    leadUpdate.contact_email_confidence = signals.contact.email_confidence ?? 'unknown';
-  } else if (signals.contact?.fallback_generic_email) {
-    // No personal inbox found — a generic one (info@ …) is still a usable
-    // point of contact for small businesses that expose nothing else.
-    leadUpdate.contact_email            = signals.contact.fallback_generic_email;
-    leadUpdate.contact_email_confidence = 'generic';
-  }
-
-  const latestSignal = existingSignals[0];
-  const signalPayload = {
-    lead_id: lead.id,
-    signal_type: signals.signal_type,
-    confidence_score: signals.confidence_score,
-    likely_pain_points: signals.likely_pain_points,
-    recommended_anta_service: signals.recommended_anta_service,
-    outreach_angle: signals.outreach_angle,
-    operational_maturity: signals.operational_maturity,
-    growth_indicators: signals.growth_indicators,
-    digital_maturity_score: signals.digital_maturity_score,
-    tech_stack: signals.tech_stack ?? [],
-    tech_gaps: signals.tech_gaps ?? [],
-  };
-
-  await Promise.all([
-    latestSignal?.signal_type === signals.signal_type
-      ? db.updateLeadSignal(latestSignal.id, { ...signalPayload, detected_at: new Date().toISOString() })
-      : db.createLeadSignal(signalPayload),
-    db.upsertLeadScore({
-      lead_id: lead.id,
-      overall_score: signals.lead_score,
-      company_size_score: signals.scoring_breakdown.company_size_score,
-      hiring_urgency_score: signals.scoring_breakdown.hiring_urgency_score,
-      complexity_score: signals.scoring_breakdown.complexity_score,
-      digital_score: signals.scoring_breakdown.digital_score,
-      scoring_rationale: signals.scoring_rationale,
-    }),
-    db.updateLead(lead.id, leadUpdate),
-  ]);
 }
 
 // Build the ScrapedLeadRaw payload for the signal engine from a stored lead + existing signals.
@@ -196,31 +159,39 @@ function _buildLeadPayload(lead: Lead, existingSignals: LeadSignal[]) {
 
 export async function analyzeLead(req: Request, res: Response): Promise<void> {
   try {
-    const lead = await db.getLeadById(req.params.id);
+    const ctx = ctxOf(req);
+    const lead = await db.getLeadById(ctx, req.params.id);
     if (!lead) {
       res.status(404).json({ success: false, error: 'Lead not found' });
       return;
     }
 
-    const existingSignals = await db.getLeadSignals(lead.id);
-    const signals = await analyzeLeadSignals(_buildLeadPayload(lead, existingSignals));
-    await _persistAnalysisResult(lead, existingSignals, signals);
+    await assertCanAnalyze(ctx, lead);
+    const existingSignals = await db.getLeadSignals(ctx, lead.id);
+    const signals = await analyzeLeadSignals(ctx, _buildLeadPayload(lead, existingSignals));
+    await persistAnalysis(ctx, lead, existingSignals, signals);
 
     res.json({ success: true, data: signals });
   } catch (err) {
+    if (err instanceof LeadQuotaReachedError) {
+      res.status(429).json({ success: false, error: err.message });
+      return;
+    }
     res.status(500).json({ success: false, error: (err as Error).message });
   }
 }
 
 export async function streamAnalyzeLead(req: Request, res: Response): Promise<void> {
   try {
-    const lead = await db.getLeadById(req.params.id);
+    const ctx = ctxOf(req);
+    const lead = await db.getLeadById(ctx, req.params.id);
     if (!lead) {
       res.status(404).json({ success: false, error: 'Lead not found' });
       return;
     }
 
-    const existingSignals = await db.getLeadSignals(lead.id);
+    await assertCanAnalyze(ctx, lead);
+    const existingSignals = await db.getLeadSignals(ctx, lead.id);
     const leadPayload = _buildLeadPayload(lead, existingSignals);
 
     res.setHeader('Content-Type', 'text/event-stream');
@@ -228,14 +199,9 @@ export async function streamAnalyzeLead(req: Request, res: Response): Promise<vo
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
 
-    const pyResponse = await fetch(`${SIGNAL_ENGINE_URL}/analyze/stream`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lead: leadPayload }),
-      // Generous: must cover a Render free-tier cold start (~50s) plus the
-      // full enrichment + Groq analysis pipeline.
-      signal: AbortSignal.timeout(180_000),
-    });
+    // Generous: must cover a Render free-tier cold start (~50s) plus the
+    // full enrichment + Groq analysis pipeline.
+    const pyResponse = await getAnalyzeStreamResponse(ctx, leadPayload, AbortSignal.timeout(180_000));
 
     if (!pyResponse.ok || !pyResponse.body) {
       res.write(`data: ${JSON.stringify({ phase: 'error', message: 'Signal engine unavailable' })}\n\n`);
@@ -277,7 +243,7 @@ export async function streamAnalyzeLead(req: Request, res: Response): Promise<vo
             // lead the moment it sees this event, so the signal/score rows must
             // already be committed or the UI shows "not analysed yet".
             try {
-              await _persistAnalysisResult(lead, existingSignals, completeResult);
+              await persistAnalysis(ctx, lead, existingSignals, completeResult);
             } catch (persistErr) {
               console.error('[streamAnalyzeLead] DB persist failed:', persistErr);
               res.write(`data: ${JSON.stringify({ phase: 'error', message: 'Analysis finished but saving failed' })}\n\n`);
@@ -294,7 +260,9 @@ export async function streamAnalyzeLead(req: Request, res: Response): Promise<vo
 
     res.end();
   } catch (err) {
-    if (!res.headersSent) {
+    if (err instanceof LeadQuotaReachedError && !res.headersSent) {
+      res.status(429).json({ success: false, error: err.message });
+    } else if (!res.headersSent) {
       res.status(500).json({ success: false, error: (err as Error).message });
     } else {
       res.write(`data: ${JSON.stringify({ phase: 'error', message: (err as Error).message })}\n\n`);
@@ -305,14 +273,15 @@ export async function streamAnalyzeLead(req: Request, res: Response): Promise<vo
 
 export async function generateLeadOutreach(req: Request, res: Response): Promise<void> {
   try {
-    const lead = await db.getLeadById(req.params.id);
+    const ctx = ctxOf(req);
+    const lead = await db.getLeadById(ctx, req.params.id);
     if (!lead) {
       res.status(404).json({ success: false, error: 'Lead not found' });
       return;
     }
 
     const channel: OutreachChannel = req.body.channel ?? 'email';
-    const signals = await db.getLeadSignals(lead.id);
+    const signals = await db.getLeadSignals(ctx, lead.id);
 
     let signalData;
     if (signals.length > 0) {
@@ -342,7 +311,9 @@ export async function generateLeadOutreach(req: Request, res: Response): Promise
         } : null,
       };
     } else {
-      signalData = await analyzeLeadSignals({
+      // Never analyzed: drafting analyzes it first, so the quota applies.
+      await assertCanAnalyze(ctx, lead);
+      signalData = await analyzeLeadSignals(ctx, {
         company_name: lead.company_name,
         website: lead.website,
         location: lead.location,
@@ -358,9 +329,9 @@ export async function generateLeadOutreach(req: Request, res: Response): Promise
       });
     }
 
-    const outreach = await generateOutreach(lead, signalData as Parameters<typeof generateOutreach>[1], channel);
+    const outreach = await generateOutreach(ctx, lead, signalData as Parameters<typeof generateOutreach>[2], channel);
 
-    const saved = await db.createOutreachMessage({
+    const saved = await db.createOutreachMessage(ctx, {
       lead_id: lead.id,
       channel,
       subject: outreach.subject,
@@ -371,19 +342,24 @@ export async function generateLeadOutreach(req: Request, res: Response): Promise
 
     res.json({ success: true, data: saved });
   } catch (err) {
+    if (err instanceof LeadQuotaReachedError) {
+      res.status(429).json({ success: false, error: err.message });
+      return;
+    }
     res.status(500).json({ success: false, error: (err as Error).message });
   }
 }
 
 export async function getLeadAnalysis(req: Request, res: Response): Promise<void> {
   try {
-    const lead = await db.getLeadById(req.params.id);
+    const ctx = ctxOf(req);
+    const lead = await db.getLeadById(ctx, req.params.id);
     if (!lead) {
       res.status(404).json({ success: false, error: 'Lead not found' });
       return;
     }
 
-    const analysis = await analyzeOpportunity(lead);
+    const analysis = await analyzeOpportunity(ctx, lead);
     res.json({ success: true, data: analysis });
   } catch (err) {
     res.status(500).json({ success: false, error: (err as Error).message });

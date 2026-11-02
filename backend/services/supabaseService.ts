@@ -1,33 +1,72 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import type {
   Lead, LeadFilters, LeadSignal, LeadScore,
-  OutreachMessage, ScrapingLog, PaginatedResponse, DashboardMetrics, CronJobLog,
-  Job, JobFilters, JobWithIntel, JobSignal, JobSubmission,
+  OutreachMessage, OutreachHistory, ScrapingLog, PaginatedResponse, DashboardMetrics, CronJobLog,
+  PipelineSummary,
 } from '../../shared/types';
+import type { TenantContext } from './tenantContext';
+import { periodBounds, QUOTA_TIMEZONE } from './leadQuotaService';
 
-const supabaseUrl = process.env.SUPABASE_URL!;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+// No ambient client and no exported client. Every function below is reachable
+// only with a TenantContext, whose `db` already carries an org-scoped JWT — so
+// the app-layer `.eq('org_id', ...)` filter and the RLS policy are always
+// looking at the same org.
 
-if (!supabaseUrl || !supabaseKey) {
-  throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+/**
+ * Drop a caller-supplied `org_id` from a write payload.
+ *
+ * An update may not move a row between tenants, not even its own, so a
+ * caller-supplied org_id is dropped rather than forwarded. All five updates
+ * below funnel through here so the call sites cannot drift apart.
+ *
+ * Inserts do not need it — they spread the payload first and set
+ * `org_id: ctx.orgId` last, so the context always wins. createOutreachHistory
+ * is the exception: its payload is an untyped req.body passed straight
+ * through, and stripping first means the org can never reach the insert at
+ * all, rather than being overwritten on the way past.
+ */
+/**
+ * An id-addressed write matched no row in the caller's org: the id does not
+ * exist, or it belongs to another org. The two are deliberately one error —
+ * telling them apart would confirm that another tenant's id exists.
+ */
+export class NotFoundError extends Error {
+  constructor(what: string) {
+    super(`${what} not found`);
+    this.name = 'NotFoundError';
+  }
 }
 
-export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseKey, {
-  auth: { persistSession: false },
-});
+// PostgREST's code for .single() matching zero rows.
+const NO_ROWS = 'PGRST116';
+// Postgres' code for text that is not a valid UUID.
+const BAD_UUID = '22P02';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const isUuid = (s: string): boolean => UUID_RE.test(s);
+
+/** A value quoted for PostgREST's or()/and() filter syntax. */
+export function orFilterValue(value: string): string {
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+function stripOrgId<T extends object>(row: T): Omit<T, 'org_id'> {
+  const safe = { ...row } as T & { org_id?: unknown };
+  delete safe.org_id;
+  return safe;
+}
 
 // ============================================================
 // LEADS
 // ============================================================
 
-export async function getLeads(filters: LeadFilters = {}): Promise<PaginatedResponse<Lead>> {
+export async function getLeads(ctx: TenantContext, filters: LeadFilters = {}): Promise<PaginatedResponse<Lead>> {
   const {
     status, source, sources, min_score, industry, location, search,
     page = 1, per_page = 25,
     sort_by = 'created_at', sort_order = 'desc',
   } = filters;
 
-  let query = supabase.from('leads').select('*', { count: 'exact' });
+  let query = ctx.db.from('leads').select('*', { count: 'exact' }).eq('org_id', ctx.orgId);
 
   if (status) query = query.eq('status', status);
   if (sources && sources.length > 0) {
@@ -39,7 +78,10 @@ export async function getLeads(filters: LeadFilters = {}): Promise<PaginatedResp
   if (industry) query = query.ilike('industry', `%${industry}%`);
   if (location) query = query.ilike('location', `%${location}%`);
   if (search) {
-    query = query.or(`company_name.ilike.%${search}%,description.ilike.%${search}%`);
+    // Quoted, so a comma or bracket in the search text stays text instead of
+    // breaking PostgREST's or() syntax.
+    const pattern = orFilterValue(`%${search}%`);
+    query = query.or(`company_name.ilike.${pattern},description.ilike.${pattern}`);
   }
 
   query = query.order(sort_by, { ascending: sort_order === 'asc' });
@@ -57,212 +99,79 @@ export async function getLeads(filters: LeadFilters = {}): Promise<PaginatedResp
   };
 }
 
-export async function getLeadById(id: string): Promise<Lead | null> {
-  const { data, error } = await supabase.from('leads').select('*').eq('id', id).single();
-  if (error) return null;
+export async function getLeadById(ctx: TenantContext, id: string): Promise<Lead | null> {
+  const { data, error } = await ctx.db
+    .from('leads').select('*').eq('id', id).eq('org_id', ctx.orgId).single();
+  // Only "no such lead in this org" is a miss; a database failure is an error,
+  // not a 404.
+  // (22P02: the id is not a UUID at all, so no lead can have it.)
+  if (error?.code === NO_ROWS || error?.code === BAD_UUID) return null;
+  if (error) throw new Error(`getLeadById: ${error.message}`);
   return data as Lead;
 }
 
-export async function createLead(lead: Partial<Lead>): Promise<Lead> {
-  const { data, error } = await supabase.from('leads').insert(lead).select().single();
+export async function createLead(ctx: TenantContext, lead: Partial<Lead>): Promise<Lead> {
+  // org_id is set from the context last, so a caller-supplied org_id — from a
+  // request body, or a stale object copied between tenants — cannot win.
+  const { data, error } = await ctx.db
+    .from('leads').insert({ ...lead, org_id: ctx.orgId }).select().single();
   if (error) throw new Error(`createLead: ${error.message}`);
   return data as Lead;
 }
 
-export async function updateLead(id: string, updates: Partial<Lead>): Promise<Lead> {
-  const { data, error } = await supabase
-    .from('leads').update(updates).eq('id', id).select().single();
+export async function updateLead(ctx: TenantContext, id: string, updates: Partial<Lead>): Promise<Lead> {
+  const { data, error } = await ctx.db
+    .from('leads').update(stripOrgId(updates)).eq('id', id).eq('org_id', ctx.orgId).select().single();
+  if (error?.code === NO_ROWS) throw new NotFoundError('Lead');
   if (error) throw new Error(`updateLead: ${error.message}`);
   return data as Lead;
 }
 
-export async function upsertLeadByWebsite(lead: Partial<Lead>): Promise<{ lead: Lead; isNew: boolean }> {
+export async function upsertLeadByWebsite(
+  ctx: TenantContext, lead: Partial<Lead>,
+): Promise<{ lead: Lead; isNew: boolean }> {
   if (lead.website) {
-    const { data: existing } = await supabase
-      .from('leads').select('id').eq('website', lead.website).single();
+    // Scoped by org: two tenants scraping the same company each keep their own
+    // lead row, and neither can silently overwrite the other's.
+    const { data: existing } = await ctx.db
+      .from('leads').select('id').eq('website', lead.website).eq('org_id', ctx.orgId).single();
     if (existing) {
-      const updated = await updateLead(existing.id, { ...lead, updated_at: new Date().toISOString() });
+      const updated = await updateLead(ctx, existing.id, {
+        ...lead, updated_at: new Date().toISOString(),
+      });
       return { lead: updated, isNew: false };
     }
   }
-  const created = await createLead(lead);
+  const created = await createLead(ctx, lead);
   return { lead: created, isNew: true };
-}
-
-// ============================================================
-// JOBS
-// ============================================================
-
-export async function getJobs(filters: JobFilters = {}): Promise<PaginatedResponse<Job>> {
-  const {
-    status, verdict, search, location, source, posted_within_days, technology,
-    page = 1, per_page = 25,
-    sort_by = 'created_at', sort_order = 'desc',
-  } = filters;
-
-  let query = supabase.from('jobs').select('*', { count: 'exact' });
-
-  if (status) query = query.eq('status', status);
-  if (verdict) query = query.eq('verdict', verdict);
-  if (source) query = query.eq('source', source);
-  if (location) query = query.ilike('location', `%${location}%`);
-  if (search) {
-    query = query.or(`company_name.ilike.%${search}%,job_title.ilike.%${search}%,description.ilike.%${search}%`);
-  }
-  if (posted_within_days) {
-    const cutoff = new Date(Date.now() - posted_within_days * 86_400_000).toISOString();
-    // Jobs without a parsed posted_at fall back to when we scraped them
-    query = query.or(`posted_at.gte.${cutoff},and(posted_at.is.null,created_at.gte.${cutoff})`);
-  }
-  if (technology) {
-    // Tags arrive lowercase from remoteok/remotive but arbitrary-case from
-    // config, and Postgres array contains is case-sensitive — try variants.
-    const t = technology.trim().replace(/["{},]/g, '');
-    if (t) {
-      const variants = [...new Set([t, t.toLowerCase(), t.toUpperCase(), t[0].toUpperCase() + t.slice(1).toLowerCase()])];
-      query = query.or(variants.map(v => `technologies.cs.{"${v}"}`).join(','));
-    }
-  }
-
-  query = query.order(sort_by, { ascending: sort_order === 'asc', nullsFirst: false });
-  query = query.range((page - 1) * per_page, page * per_page - 1);
-
-  const { data, error, count } = await query;
-  if (error) throw new Error(`getJobs: ${error.message}`);
-
-  return {
-    data: (data ?? []) as Job[],
-    total: count ?? 0,
-    page,
-    per_page,
-    total_pages: Math.ceil((count ?? 0) / per_page),
-  };
-}
-
-export async function getJobById(id: string): Promise<Job | null> {
-  const { data, error } = await supabase.from('jobs').select('*').eq('id', id).single();
-  if (error) return null;
-  return data as Job;
-}
-
-// Tolerates the table not existing yet (job_signals / job_submissions
-// migrations pending) — the detail page degrades to empty sections.
-async function safeList<T>(query: PromiseLike<{ data: unknown; error: unknown }>): Promise<T[]> {
-  try {
-    const { data, error } = await query;
-    if (error) return [];
-    return (data ?? []) as T[];
-  } catch {
-    return [];
-  }
-}
-
-export async function getJobWithIntel(id: string): Promise<JobWithIntel | null> {
-  const job = await getJobById(id);
-  if (!job) return null;
-
-  const [signals, submissions, companyJobs] = await Promise.all([
-    safeList<JobSignal>(
-      supabase.from('job_signals').select('*').eq('job_id', id).order('created_at', { ascending: false }),
-    ),
-    safeList<JobSubmission>(
-      supabase.from('job_submissions').select('*').eq('job_id', id).order('submitted_at', { ascending: false }),
-    ),
-    safeList<Job>(
-      supabase.from('jobs').select('*')
-        .eq('company_name', job.company_name).neq('id', id)
-        .order('created_at', { ascending: false }).limit(10),
-    ),
-  ]);
-
-  const companyJobIds = companyJobs.map(j => j.id);
-  const [companySubmissions, leadRows] = await Promise.all([
-    companyJobIds.length
-      ? safeList<JobSubmission>(
-          supabase.from('job_submissions').select('*')
-            .in('job_id', companyJobIds).order('submitted_at', { ascending: false }),
-        )
-      : Promise.resolve([] as JobSubmission[]),
-    safeList<{ id: string }>(
-      supabase.from('leads').select('id').ilike('company_name', job.company_name).limit(1),
-    ),
-  ]);
-
-  return {
-    ...job,
-    signals,
-    submissions,
-    related: {
-      company_jobs: companyJobs,
-      company_submissions: companySubmissions,
-      lead_id: job.converted_lead_id ?? leadRows[0]?.id,
-    },
-  };
-}
-
-export async function updateJob(id: string, updates: Partial<Job>): Promise<Job> {
-  const { data, error } = await supabase
-    .from('jobs').update(updates).eq('id', id).select().single();
-  if (error) throw new Error(`updateJob: ${error.message}`);
-  return data as Job;
-}
-
-export async function createJobSignal(signal: Partial<JobSignal>): Promise<JobSignal> {
-  const { data, error } = await supabase.from('job_signals').insert(signal).select().single();
-  if (error) throw new Error(`createJobSignal: ${error.message}`);
-  return data as JobSignal;
-}
-
-export async function createJobSubmission(sub: Partial<JobSubmission>): Promise<JobSubmission> {
-  const { data, error } = await supabase.from('job_submissions').insert(sub).select().single();
-  if (error) throw new Error(`createJobSubmission: ${error.message}`);
-  return data as JobSubmission;
-}
-
-export async function updateJobSubmission(id: string, updates: Partial<JobSubmission>): Promise<JobSubmission> {
-  const { data, error } = await supabase
-    .from('job_submissions').update(updates).eq('id', id).select().single();
-  if (error) throw new Error(`updateJobSubmission: ${error.message}`);
-  return data as JobSubmission;
-}
-
-export async function deleteJobSubmission(id: string): Promise<void> {
-  const { error } = await supabase.from('job_submissions').delete().eq('id', id);
-  if (error) throw new Error(`deleteJobSubmission: ${error.message}`);
-}
-
-export async function convertJobToLead(job: Job): Promise<Lead> {
-  const lead = await createLead({
-    company_name: job.company_name,
-    location: job.location,
-    job_title: job.job_title,
-    description: job.description,
-    source_url: job.source_url,
-    source: 'manual',
-    hiring_signal: job.job_title ? `Hiring ${job.job_title} (remote)` : undefined,
-  });
-  await updateJob(job.id, { status: 'converted', converted_lead_id: lead.id });
-  return lead;
 }
 
 // ============================================================
 // SIGNALS
 // ============================================================
 
-export async function createLeadSignal(signal: Partial<LeadSignal>): Promise<LeadSignal> {
-  const { data, error } = await supabase.from('lead_signals').insert(signal).select().single();
+export async function createLeadSignal(ctx: TenantContext, signal: Partial<LeadSignal>): Promise<LeadSignal> {
+  const { data, error } = await ctx.db
+    .from('lead_signals').insert({ ...signal, org_id: ctx.orgId }).select().single();
   if (error) throw new Error(`createLeadSignal: ${error.message}`);
   return data as LeadSignal;
 }
 
-export async function updateLeadSignal(id: string, updates: Partial<LeadSignal>): Promise<LeadSignal> {
-  const { data, error } = await supabase.from('lead_signals').update(updates).eq('id', id).select().single();
+export async function updateLeadSignal(
+  ctx: TenantContext, id: string, updates: Partial<LeadSignal>,
+): Promise<LeadSignal> {
+  const { data, error } = await ctx.db
+    .from('lead_signals').update(stripOrgId(updates)).eq('id', id).eq('org_id', ctx.orgId).select().single();
+  if (error?.code === NO_ROWS) throw new NotFoundError('Lead signal');
   if (error) throw new Error(`updateLeadSignal: ${error.message}`);
   return data as LeadSignal;
 }
 
-export async function getLeadSignals(leadId: string): Promise<LeadSignal[]> {
-  const { data, error } = await supabase.from('lead_signals').select('*').eq('lead_id', leadId).order('detected_at', { ascending: false });
+export async function getLeadSignals(ctx: TenantContext, leadId: string): Promise<LeadSignal[]> {
+  const { data, error } = await ctx.db
+    .from('lead_signals').select('*')
+    .eq('lead_id', leadId).eq('org_id', ctx.orgId)
+    .order('detected_at', { ascending: false });
   if (error) throw new Error(`getLeadSignals: ${error.message}`);
   return (data ?? []) as LeadSignal[];
 }
@@ -271,70 +180,122 @@ export async function getLeadSignals(leadId: string): Promise<LeadSignal[]> {
 // SCORES
 // ============================================================
 
-export async function createLeadScore(score: Partial<LeadScore>): Promise<LeadScore> {
-  const { data, error } = await supabase.from('lead_scores').insert(score).select().single();
+export async function createLeadScore(ctx: TenantContext, score: Partial<LeadScore>): Promise<LeadScore> {
+  const { data, error } = await ctx.db
+    .from('lead_scores').insert({ ...score, org_id: ctx.orgId }).select().single();
   if (error) throw new Error(`createLeadScore: ${error.message}`);
   return data as LeadScore;
 }
 
-export async function upsertLeadScore(score: Partial<LeadScore> & { lead_id: string }): Promise<LeadScore> {
-  const existing = await getLeadScore(score.lead_id);
+export async function upsertLeadScore(
+  ctx: TenantContext, score: Partial<LeadScore> & { lead_id: string },
+): Promise<LeadScore> {
+  const existing = await getLeadScore(ctx, score.lead_id);
   if (existing) {
-    const { data, error } = await supabase.from('lead_scores').update(score).eq('id', existing.id).select().single();
+    const { data, error } = await ctx.db
+      .from('lead_scores').update(stripOrgId(score)).eq('id', existing.id).eq('org_id', ctx.orgId).select().single();
     if (error) throw new Error(`upsertLeadScore: ${error.message}`);
     return data as LeadScore;
   }
-  return createLeadScore(score);
+  return createLeadScore(ctx, score);
 }
 
-export async function getLeadScore(leadId: string): Promise<LeadScore | null> {
-  const { data } = await supabase
-    .from('lead_scores').select('*').eq('lead_id', leadId).order('scored_at', { ascending: false }).limit(1).single();
+export async function getLeadScore(ctx: TenantContext, leadId: string): Promise<LeadScore | null> {
+  const { data } = await ctx.db
+    .from('lead_scores').select('*')
+    .eq('lead_id', leadId).eq('org_id', ctx.orgId)
+    .order('scored_at', { ascending: false }).limit(1).single();
   return data as LeadScore | null;
 }
 
-export async function getScorePercentile(score: number): Promise<number> {
-  const { data, error } = await supabase.from('lead_scores').select('overall_score');
-  if (error || !data || data.length < 2) return 50;
-  const scores = (data as { overall_score: number }[]).map(r => r.overall_score);
-  const below = scores.filter(s => s < score).length;
-  return Math.round((below / scores.length) * 100);
+/** Where the lead's score sits among the org's scores, 0-100 (50 with nothing to compare). */
+export async function getScorePercentile(ctx: TenantContext, leadId: string): Promise<number> {
+  const { data, error } = await ctx.db.rpc('lead_score_percentile', { p_org: ctx.orgId, p_lead: leadId });
+  if (error) throw new Error(`getScorePercentile: ${error.message}`);
+  return (data as number | null) ?? 50;
 }
 
 // ============================================================
 // OUTREACH
 // ============================================================
 
-export async function createOutreachMessage(msg: Partial<OutreachMessage>): Promise<OutreachMessage> {
-  const { data, error } = await supabase.from('outreach_messages').insert(msg).select().single();
+export async function createOutreachMessage(
+  ctx: TenantContext, msg: Partial<OutreachMessage>,
+): Promise<OutreachMessage> {
+  const { data, error } = await ctx.db
+    .from('outreach_messages').insert({ ...msg, org_id: ctx.orgId }).select().single();
   if (error) throw new Error(`createOutreachMessage: ${error.message}`);
   return data as OutreachMessage;
 }
 
-export async function getOutreachMessages(leadId: string): Promise<OutreachMessage[]> {
-  const { data, error } = await supabase
-    .from('outreach_messages').select('*').eq('lead_id', leadId).order('created_at', { ascending: false });
+export async function getOutreachMessages(ctx: TenantContext, leadId: string): Promise<OutreachMessage[]> {
+  const { data, error } = await ctx.db
+    .from('outreach_messages').select('*')
+    .eq('lead_id', leadId).eq('org_id', ctx.orgId)
+    .order('created_at', { ascending: false });
   if (error) throw new Error(`getOutreachMessages: ${error.message}`);
   return (data ?? []) as OutreachMessage[];
+}
+
+/** The outreach queue view: leads worth contacting, with their drafted messages. */
+export async function getOutreachQueue(ctx: TenantContext): Promise<
+  (Pick<Lead, 'id' | 'org_id' | 'company_name' | 'location' | 'industry' | 'lead_score' | 'status' | 'website'>
+    & { outreach_messages: OutreachMessage[] })[]
+> {
+  const { data, error } = await ctx.db
+    .from('leads')
+    .select(`
+      id, org_id, company_name, location, industry, lead_score, status, website, linkedin_url,
+      outreach_messages(id, channel, subject, body, created_at, is_selected)
+    `)
+    .eq('org_id', ctx.orgId)
+    .in('status', ['analyzed', 'new'])
+    .gte('lead_score', 50)
+    .order('lead_score', { ascending: false })
+    .limit(50);
+  if (error) throw new Error(`getOutreachQueue: ${error.message}`);
+  return (data ?? []) as never;
+}
+
+export async function createOutreachHistory(
+  ctx: TenantContext, row: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const { data, error } = await ctx.db
+    .from('outreach_history').insert({ ...stripOrgId(row), org_id: ctx.orgId }).select().single();
+  if (error) throw new Error(`createOutreachHistory: ${error.message}`);
+  return data as Record<string, unknown>;
+}
+
+export async function getOutreachHistory(ctx: TenantContext, leadId: string): Promise<OutreachHistory[]> {
+  const { data, error } = await ctx.db
+    .from('outreach_history').select('*')
+    .eq('lead_id', leadId).eq('org_id', ctx.orgId)
+    .order('created_at', { ascending: true });
+  if (error) throw new Error(`getOutreachHistory: ${error.message}`);
+  return (data ?? []) as OutreachHistory[];
 }
 
 // ============================================================
 // SCRAPING LOGS
 // ============================================================
 
-export async function createScrapingLog(log: Partial<ScrapingLog>): Promise<ScrapingLog> {
-  const { data, error } = await supabase.from('scraping_logs').insert(log).select().single();
+export async function createScrapingLog(ctx: TenantContext, log: Partial<ScrapingLog>): Promise<ScrapingLog> {
+  const { data, error } = await ctx.db
+    .from('scraping_logs').insert({ ...log, org_id: ctx.orgId }).select().single();
   if (error) throw new Error(`createScrapingLog: ${error.message}`);
   return data as ScrapingLog;
 }
 
-export async function updateScrapingLog(id: string, updates: Partial<ScrapingLog>): Promise<void> {
-  await supabase.from('scraping_logs').update(updates).eq('id', id);
+export async function updateScrapingLog(
+  ctx: TenantContext, id: string, updates: Partial<ScrapingLog>,
+): Promise<void> {
+  await ctx.db.from('scraping_logs').update(stripOrgId(updates)).eq('id', id).eq('org_id', ctx.orgId);
 }
 
-export async function getScrapingLogs(limit = 20): Promise<ScrapingLog[]> {
-  const { data, error } = await supabase
-    .from('scraping_logs').select('*').order('started_at', { ascending: false }).limit(limit);
+export async function getScrapingLogs(ctx: TenantContext, limit = 20): Promise<ScrapingLog[]> {
+  const { data, error } = await ctx.db
+    .from('scraping_logs').select('*').eq('org_id', ctx.orgId)
+    .order('started_at', { ascending: false }).limit(limit);
   if (error) throw new Error(`getScrapingLogs: ${error.message}`);
   return (data ?? []) as ScrapingLog[];
 }
@@ -343,22 +304,25 @@ export async function getScrapingLogs(limit = 20): Promise<ScrapingLog[]> {
 // CRON JOB LOGS
 // ============================================================
 
-export async function createCronJobLog(log: Omit<CronJobLog, 'id' | 'created_at'>): Promise<CronJobLog> {
-  const { data, error } = await supabase.from('cron_job_logs').insert(log).select().single();
+export async function createCronJobLog(
+  ctx: TenantContext, log: Omit<CronJobLog, 'id' | 'created_at' | 'org_id'>,
+): Promise<CronJobLog> {
+  const { data, error } = await ctx.db
+    .from('cron_job_logs').insert({ ...log, org_id: ctx.orgId }).select().single();
   if (error) throw new Error(`createCronJobLog: ${error.message}`);
   return data as CronJobLog;
 }
 
-export async function updateCronJobLog(id: string, updates: Partial<CronJobLog>): Promise<void> {
-  await supabase.from('cron_job_logs').update(updates).eq('id', id);
+export async function updateCronJobLog(
+  ctx: TenantContext, id: string, updates: Partial<CronJobLog>,
+): Promise<void> {
+  await ctx.db.from('cron_job_logs').update(stripOrgId(updates)).eq('id', id).eq('org_id', ctx.orgId);
 }
 
-export async function getCronJobLogs(limit = 40): Promise<CronJobLog[]> {
-  const { data, error } = await supabase
-    .from('cron_job_logs')
-    .select('*')
-    .order('started_at', { ascending: false })
-    .limit(limit);
+export async function getCronJobLogs(ctx: TenantContext, limit = 40): Promise<CronJobLog[]> {
+  const { data, error } = await ctx.db
+    .from('cron_job_logs').select('*').eq('org_id', ctx.orgId)
+    .order('started_at', { ascending: false }).limit(limit);
   if (error) throw new Error(`getCronJobLogs: ${error.message}`);
   return (data ?? []) as CronJobLog[];
 }
@@ -367,41 +331,37 @@ export async function getCronJobLogs(limit = 40): Promise<CronJobLog[]> {
 // DASHBOARD METRICS
 // ============================================================
 
-export async function getDashboardMetrics(): Promise<DashboardMetrics> {
-  const [
-    { count: total },
-    { count: hot },
-    { count: contacted },
-    { count: replied },
-    { count: meetings },
-    { count: clients },
-    { data: avgData },
-  ] = await Promise.all([
-    supabase.from('leads').select('*', { count: 'exact', head: true }),
-    supabase.from('leads').select('*', { count: 'exact', head: true }).gte('lead_score', 70),
-    supabase.from('leads').select('*', { count: 'exact', head: true }).eq('status', 'contacted'),
-    supabase.from('leads').select('*', { count: 'exact', head: true }).eq('status', 'replied'),
-    supabase.from('leads').select('*', { count: 'exact', head: true }).eq('status', 'meeting'),
-    supabase.from('leads').select('*', { count: 'exact', head: true }).eq('status', 'client'),
-    supabase.from('leads').select('lead_score').not('lead_score', 'is', null),
-  ]);
-
-  const scores = (avgData ?? []).map((r: { lead_score: number }) => r.lead_score).filter(Boolean);
-  const avg_score = scores.length ? Math.round(scores.reduce((a: number, b: number) => a + b, 0) / scores.length) : 0;
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const { count: new_today } = await supabase
-    .from('leads').select('*', { count: 'exact', head: true }).gte('created_at', today.toISOString());
-
+export async function getDashboardMetrics(ctx: TenantContext): Promise<DashboardMetrics> {
+  // "New today" counts from midnight in the agency's time zone, not the server's.
+  const since = periodBounds(new Date(), QUOTA_TIMEZONE).day.start.toISOString();
+  const { data, error } = await ctx.db.rpc('dashboard_metrics', { p_org: ctx.orgId, p_since: since });
+  if (error) throw new Error(`getDashboardMetrics: ${error.message}`);
+  const row = (Array.isArray(data) ? data[0] : data) as Record<keyof DashboardMetrics, number | null> | undefined;
+  const n = (k: keyof DashboardMetrics) => Number(row?.[k] ?? 0);
   return {
-    total_leads: total ?? 0,
-    hot_leads: hot ?? 0,
-    contacted: contacted ?? 0,
-    replied: replied ?? 0,
-    meetings: meetings ?? 0,
-    clients: clients ?? 0,
-    new_today: new_today ?? 0,
-    avg_score,
+    total_leads: n('total_leads'),
+    hot_leads: n('hot_leads'),
+    contacted: n('contacted'),
+    replied: n('replied'),
+    meetings: n('meetings'),
+    clients: n('clients'),
+    new_today: n('new_today'),
+    avg_score: n('avg_score'),
   };
+}
+
+/** Lead count, average score and newest lead per status. */
+export async function getPipelineSummary(ctx: TenantContext): Promise<PipelineSummary[]> {
+  const { data, error } = await ctx.db.rpc('lead_pipeline', { p_org: ctx.orgId });
+  if (error) throw new Error(`getPipelineSummary: ${error.message}`);
+  return ((data ?? []) as { status: PipelineSummary['status']; count: number; avg_score: number; last_added: string | null }[])
+    .map(r => ({ status: r.status, count: Number(r.count), avg_score: Number(r.avg_score), last_added: r.last_added ?? '' }));
+}
+
+export async function getHotLeads(ctx: TenantContext, limit = 10): Promise<Lead[]> {
+  const { data, error } = await ctx.db
+    .from('leads').select('*').eq('org_id', ctx.orgId)
+    .gte('lead_score', 70).order('lead_score', { ascending: false }).limit(limit);
+  if (error) throw new Error(`getHotLeads: ${error.message}`);
+  return (data ?? []) as Lead[];
 }

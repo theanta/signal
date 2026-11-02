@@ -1,44 +1,63 @@
 import Groq from 'groq-sdk';
-import { z } from 'zod';
-import type { Job, JobSignal, Lead, SignalAnalysisResult, OutreachChannel, PlatformConfig } from '../../shared/types';
-import { DEFAULT_PLATFORM_CONFIG } from '../../shared/types';
+import type { Lead, SignalAnalysisResult, OutreachChannel, PlatformConfig } from '../../shared/types';
 import { getConfig } from './configService';
+import type { TenantContext } from './tenantContext';
+import { recordUsage } from './usageService';
 
 const client = new Groq({ apiKey: process.env.GROQ_API_KEY });
-const MODEL = process.env.GROQ_MODEL ?? 'llama-3.3-70b-versatile';
+// Groq retired llama-3.3-70b-versatile on 2026-08-16 (404 model_not_found).
+const MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 
+// gpt-oss models reason before answering, and the reasoning counts against
+// max_tokens: keep it short and leave room for the JSON.
+export function modelArgs(model: string, maxTokens: number): { max_tokens: number; reasoning_effort?: 'low' } {
+  return model.startsWith('openai/gpt-oss')
+    ? { max_tokens: maxTokens + 1000, reasoning_effort: 'low' }
+    : { max_tokens: maxTokens };
+}
+
+// Everything here is the tenant's own Settings. Nothing describes what kind
+// of agency it is beyond what the tenant wrote.
 function buildAgencyContext(config: PlatformConfig): string {
-  const serviceList = config.services.map(s => `- ${s}`).join('\n');
-  const locationList = config.target_locations.slice(0, 5).join(', ');
-  return `
-${config.agency_name} is a ${config.agency_location}-based software consultancy specializing in:
-${serviceList}
-
-${config.agency_name}'s ideal clients are businesses experiencing operational friction: companies still running on spreadsheets,
-outdated systems, manual processes, or who are scaling fast and need software to match their growth.
-
-Target audience: ${locationList} businesses, manufacturers, logistics companies,
-healthcare operations, SaaS startups, and operationally inefficient businesses.
-`;
+  const based = config.agency_location ? `, based in ${config.agency_location}` : '';
+  const what = config.agency_tagline ? ` — ${config.agency_tagline}` : '';
+  const services = config.services.length
+    ? `Services:\n${config.services.map(s => `- ${s}`).join('\n')}`
+    : '';
+  const market = [
+    config.target_industries.length ? `industries: ${config.target_industries.join(', ')}` : '',
+    config.target_locations.length ? `locations: ${config.target_locations.slice(0, 5).join(', ')}` : '',
+    config.target_company_sizes.length ? `company sizes: ${config.target_company_sizes.join(', ')}` : '',
+  ].filter(Boolean).join('; ');
+  return [
+    `${config.agency_name}${based}${what}.`,
+    services,
+    market ? `Target market — ${market}.` : '',
+  ].filter(Boolean).join('\n\n');
 }
 
-async function loadConfig(): Promise<{ ctx: string; config: PlatformConfig }> {
-  try {
-    const config = await getConfig();
-    return { ctx: buildAgencyContext(config), config };
-  } catch {
-    const config = { ...DEFAULT_PLATFORM_CONFIG };
-    return { ctx: buildAgencyContext(config), config };
-  }
+// The agency identity in every prompt (name, sign-off, tone, services) is the
+// tenant's own. A failed config read is an error, not a cue to fall back to
+// ANTA's defaults — that would send one tenant's outreach under another's name.
+// An org with no config row still gets defaults, from getConfig itself.
+async function loadConfig(tenant: TenantContext): Promise<{ ctx: string; config: PlatformConfig }> {
+  const config = await getConfig(tenant);
+  return { ctx: buildAgencyContext(config), config };
 }
 
-async function callGroq(prompt: string, maxTokens: number): Promise<string> {
+async function callGroq(
+  tenant: TenantContext, operation: string, prompt: string, maxTokens: number,
+): Promise<string> {
   const response = await client.chat.completions.create({
     model: MODEL,
-    max_tokens: maxTokens,
+    // reasoning_effort is newer than this SDK's types; the API accepts it.
+    ...(modelArgs(MODEL, maxTokens) as { max_tokens: number }),
     messages: [{ role: 'user', content: prompt }],
     temperature: 0.7,
     response_format: { type: 'json_object' },
+  });
+  await recordUsage(tenant, {
+    provider: 'groq', operation, units: response.usage?.total_tokens ?? 0,
   });
   return response.choices[0]?.message?.content ?? '';
 }
@@ -54,10 +73,11 @@ function extractJson<T>(text: string, context: string): T {
 // ============================================================
 
 export async function generateColdEmail(
+  tenant: TenantContext,
   lead: Lead,
   signals: SignalAnalysisResult,
 ): Promise<{ subject: string; body: string }> {
-  const { ctx, config } = await loadConfig();
+  const { ctx, config } = await loadConfig(tenant);
 
   const contactLine = signals.contact?.name
     ? `- Contact: ${signals.contact.name}${signals.contact.title ? `, ${signals.contact.title}` : ''}`
@@ -112,7 +132,7 @@ Respond ONLY with valid JSON in this exact format:
   "body": "..."
 }`;
 
-  const text = await callGroq(prompt, 600);
+  const text = await callGroq(tenant, 'cold_email', prompt, 600);
   return extractJson<{ subject: string; body: string }>(text, 'cold email');
 }
 
@@ -121,10 +141,11 @@ Respond ONLY with valid JSON in this exact format:
 // ============================================================
 
 export async function generateLinkedInMessage(
+  tenant: TenantContext,
   lead: Lead,
   signals: SignalAnalysisResult,
 ): Promise<{ body: string }> {
-  const { ctx, config } = await loadConfig();
+  const { ctx, config } = await loadConfig(tenant);
 
   const contactName = signals.contact?.name?.split(' ')[0];
   const techGap = signals.tech_gaps?.[0] ?? '';
@@ -153,7 +174,7 @@ Respond ONLY with valid JSON:
   "body": "..."
 }`;
 
-  const text = await callGroq(prompt, 300);
+  const text = await callGroq(tenant, 'linkedin_message', prompt, 300);
   return extractJson<{ body: string }>(text, 'LinkedIn message');
 }
 
@@ -162,11 +183,12 @@ Respond ONLY with valid JSON:
 // ============================================================
 
 export async function generateFollowUp(
+  tenant: TenantContext,
   lead: Lead,
   originalMessage: string,
   daysSinceSent: number,
 ): Promise<{ subject: string; body: string }> {
-  const { ctx, config } = await loadConfig();
+  const { ctx, config } = await loadConfig(tenant);
 
   const prompt = `${ctx}
 
@@ -190,7 +212,7 @@ Respond ONLY with valid JSON:
   "body": "..."
 }`;
 
-  const text = await callGroq(prompt, 300);
+  const text = await callGroq(tenant, 'follow_up', prompt, 300);
   return extractJson<{ subject: string; body: string }>(text, 'follow-up');
 }
 
@@ -198,14 +220,14 @@ Respond ONLY with valid JSON:
 // ANALYZE OPERATIONAL OPPORTUNITY
 // ============================================================
 
-export async function analyzeOpportunity(lead: Lead): Promise<{
+export async function analyzeOpportunity(tenant: TenantContext, lead: Lead): Promise<{
   summary: string;
   pain_points: string[];
   recommended_service: string;
   opportunity_quality: 'high' | 'medium' | 'low';
   reasoning: string;
 }> {
-  const { ctx, config } = await loadConfig();
+  const { ctx, config } = await loadConfig(tenant);
 
   const prompt = `${ctx}
 
@@ -234,7 +256,7 @@ Respond ONLY with valid JSON:
   "reasoning": "1-2 sentences explaining the quality rating"
 }`;
 
-  const text = await callGroq(prompt, 500);
+  const text = await callGroq(tenant, 'opportunity_analysis', prompt, 500);
   return extractJson<{
     summary: string;
     pain_points: string[];
@@ -245,168 +267,11 @@ Respond ONLY with valid JSON:
 }
 
 // ============================================================
-// JOB INTEL — JD decode + resume playbook for agency applications
-// ============================================================
-
-const _HTML_TAG_RE = /<[^>]+>/g;
-
-function jdToPlainText(raw: string, maxChars = 7000): string {
-  const text = raw
-    .replace(/<\/(p|div|li|h[1-6]|ul|ol|tr)>/gi, '\n')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(_HTML_TAG_RE, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-  return text.length > maxChars ? `${text.slice(0, maxChars)}\n[…description truncated]` : text;
-}
-
-// Groq output is untrusted — validate shape before it reaches the DB.
-// JSON-mode models sometimes emit null where an array belongs, hence the catches.
-const strArr = (max: number) => z.array(z.string()).max(max).nullish().catch([]).transform(v => v ?? []);
-
-export const JobIntelSchema = z.object({
-  summary: z.string(),
-  seniority: z.enum(['junior', 'mid', 'senior', 'lead', 'unclear']).catch('unclear'),
-  contract_type: z.enum(['full-time', 'contract', 'c2c', 'unclear']).catch('unclear'),
-  contract_duration: z.string().nullish().catch(null),
-  must_have_skills: strArr(15),
-  nice_to_have_skills: strArr(15),
-  ats_keywords: strArr(20),
-  salary_parsed: z.object({
-    min: z.number().nullish(),
-    max: z.number().nullish(),
-    currency: z.string().nullish(),
-    period: z.enum(['hour', 'month', 'year']).nullish().catch(null),
-    normalized_annual_usd: z.number().nullish(),
-  }).nullish().catch(null),
-  red_flags: strArr(8),
-  timezone_note: z.string().nullish().catch(null),
-  resume_playbook: z.object({
-    headline: z.string().nullish().catch(null),
-    lead_with: strArr(8),
-    demote: strArr(8),
-    keyword_checklist: strArr(15),
-    framing_tips: strArr(6),
-    sample_bullets: strArr(5),
-    screening_risks: strArr(6),
-  }),
-});
-
-export type JobIntelResult = z.infer<typeof JobIntelSchema> & { model_version: string };
-
-export async function generateJobIntel(job: Job): Promise<JobIntelResult> {
-  const { config } = await loadConfig();
-
-  const agencyStack = config.remote_technologies.filter(Boolean);
-  const agencyRoles = config.remote_job_roles.filter(Boolean);
-  const description = job.description ? jdToPlainText(job.description) : 'N/A';
-
-  const prompt = `You are a senior recruiting analyst at an offshore software staffing agency based in India.
-The agency submits multiple candidate resumes to remote job postings daily. Your job: decode this posting
-so the recruiter can (a) tailor resumes to pass ATS screening and (b) prep candidates for screening calls.
-All candidates work from India (IST, UTC+5:30).
-
-${agencyRoles.length ? `The agency typically staffs: ${agencyRoles.join(', ')}.` : ''}
-${agencyStack.length ? `The agency's strongest technologies: ${agencyStack.join(', ')}.` : ''}
-
-JOB POSTING:
-- Title: ${job.job_title ?? 'Unknown'}
-- Company: ${job.company_name}
-- Location: ${job.location ?? 'Remote'}
-- Employment type: ${job.employment_type ?? 'Not stated'}
-- Salary text: ${job.salary_text ?? 'Not stated'}
-- Tags: ${job.technologies?.join(', ') || 'None'}
-- Description:
-${description}
-
-ANALYZE AND RESPOND. Rules:
-1. "ats_keywords": the exact phrases from the posting an ATS will scan for, ranked by prominence/frequency.
-   Use the posting's exact spelling ("React.js" vs "ReactJS" matters).
-2. "must_have_skills" vs "nice_to_have_skills": split strictly by how the posting phrases requirements.
-3. "salary_parsed": parse the salary text if present; normalize to annual USD (hourly × 2080, monthly × 12).
-   null if no salary is stated — do not invent numbers.
-4. "red_flags": anything that hurts an offshore agency submission — timezone demands, agency-hostile language,
-   unrealistic skill grab-bags, signs of a ghost posting. Empty array if none.
-5. "timezone_note": if the posting requires specific working hours, translate them to IST. null otherwise.
-6. "resume_playbook": guidance for whoever tailors the resumes —
-   - "headline": resume title matching this posting's role naming
-   - "lead_with": skills to put first (prefer overlap between the posting and the agency's strengths)
-   - "demote": skills a candidate might have that are irrelevant here
-   - "keyword_checklist": exact keywords the resume must contain
-   - "framing_tips": how to angle experience bullets for THIS posting's emphasis
-   - "sample_bullets": 3-4 resume bullet patterns aligned to the top responsibilities (use X/Y placeholders for metrics)
-   - "screening_risks": skills the client will likely test live — anything claimed on the resume must survive this
-7. "summary": 2 sentences — what this role actually is and how strong a target it is for the agency.
-
-Respond ONLY with valid JSON:
-{
-  "summary": "...",
-  "seniority": "junior|mid|senior|lead|unclear",
-  "contract_type": "full-time|contract|c2c|unclear",
-  "contract_duration": "..." or null,
-  "must_have_skills": ["..."],
-  "nice_to_have_skills": ["..."],
-  "ats_keywords": ["..."],
-  "salary_parsed": { "min": 0, "max": 0, "currency": "USD", "period": "hour|month|year", "normalized_annual_usd": 0 } or null,
-  "red_flags": ["..."],
-  "timezone_note": "..." or null,
-  "resume_playbook": {
-    "headline": "...",
-    "lead_with": ["..."],
-    "demote": ["..."],
-    "keyword_checklist": ["..."],
-    "framing_tips": ["..."],
-    "sample_bullets": ["..."],
-    "screening_risks": ["..."]
-  }
-}`;
-
-  const text = await callGroq(prompt, 2000);
-  const parsed = JobIntelSchema.parse(extractJson<unknown>(text, 'job intel'));
-  return { ...parsed, model_version: MODEL };
-}
-
-export function jobIntelToSignal(jobId: string, intel: JobIntelResult): Partial<JobSignal> {
-  return {
-    job_id: jobId,
-    summary: intel.summary,
-    seniority: intel.seniority,
-    contract_type: intel.contract_type,
-    contract_duration: intel.contract_duration ?? undefined,
-    must_have_skills: intel.must_have_skills,
-    nice_to_have_skills: intel.nice_to_have_skills,
-    ats_keywords: intel.ats_keywords,
-    salary_parsed: intel.salary_parsed
-      ? {
-          min: intel.salary_parsed.min ?? undefined,
-          max: intel.salary_parsed.max ?? undefined,
-          currency: intel.salary_parsed.currency ?? undefined,
-          period: intel.salary_parsed.period ?? undefined,
-          normalized_annual_usd: intel.salary_parsed.normalized_annual_usd ?? undefined,
-        }
-      : undefined,
-    red_flags: intel.red_flags,
-    timezone_note: intel.timezone_note ?? undefined,
-    resume_playbook: {
-      headline: intel.resume_playbook.headline ?? undefined,
-      lead_with: intel.resume_playbook.lead_with,
-      demote: intel.resume_playbook.demote,
-      keyword_checklist: intel.resume_playbook.keyword_checklist,
-      framing_tips: intel.resume_playbook.framing_tips,
-      sample_bullets: intel.resume_playbook.sample_bullets,
-      screening_risks: intel.resume_playbook.screening_risks,
-    },
-    model_version: intel.model_version,
-  };
-}
-
-// ============================================================
 // GENERATE OUTREACH (unified entry point)
 // ============================================================
 
 export async function generateOutreach(
+  tenant: TenantContext,
   lead: Lead,
   signals: SignalAnalysisResult,
   channel: OutreachChannel,
@@ -414,12 +279,12 @@ export async function generateOutreach(
   let result;
 
   if (channel === 'email') {
-    result = await generateColdEmail(lead, signals);
+    result = await generateColdEmail(tenant, lead, signals);
   } else if (channel === 'linkedin') {
-    const lr = await generateLinkedInMessage(lead, signals);
+    const lr = await generateLinkedInMessage(tenant, lead, signals);
     result = { subject: undefined, body: lr.body };
   } else {
-    result = await generateColdEmail(lead, signals);
+    result = await generateColdEmail(tenant, lead, signals);
   }
 
   return { ...result, model_version: MODEL };

@@ -5,7 +5,6 @@ import { useRouter, usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
   Users,
-  Briefcase,
   Send,
   Zap,
   Activity,
@@ -14,6 +13,8 @@ import {
   LogOut,
   ChevronLeft,
   ChevronRight,
+  Shield,
+  KeyRound,
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
@@ -22,7 +23,6 @@ import { useAuth } from '@/contexts/AuthContext';
 const MAIN_NAV = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { href: '/leads',     icon: Users,           label: 'Leads' },
-  { href: '/jobs',      icon: Briefcase,       label: 'Jobs' },
   { href: '/outreach',  icon: Send,            label: 'Outreach' },
   { href: '/signals',   icon: Zap,             label: 'Signals' },
 ];
@@ -96,10 +96,10 @@ export default function Sidebar() {
         {!collapsed && (
           <div className="min-w-0">
             <div className="text-body-sm font-semibold text-white leading-tight tracking-wide truncate">
-              Lead Radar
+              Intentlark
             </div>
             <div className="text-3xs font-semibold text-brand-400 tracking-[0.18em] uppercase leading-tight">
-              ANTA
+              by ANTA
             </div>
           </div>
         )}
@@ -130,7 +130,11 @@ export default function Sidebar() {
         <div className="my-2 border-t border-[rgba(255,255,255,0.06)]" />
 
         {/* Secondary nav */}
-        {SECONDARY_NAV.map(({ href, icon: Icon, label }) => {
+        {[
+          ...SECONDARY_NAV,
+          // Intentlark's own operators only; the backend enforces it as well.
+          ...(user?.is_platform_admin ? [{ href: '/admin', icon: Shield, label: 'Platform admin' }] : []),
+        ].map(({ href, icon: Icon, label }) => {
           const active = isActive(href);
           return (
             <Link
@@ -206,6 +210,17 @@ export default function Sidebar() {
           </div>
         )}
 
+        <Link
+          href="/change-password"
+          title={collapsed ? 'Change password' : undefined}
+          className={cn(
+            'sidebar-item w-full text-[#5a6270] hover:text-[#a0a8b4]',
+            collapsed && 'justify-center px-0',
+          )}
+        >
+          <KeyRound className="w-[15px] h-[15px] flex-shrink-0" />
+          {!collapsed && <span className="text-xs">Change password</span>}
+        </Link>
         <button
           onClick={handleLogout}
           title={collapsed ? 'Sign out' : undefined}

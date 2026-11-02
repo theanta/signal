@@ -18,8 +18,6 @@ const COMPANY_SIZES = ['1-10', '11-50', '51-200', '201-500', '500+'];
 const SOURCES = [
   { value: 'manual', label: 'Manual entry' },
   { value: 'linkedin', label: 'LinkedIn' },
-  { value: 'job_board', label: 'Job Board' },
-  { value: 'crunchbase', label: 'Crunchbase' },
   { value: 'local_business', label: 'Local Business' },
   { value: 'other', label: 'Other' },
 ] as const;
@@ -101,7 +99,7 @@ export default function NewLeadPage() {
                 <label className="block text-xs text-muted mb-1">Location</label>
                 <input
                   className="input w-full"
-                  placeholder="Detroit, MI"
+                  placeholder="e.g. Austin, TX"
                   value={form.location ?? ''}
                   onChange={e => set('location', e.target.value)}
                 />

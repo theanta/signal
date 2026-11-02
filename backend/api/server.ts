@@ -11,7 +11,6 @@ import cookieParser from 'cookie-parser';
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 import leadsRouter from '../routes/leads';
-import jobsRouter from '../routes/jobs';
 import outreachRouter from '../routes/outreach';
 import signalsRouter from '../routes/signals';
 import metricsRouter from '../routes/metrics';
@@ -19,10 +18,17 @@ import cronRouter, { initCronJobs } from '../routes/cron';
 import configRouter from '../routes/config';
 import authRouter from '../routes/auth';
 import healthRouter from '../routes/health';
+import adminRouter from '../routes/admin';
+import teamRouter from '../routes/team';
 import { authenticate } from './middleware/auth';
+import { rateLimitKey } from './middleware/rateLimitKey';
 
 const app = express();
 const PORT = process.env.BACKEND_PORT ?? 3001;
+
+// One proxy hop (Render's load balancer, or the Next.js /api rewrite) sits in
+// front of the API, so req.ip is the client from X-Forwarded-For, not the proxy.
+app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS ?? 1));
 
 // ---- Security middleware ----
 app.use(helmet());
@@ -36,9 +42,12 @@ app.use(cors({
 }));
 
 // ---- Rate limiting ----
+// Per signed-in user (see rateLimitKey), not per IP: behind a proxy every
+// user can share one address.
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 500,
+  keyGenerator: rateLimitKey,
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -54,6 +63,8 @@ const authLimiter = rateLimit({
 });
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
+app.use('/api/auth/set-password', authLimiter);
+app.use('/api/auth/change-password', authLimiter);
 
 // Separate, more lenient limit for refresh — the frontend calls this automatically
 // every 14 minutes per tab. 60/15min allows ~4 concurrent tabs with headroom.
@@ -82,13 +93,14 @@ app.use('/api/auth', authRouter);
 
 // ---- Protected API Routes ----
 app.use('/api/leads',    authenticate, leadsRouter);
-app.use('/api/jobs',     authenticate, jobsRouter);
 app.use('/api/outreach', authenticate, outreachRouter);
 app.use('/api/signals',  authenticate, signalsRouter);
 app.use('/api/metrics',  authenticate, metricsRouter);
 app.use('/api/config',   authenticate, configRouter);
 app.use('/api/cron',     authenticate, cronRouter);
 app.use('/api/health',   authenticate, healthRouter);
+app.use('/api/team',     authenticate, teamRouter);
+app.use('/api/admin',    authenticate, adminRouter);
 
 // ---- 404 handler ----
 app.use((_req, res) => {
