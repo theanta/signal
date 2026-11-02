@@ -72,7 +72,33 @@ Vercel deploys each frontend on push. The backends deploy when you run
   - SSH: paste your public key (`~/.ssh/id_ed25519.pub`).
   - Boot volume: 100 GB (two engine images with Chromium).
 - [ ] On "Out of host capacity", try each availability domain, then retry
-      later.
+      later. Mumbai has a single AD, so when the console keeps failing, let
+      `deploy/launch-instance.sh` retry for you (below).
+
+### Automatic retry with the OCI CLI
+
+1. `brew install oci-cli`
+2. Console → Profile → **Tokens and keys** (or User settings → API keys) →
+   **Add API key** → **Generate API key pair** → **Download private key** →
+   **Add**. Save the key as `~/.oci/oci_api_key.pem` and run
+   `chmod 600 ~/.oci/oci_api_key.pem`.
+3. Copy the **Configuration file preview** it shows into `~/.oci/config`,
+   and set `key_file=~/.oci/oci_api_key.pem`. Check it with
+   `oci iam region list`.
+4. The network must exist: if the console attempt did not leave an
+   `intentlark-subnet`, create it with Networking → Virtual cloud networks →
+   **Start VCN Wizard** → "Create VCN with Internet Connectivity".
+5. Run, and leave the laptop awake:
+
+   ```bash
+   caffeinate -i ./deploy/launch-instance.sh
+   ```
+
+   It asks for 1 OCPU / 6 GB on Ubuntu 24.04 with a public IP every two
+   minutes, rotating fault domains, and stops once one server exists. It
+   refuses shapes above the free allowance and stops on any error that is
+   not a capacity error. Resize to 2 / 12 later under Instance → Edit →
+   Shape.
 - [ ] Subnet → Security List → Add Ingress Rules: source `0.0.0.0/0`, TCP,
       port `80`; repeat for `443`. Do **not** open 3001/3002/8001/8002.
 - [ ] Networking → Reserved Public IPs: reserve one and attach it, so the IP

@@ -59,6 +59,10 @@ echo "==> Checking env files ($STACK)"
 for f in .env signal-engine/.env; do
   [[ -f "$f" ]] || { echo "missing $REPO_DIR/$f" >&2; exit 1; }
 done
+if grep -nE '=PASTE_' .env signal-engine/.env; then
+  echo "fill in the PASTE_ placeholders above before deploying" >&2
+  exit 1
+fi
 backend_key="$(env_value .env ENGINE_API_KEY)"
 engine_key="$(env_value signal-engine/.env ENGINE_API_KEY)"
 if [[ -z "$backend_key" || "$backend_key" != "$engine_key" ]]; then
