@@ -6,9 +6,13 @@ import QueryProvider from '@/components/ui/QueryProvider';
 import { ToastProvider } from '@/components/ui/Toast';
 import { Toaster } from 'sonner';
 
+// The app sits behind a login and has nothing to rank; search traffic goes to
+// the marketing page on theanta.com instead. Keep every app URL (beta and
+// staging) out of search results.
 export const metadata: Metadata = {
-  title: 'ANTA Lead Radar',
-  description: 'AI-powered lead generation and outreach intelligence',
+  title: 'Intentlark by ANTA',
+  description: 'Buyer intent signals, lead scoring and outreach for agencies',
+  robots: { index: false, follow: false },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

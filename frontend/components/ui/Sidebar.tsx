@@ -96,10 +96,10 @@ export default function Sidebar() {
         {!collapsed && (
           <div className="min-w-0">
             <div className="text-body-sm font-semibold text-white leading-tight tracking-wide truncate">
-              Lead Radar
+              Intentlark
             </div>
             <div className="text-3xs font-semibold text-brand-400 tracking-[0.18em] uppercase leading-tight">
-              ANTA
+              by ANTA
             </div>
           </div>
         )}
@@ -132,7 +132,7 @@ export default function Sidebar() {
         {/* Secondary nav */}
         {[
           ...SECONDARY_NAV,
-          // Signal's own operators only; the backend enforces it as well.
+          // Intentlark's own operators only; the backend enforces it as well.
           ...(user?.is_platform_admin ? [{ href: '/admin', icon: Shield, label: 'Platform admin' }] : []),
         ].map(({ href, icon: Icon, label }) => {
           const active = isActive(href);

@@ -9,7 +9,7 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // ── Semantic aliases — Signal dark intelligence theme ──
+        // ── Semantic aliases — Intentlark dark intelligence theme ──
         ink:            '#e6eaf2',
         'ink-active':   '#ffffff',
         body:           '#8b95a8',

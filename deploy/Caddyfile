@@ -1,0 +1,17 @@
+# Rendered to /etc/caddy/Caddyfile by deploy/setup-server.sh, which fills in
+# the two API domains. Caddy gets and renews the TLS certificates on its own,
+# and it flushes text/event-stream responses immediately, so the scrape
+# progress stream passes through unbuffered.
+#
+# Only the backends are exposed. Each engine listens on loopback and is
+# reached by its own backend directly.
+
+# Beta (production): backend 3001, engine 8001, signal prod database
+__BETA_API_DOMAIN__ {
+	reverse_proxy 127.0.0.1:3001
+}
+
+# Staging: backend 3002, engine 8002, anta-signal-test database
+__STAGING_API_DOMAIN__ {
+	reverse_proxy 127.0.0.1:3002
+}

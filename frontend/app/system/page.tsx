@@ -235,7 +235,7 @@ export default function SystemPage() {
             <Brain className="w-4 h-4 text-muted" />
             <span className="text-sm font-medium text-ink">About</span>
           </div>
-          <p><span className="text-ink font-medium">Platform:</span> Lead Radar v1.0.0</p>
+          <p><span className="text-ink font-medium">Platform:</span> Intentlark v1.0.0</p>
           <p><span className="text-ink font-medium">AI Model:</span> Groq / llama-3.3-70b-versatile</p>
           <p><span className="text-ink font-medium">Agency:</span> {config ? `${config.agency_name} · ${config.agency_location}` : '—'}</p>
           <p><span className="text-ink font-medium">Stack:</span> Next.js 14 · Node.js · Python FastAPI · Supabase</p>

@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { isPlatformAdmin } from '../../services/platformAdminService';
 
 /**
- * Only Signal's own operators. Runs after `authenticate`, and reads the flag
+ * Only Intentlark's own operators. Runs after `authenticate`, and reads the flag
  * from the database on every request rather than trusting the token, so
  * revoking it takes effect immediately.
  */

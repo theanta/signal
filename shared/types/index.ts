@@ -1,5 +1,5 @@
 // ============================================================
-// ANTA Lead Radar - Shared Types
+// Intentlark - Shared Types
 // ============================================================
 
 export type LeadStatus =

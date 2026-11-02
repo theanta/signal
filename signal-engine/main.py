@@ -1,4 +1,4 @@
-"""ANTA Lead Radar - Signal Engine (FastAPI)"""
+"""Intentlark - Signal Engine (FastAPI)"""
 
 import asyncio
 from contextlib import asynccontextmanager
@@ -123,7 +123,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(
-    title="ANTA Lead Radar Signal Engine",
+    title="Intentlark Signal Engine",
     description="Python signal detection and lead analysis microservice",
     version="1.0.0",
     lifespan=lifespan,

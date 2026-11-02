@@ -10,7 +10,7 @@ import {
 import { DEFAULT_ORG_LIMITS } from '../../shared/types';
 import { AddUserSchema, UpdateUserSchema } from './userSchemas';
 
-/** Platform admin: Signal's operators managing organizations (tenants) and their users. */
+/** Platform admin: Intentlark's operators managing organizations (tenants) and their users. */
 const router = Router();
 router.use(requirePlatformAdmin);
 
@@ -84,7 +84,7 @@ router.post('/organizations/:id/users', async (req: Request, res: Response) => {
   if (!parsed.success) { res.status(400).json({ success: false, error: issues(parsed.error) }); return; }
   try {
     await getOrganization(req.params.id);
-    res.status(201).json({ success: true, data: await createUserInOrg(req.params.id, parsed.data, 'The Signal team') });
+    res.status(201).json({ success: true, data: await createUserInOrg(req.params.id, parsed.data, 'The Intentlark team') });
   } catch (err) { fail(res, err); }
 });
 
@@ -98,7 +98,7 @@ router.patch('/organizations/:id/users/:userId', async (req: Request, res: Respo
 
 router.post('/organizations/:id/users/:userId/resend-invite', async (req: Request, res: Response) => {
   try {
-    res.json({ success: true, data: await resendInvite(req.params.id, req.params.userId, 'The Signal team') });
+    res.json({ success: true, data: await resendInvite(req.params.id, req.params.userId, 'The Intentlark team') });
   } catch (err) { fail(res, err); }
 });
 

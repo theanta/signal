@@ -23,7 +23,7 @@ export async function sendEmail(msg: { to: string; subject: string; html: string
       method: 'POST',
       headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from: process.env.EMAIL_FROM || 'Signal <onboarding@resend.dev>',
+        from: process.env.EMAIL_FROM || 'Intentlark <onboarding@resend.dev>',
         to: [msg.to], subject: msg.subject, html: msg.html, text: msg.text,
       }),
       signal: AbortSignal.timeout(10_000),
@@ -43,11 +43,11 @@ const escape = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '
 
 export function inviteEmail(p: { name: string; orgName: string; invitedBy?: string; url: string }) {
   const who = p.invitedBy ? `${p.invitedBy} has invited you` : 'You have been invited';
-  const text = `Hi ${p.name},\n\n${who} to join ${p.orgName} on Signal.\n\n`
+  const text = `Hi ${p.name},\n\n${who} to join ${p.orgName} on Intentlark.\n\n`
     + `Set your password to sign in (the link works for 7 days):\n${p.url}\n`;
   const html = `<p>Hi ${escape(p.name)},</p>`
-    + `<p>${escape(who)} to join <strong>${escape(p.orgName)}</strong> on Signal.</p>`
+    + `<p>${escape(who)} to join <strong>${escape(p.orgName)}</strong> on Intentlark.</p>`
     + `<p><a href="${escape(p.url)}">Set your password and sign in</a></p>`
     + `<p style="color:#666;font-size:13px">The link works for 7 days. If you were not expecting this, ignore this email.</p>`;
-  return { subject: `You're invited to ${p.orgName} on Signal`, html, text };
+  return { subject: `You're invited to ${p.orgName} on Intentlark`, html, text };
 }

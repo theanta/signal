@@ -146,14 +146,14 @@ export default function AIInsightsPanel({ metrics, pipeline, hotLeads = [] }: Pr
   return (
     <div className="flex flex-col gap-3">
 
-      {/* ── Signal AI header card ── */}
+      {/* ── Intentlark AI header card ── */}
       <div className="card-ai radar-sweep p-4">
         <div className="relative flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 rounded-md bg-ai-500/10 border border-ai-400/20 flex items-center justify-center">
               <Sparkles className="w-3.5 h-3.5 text-ai-400" />
             </div>
-            <span className="text-[13px] font-semibold text-ink">Signal AI</span>
+            <span className="text-[13px] font-semibold text-ink">Intentlark AI</span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-brand-400 ai-pulse inline-block" />

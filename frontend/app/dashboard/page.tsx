@@ -36,7 +36,7 @@ export default function DashboardPage() {
     <div className="min-h-screen animate-fade-in flex flex-col">
       <PageHeader
         title="Dashboard"
-        subtitle="ANTA Lead Radar — AI-powered lead intelligence"
+        subtitle="Intentlark — buyer intent and lead intelligence"
         icon={LayoutDashboard}
         actions={
           <div className="flex items-center gap-2.5">

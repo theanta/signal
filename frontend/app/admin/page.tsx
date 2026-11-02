@@ -18,7 +18,7 @@ import { DEFAULT_ORG_LIMITS } from '../../../shared/types';
 import type { CreateOrganizationInput } from '../../../shared/types';
 
 /**
- * Platform admin: Signal's own operators create organizations (tenants), each
+ * Platform admin: Intentlark's own operators create organizations (tenants), each
  * with its first admin and its limits. The org's admin then adds the rest of
  * the team from Settings → Team.
  */
@@ -93,7 +93,7 @@ export default function AdminPage() {
     <div className="min-h-screen animate-fade-in">
       <PageHeader
         title="Platform admin"
-        subtitle="Organizations (tenants) on Signal"
+        subtitle="Organizations (tenants) on Intentlark"
         icon={Shield}
         actions={!open && (
           <button className="btn-primary" onClick={() => setOpen(true)}>

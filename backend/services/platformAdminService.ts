@@ -7,7 +7,7 @@ import type {
 } from '../../shared/types';
 
 /**
- * Signal's own operators: listing and creating organizations across tenants.
+ * Intentlark's own operators: listing and creating organizations across tenants.
  *
  * Every function here runs as service_role and sees every org, so the routes
  * that call it sit behind requirePlatformAdmin, which re-reads the flag from

@@ -1,7 +1,7 @@
 {
   "name": "anta-lead-radar",
   "version": "1.0.0",
-  "description": "ANTA Lead Radar - AI-powered lead generation and outreach intelligence platform",
+  "description": "Intentlark by ANTA - buyer intent signals, lead scoring and outreach for agencies",
   "private": true,
   "workspaces": [
     "frontend",

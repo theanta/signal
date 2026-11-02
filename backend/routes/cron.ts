@@ -20,7 +20,15 @@ const jobs: Record<string, cron.ScheduledTask> = {};
 const CRON_TIMEZONE = process.env.CRON_TIMEZONE ?? 'America/Detroit';
 
 // ---- Initialize cron jobs ----
+// CRON_ENABLED=false skips scheduling entirely. Development and staging share
+// one database, so only one backend may run the schedule; a second would run
+// every scrape twice. The manual /run/* endpoints still work.
 export function initCronJobs(): void {
+  if (process.env.CRON_ENABLED === 'false') {
+    console.log('[CRON] Disabled (CRON_ENABLED=false); scheduled jobs will not run');
+    return;
+  }
+
   const scrapeSchedule = process.env.CRON_DAILY_SCRAPE ?? '0 6 * * *';
   const analyzeSchedule = process.env.CRON_ANALYZE_LEADS ?? '0 7 * * *';
   const outreachSchedule = process.env.CRON_GENERATE_OUTREACH ?? '0 8 * * *';
